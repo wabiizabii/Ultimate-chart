@@ -4,6 +4,7 @@ import pandas as pd
 import numpy as np
 import os
 from datetime import datetime
+import plotly.express as px
 
 st.set_page_config(page_title="Legendary RR Planner", layout="wide")
 acc_balance = 10000  # FIX
@@ -45,7 +46,8 @@ def get_performance(log_file, mode="week"):
     return winrate, gain, total
 
 # ======================= SEC 1: SIDEBAR / INPUT ZONE =======================
-st.sidebar.header("🗂️ Trade Planner")
+
+st.sidebar.header("🎛️ Trade Setup")
 
 drawdown_limit_pct = st.sidebar.number_input(
     "Drawdown Limit ต่อวัน (%)",
@@ -53,42 +55,69 @@ drawdown_limit_pct = st.sidebar.number_input(
     value=2.0, step=0.1, format="%.1f"
 )
 
-mode = st.sidebar.radio("เลือกโหมด", ["FIBO", "CUSTOM"], horizontal=True)
+mode = st.sidebar.radio("Trade Mode", ["FIBO", "CUSTOM"], horizontal=True, key="mode")
 
-if st.sidebar.button("Clear (รีเซ็ตฟอร์ม)"):
-    st.experimental_rerun()
+
+if st.sidebar.button("🔄 Reset Form"):
+    risk_keep = st.session_state.get("risk_pct", 1.0)
+    asset_keep = st.session_state.get("asset", "XAUUSD")
+
+    # เคลียร์ทุก key ยกเว้น risk_pct กับ asset
+    keys_to_keep = {"risk_pct", "asset"}
+    keys_to_delete = [k for k in list(st.session_state.keys()) if k not in keys_to_keep]
+
+    for k in keys_to_delete:
+        del st.session_state[k]
+
+    st.session_state["risk_pct"] = risk_keep
+    st.session_state["asset"] = asset_keep
+
+    # 👇 ส่วนที่เพิ่มเข้าไปเพื่อ “ล้าง FIBO checkbox”
+    st.session_state["fibo_flags"] = [False, False, False, False, False]
+
+    st.rerun()
+
 
 # -- Input Zone (แยก FIBO/CUSTOM) --
 # ======================= SEC 1: SIDEBAR / INPUT ZONE (FIBO) =======================
 if mode == "FIBO":
     col1, col2, col3 = st.sidebar.columns([2, 2, 2])
     with col1:
-        asset = st.text_input("Asset", value="XAUUSD")
+        asset = st.text_input("Asset", value="XAUUSD", key="asset")
     with col2:
         risk_pct = st.number_input(
             "Risk %",
             min_value=0.01,
             max_value=100.0,
-            value=1.00,
             step=0.01,
-            format="%.2f"
+            format="%.2f",
+            key="risk_pct"
         )
     with col3:
         direction = st.radio("Direction", ["Long", "Short"], horizontal=True)
 
     col4, col5 = st.sidebar.columns(2)
     with col4:
-        swing_high = st.text_input("High", value="2365.00")
+        swing_high = st.text_input("High", key="swing_high")
     with col5:
-        swing_low = st.text_input("Low", value="2355.00")
-    
-    st.sidebar.markdown("**เลือก Fibo Level:**")
+        swing_low = st.text_input("Low", key="swing_low")
+
+    # 📐 Entry Fibo Levels (ใช้ร่วมกับ Reset Form ได้)
+    st.sidebar.markdown("**📐 Entry Fibo Levels**")
     fibos = [0.114, 0.25, 0.382, 0.5, 0.618]
     labels = [f"{l:.3f}" for l in fibos]
     cols = st.sidebar.columns(len(fibos))
+
+    # ตั้งค่า flags ถ้ายังไม่มี
+    if "fibo_flags" not in st.session_state:
+        st.session_state.fibo_flags = [True] * len(fibos)
+
     fibo_selected = []
     for i, col in enumerate(cols):
-        fibo_selected.append(col.checkbox(labels[i], value=True, key=f"fibo_{labels[i]}"))
+        checked = col.checkbox(labels[i], value=st.session_state.fibo_flags[i])
+        fibo_selected.append(checked)
+
+    st.session_state.fibo_flags = fibo_selected
 
     try:
         high = float(swing_high)
@@ -97,8 +126,10 @@ if mode == "FIBO":
             st.sidebar.warning("High ต้องมากกว่า Low!")
     except Exception:
         pass
+
     if risk_pct <= 0:
         st.sidebar.warning("Risk% ต้องมากกว่า 0")
+
     st.sidebar.markdown("---")
     try:
         high = float(swing_high)
@@ -113,13 +144,16 @@ if mode == "FIBO":
             st.sidebar.caption("Lot/TP/ผลลัพธ์เต็มอยู่ด้านล่าง")
     except Exception:
         pass
+
     save_fibo = st.sidebar.button("Save Plan", key="save_fibo")
+
+
 
 # ======================= SEC 1: SIDEBAR / INPUT ZONE (CUSTOM) =======================
 elif mode == "CUSTOM":
     col1, col2, col3 = st.sidebar.columns([2, 2, 2])
     with col1:
-        asset = st.text_input("Asset", value="XAUUSD")
+        asset = st.text_input("Asset", value="XAUUSD", key="asset")
     with col2:
         risk_pct = st.number_input(
             "Risk %",
@@ -182,7 +216,7 @@ elif mode == "CUSTOM":
 
 # ======================= SEC 4: SUMMARY (ย้ายไป Sidebar) =======================
 st.sidebar.markdown("---")
-st.sidebar.markdown("### 🧮 Summary")
+st.sidebar.markdown("### 🧾 Strategy Summary")
 
 if mode == "FIBO":
     # FIBO Table Logic (คืนสูตร)
@@ -305,12 +339,12 @@ with st.expander("📋 Entry Table (FIBO/CUSTOM)", expanded=True):
     if mode == "FIBO":
         col1, col2 = st.columns(2)
         with col1:
-            st.markdown("### 📋 Entry Table")
+            st.markdown("### 🎯 Entry Levels")
             if entry_data:
                 entry_df = pd.DataFrame(entry_data)
                 st.dataframe(entry_df, hide_index=True, use_container_width=True)
         with col2:
-            st.markdown("### 🎯 TP Table ")
+            st.markdown("### 🎯 Take Profit Zones")
             try:
                 high = float(swing_high)
                 low = float(swing_low)
@@ -328,9 +362,9 @@ with st.expander("📋 Entry Table (FIBO/CUSTOM)", expanded=True):
                 })
                 st.dataframe(tp_df, hide_index=True, use_container_width=True)
             except Exception:
-                st.warning("กรุณากรอก High/Low ให้ถูกต้องเพื่อแสดงตาราง TP")
+                st.warning("📌 Define High and Low to unlock your TP projection.")        
     elif mode == "CUSTOM":
-        st.markdown("### 📋 Entry Table ")
+        st.markdown("### 🎯 Entry & Take Profit Zones ")
         if custom_entries:
             entry_df = pd.DataFrame(custom_entries)
             st.dataframe(entry_df, hide_index=True, use_container_width=True)
@@ -339,7 +373,8 @@ with st.expander("📋 Entry Table (FIBO/CUSTOM)", expanded=True):
                 try:
                     rr = float(row["RR"])
                     if rr < 2:
-                        st.warning(f"ไม้ {i+1} RR ต่ำ! ({rr:.2f}) ควรปรับ TP หรือ SL ใหม่")
+                        st.warning(f"🎯 Entry {i+1} RR is low ({rr:.2f}) — fine-tune your TP/SL for better balance."
+)
                 except:
                     pass
 
@@ -391,53 +426,55 @@ elif mode == "CUSTOM" and 'custom_entries' in locals() and save_custom and custo
             st.sidebar.error(f"Save ไม่สำเร็จ: {e}")
 
 # ======================= SEC 7: VISUALIZER (เหลือแต่กราฟ) =======================
-st.markdown("## 🟢 SEC 7: Visualizer (แสดงกราฟเท่านั้น)")
 
-# ไม่ต้องใช้ col1/col2 สองฝั่งแล้ว เอาแต่ col เดียวหรือเต็มแถวก็ได้
-plot = st.button("Plot Plan", key="plot_plan")
+with st.expander("📈 Chart Visualizer", expanded=True):
 
+    
 
-if plot:
-    st.markdown("#### กราฟ TradingView Widget (ลากเส้นได้, overlay plan จริง!)")
-    st.components.v1.html("""
-    <div class="tradingview-widget-container">
-      <div id="tradingview_legendary"></div>
-      <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
-      <script type="text/javascript">
-      new TradingView.widget({
-        "width": "100%",
-    "height": 600,
-    "symbol": "OANDA:XAUUSD",         // ปรับ symbol ได้
-    "interval": "15",
-    "timezone": "Asia/Bangkok",
-    "theme": "dark",
-    "style": "1",                     // เปลี่ยนเป็น 1,2,3,4 (แท่งเทียน,เส้น,bar) ได้
-    "locale": "th",
-    "toolbar_bg": "#f1f3f6",
-    "enable_publishing": true,        // เปิดปุ่ม share/snapshot
-    "withdateranges": true,           // เปิด TF, date range
-    "allow_symbol_change": true,      // เปลี่ยน symbol ได้
-    "hide_side_toolbar": false,       // โชว์เครื่องมือวาดเส้น/indicator
-    "details": true,                  // เพิ่มรายละเอียด symbol
-    "hotlist": true,                  // เพิ่ม hotlist (หุ้น/forex/crypto)
-    "calendar": true,                 // เพิ่ม economic calendar
-        "container_id": "tradingview_legendary"
-      });
-      </script>
-    </div>
-    """, height=620)
-    st.caption("ลาก Fibo, Line, Box, วัด RR ได้เต็มรูปแบบ")
-    st.info("Overlay แผนเทรดจริงจาก input/log! (รอต่อยอด overlay เส้นอัตโนมัติใน engine ต่อไป)")
-else:
-    st.info("กดปุ่ม Plot Plan เพื่อแสดงกราฟ TradingView")
+    # ไม่ต้องใช้ col1/col2 สองฝั่งแล้ว เอาแต่ col เดียวหรือเต็มแถวก็ได้
+    plot = st.button("Plot Plan", key="plot_plan")
 
-st.markdown("---")
-st.markdown("Visualizer รับข้อมูลแผนเทรดจริง พร้อม plot overlay (ขยาย/ปรับ engine ได้ทันทีในอนาคต)")
+    if plot:
+        #st.markdown("#### กราฟ TradingView Widget (ลากเส้นได้, overlay plan จริง!)")
+        st.components.v1.html("""
+        <div class="tradingview-widget-container">
+          <div id="tradingview_legendary"></div>
+          <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
+          <script type="text/javascript">
+          new TradingView.widget({
+            "width": "100%",
+            "height": 600,
+            "symbol": "OANDA:XAUUSD",         // ปรับ symbol ได้
+            "interval": "15",
+            "timezone": "Asia/Bangkok",
+            "theme": "dark",
+            "style": "1",
+            "locale": "th",
+            "toolbar_bg": "#f1f3f6",
+            "enable_publishing": true,
+            "withdateranges": true,
+            "allow_symbol_change": true,
+            "hide_side_toolbar": false,
+            "details": true,
+            "hotlist": true,
+            "calendar": true,
+            "container_id": "tradingview_legendary"
+          });
+          </script>
+        </div>
+        """, height=620)
+       # st.caption("ลาก Fibo, Line, Box, วัด RR ได้เต็มรูปแบบ")
+       # st.info("Overlay แผนเทรดจริงจาก input/log! (รอต่อยอด overlay เส้นอัตโนมัติใน engine ต่อไป)")
+    else:
+        st.info("กดปุ่ม Plot Plan เพื่อแสดงกราฟ TradingView")
+
+   # st.markdown("---")
+   # st.markdown("Visualizer รับข้อมูลแผนเทรดจริง พร้อม plot overlay (ขยาย/ปรับ engine ได้ทันทีในอนาคต)")
 
 
 
 # ======================= SEC 8: AI SUMMARY & INSIGHT =======================
-with st.expander("🤖 SEC 8: AI Summary & Insight (Beta)", expanded=True):
+with st.expander("	🤖 AI Assistant", expanded=True):
     if os.path.exists(log_file):
         try:
             df_log = pd.read_csv(log_file)
@@ -481,7 +518,7 @@ with st.expander("🤖 SEC 8: AI Summary & Insight (Beta)", expanded=True):
                     win_day = loss_day = "-"
 
                 # 6. ข้อมูลสรุป/Insight
-                st.markdown("### สรุป AI วิเคราะห์ข้อมูลแผนเทรดล่าสุด")
+                st.markdown("### 🧠 AI Intelligence Report")
                 st.write(f"- **จำนวนแผนเทรด:** {total_trades:,}")
                 st.write(f"- **Winrate:** {winrate:.2f}%")
                 st.write(f"- **กำไร/ขาดทุนสุทธิ:** {gross_profit:,.2f} USD")
@@ -513,75 +550,225 @@ with st.expander("🤖 SEC 8: AI Summary & Insight (Beta)", expanded=True):
     else:
         st.info("ยังไม่มีข้อมูล log_file สำหรับ AI Summary")
 
+# ======================= SEC 7: Ultimate Statement Import & Auto-Mapping =======================
 
+with st.expander("🔥 SEC 7: Ultimate Statement Import & Auto-Mapping", expanded=False):
+    uploaded_files = st.file_uploader(
+        "📤 อัปโหลด Statement (.xlsx, .csv)", 
+        type=["xlsx", "csv"], 
+        accept_multiple_files=True, 
+        key="sec7_upload"
+    )
 
-# ======================= SEC 9: DASHBOARD + AI ULTIMATE (Tab Template) =======================
+def extract_sections_from_file(file):
+    import pandas as pd
 
-import plotly.express as px
+    # อ่านไฟล์ Excel/CSV พร้อมระบุ engine openpyxl สำหรับ xlsx
+    if file.name.endswith(".xlsx"):
+        df_raw = pd.read_excel(file, header=None, engine='openpyxl')
+    elif file.name.endswith(".csv"):
+        df_raw = pd.read_csv(file, header=None)
+    else:
+        return {}
 
-tab_dashboard, tab_rr, tab_lot, tab_time, tab_ai, tab_export = st.tabs([
-    "📊 Dashboard", 
-    "📈 RR Histogram", 
-    "📉 Lot Size Evolution", 
-    "🕒 Time Analysis", 
-    "🤖 AI Recommendation", 
-    "⬇️ Export/Report"
-])
+    section_starts = {}
+    section_keys = [
+        "Positions", "Orders", "Deals", "Balance", "Drawdown",
+        "Total Trades", "Profit Trades", "Largest profit trade", "Average profit trade"
+    ]
 
-# ----------- Tab 1: Dashboard Overview -----------
-with tab_dashboard:
-    if os.path.exists(log_file):
-        try:
-            df_log = pd.read_csv(log_file)
-            if df_log.empty:
-                st.info("ยังไม่มีข้อมูลสำหรับ Dashboard")
+    # หาตำแหน่งเริ่มต้นแต่ละ section ในไฟล์ raw
+    for idx, row in df_raw.iterrows():
+        for key in section_keys:
+            if str(row[0]).strip().startswith(key):
+                section_starts[key] = idx
+
+    section_data = {}
+
+    # ฟังก์ชันแก้ชื่อคอลัมน์ซ้ำ และแปลงชื่อ NaN เป็น Unnamed_x
+    def make_cols_unique(cols):
+        counts = {}
+        result = []
+        for c in cols:
+            if pd.isna(c):
+                c = 'Unnamed'
+            if c in counts:
+                counts[c] += 1
+                result.append(f"{c}_{counts[c]}")
             else:
-                st.markdown("### 🥧 Pie Chart: Win/Loss")
-                win_count = df_log[df_log["Risk $"].astype(float) > 0].shape[0]
-                loss_count = df_log[df_log["Risk $"].astype(float) <= 0].shape[0]
-                pie_df = pd.DataFrame({"Result": ["Win", "Loss"], "Count": [win_count, loss_count]})
-                pie_chart = px.pie(pie_df, names="Result", values="Count", color="Result",
-                                   color_discrete_map={"Win": "green", "Loss": "red"})
-                st.plotly_chart(pie_chart, use_container_width=True)
-                
-                st.markdown("### 📊 Bar Chart: กำไร/ขาดทุนแต่ละวัน")
-                df_log["Date"] = pd.to_datetime(df_log["Timestamp"], errors='coerce').dt.date
-                bar_df = df_log.groupby("Date")["Risk $"].sum().reset_index()
-                bar_chart = px.bar(bar_df, x="Date", y="Risk $", color="Risk $",
+                counts[c] = 0
+                result.append(c)
+        return result
+
+    # แยกแต่ละ section ออกมาเป็น DataFrame พร้อมตั้งชื่อคอลัมน์ใหม่
+    if "Positions" in section_starts:
+        header_row = section_starts["Positions"] + 1
+        next_section = min([v for k, v in section_starts.items() if v > header_row] + [len(df_raw)])
+        df_positions = df_raw.iloc[header_row:next_section].dropna(how="all")
+        raw_cols = df_positions.iloc[0].tolist()
+        df_positions = df_positions[1:]
+        df_positions.columns = make_cols_unique(raw_cols)
+        section_data["Positions"] = df_positions.reset_index(drop=True)
+
+    if "Orders" in section_starts:
+        header_row = section_starts["Orders"] + 1
+        next_section = min([v for k, v in section_starts.items() if v > header_row] + [len(df_raw)])
+        df_orders = df_raw.iloc[header_row:next_section].dropna(how="all")
+        raw_cols = df_orders.iloc[0].tolist()
+        df_orders = df_orders[1:]
+        df_orders.columns = make_cols_unique(raw_cols)
+        section_data["Orders"] = df_orders.reset_index(drop=True)
+
+    if "Deals" in section_starts:
+        header_row = section_starts["Deals"] + 1
+        next_section = min([v for k, v in section_starts.items() if v > header_row] + [len(df_raw)])
+        df_deals = df_raw.iloc[header_row:next_section].dropna(how="all")
+        raw_cols = df_deals.iloc[0].tolist()
+        df_deals = df_deals[1:]
+        df_deals.columns = make_cols_unique(raw_cols)
+        section_data["Deals"] = df_deals.reset_index(drop=True)
+
+    # เก็บสถิติต่าง ๆ เป็น dict (ถ้ามี)
+    stats = {}
+    for key in section_keys[3:]:
+        for idx, row in df_raw.iterrows():
+            if str(row[0]).strip().startswith(key):
+                stats[key] = " | ".join([str(x) for x in row if pd.notnull(x)])
+    if stats:
+        section_data["Stats"] = stats
+
+    return section_data
+
+
+def preprocess_stmt_data(df):
+    import pandas as pd
+    # แก้ชื่อคอลัมน์ NaN เป็น Unnamed_x
+    df.columns = [f"Unnamed_{i}" if pd.isna(c) else c for i, c in enumerate(df.columns)]
+    # แปลง datetime ในคอลัมน์ Timestamp หรือ Time
+    if 'Timestamp' in df.columns:
+        df['Timestamp'] = pd.to_datetime(df['Timestamp'], errors='coerce')
+    elif 'Time' in df.columns:
+        df['Timestamp'] = pd.to_datetime(df['Time'], errors='coerce')
+    # กรองคอลัมน์ซ้ำออก
+    df = df.loc[:, ~df.columns.duplicated()]
+    return df
+
+
+df_stmt = pd.DataFrame()  # ตัวแปรเก็บข้อมูล Statement (หลัก)
+
+if uploaded_files:
+    for file in uploaded_files:
+        try:
+            sections = extract_sections_from_file(file)
+            if "Positions" in sections:
+                df_stmt = sections["Positions"]
+            elif "Deals" in sections:
+                df_stmt = sections["Deals"]
+            else:
+                df_stmt = pd.DataFrame()
+
+            if not df_stmt.empty:
+                df_stmt = preprocess_stmt_data(df_stmt)  # เรียกใช้ฟังก์ชัน preprocess
+
+            st.markdown(f"### 📂 ไฟล์: {file.name}")
+            if not df_stmt.empty:
+                st.dataframe(df_stmt.head(20), use_container_width=True)
+            else:
+                st.info("ไม่พบข้อมูล Positions หรือ Deals ในไฟล์นี้")
+        except Exception as e:
+            st.error(f"❌ Error processing file {file.name}: {e}")
+
+# ======================= SEC 9: DASHBOARD + AI ULTIMATE (Tab Template with Source Selector) =======================
+# ======================= SEC 9: DASHBOARD + AI ULTIMATE =======================
+with st.expander("📊 Performance Dashboard", expanded=True):
+
+    source_option = st.selectbox(
+        "เลือกแหล่งข้อมูลสำหรับแดชบอร์ด",
+        ["Log File (แผน)", "Statement Import (ของจริง)"],
+        index=0,
+        key="dashboard_source_select"
+    )
+
+    if source_option == "Log File (แผน)":
+        if os.path.exists("trade_log.csv"):
+            df_data = pd.read_csv("trade_log.csv")
+        else:
+            df_data = pd.DataFrame()
+    else:
+        df_data = df_stmt if not df_stmt.empty else pd.DataFrame()
+
+    tab_dashboard, tab_rr, tab_lot, tab_time, tab_ai, tab_export = st.tabs([
+        "📊 Dashboard", 
+        "📈 RR Histogram", 
+        "📉 Lot Size Evolution", 
+        "🕒 Time Analysis", 
+        "🤖 AI Recommendation", 
+        "⬇️ Export/Report"
+    ])
+
+    with tab_dashboard:
+        if df_data.empty:
+            st.info("ยังไม่มีข้อมูลสำหรับ Dashboard")
+        else:
+            st.write("Columns in df_data:", df_data.columns.tolist()) 
+            if "Asset" in df_data.columns:
+                selected_asset = st.selectbox("🎯 Filter by Asset", ["ทั้งหมด"] + sorted(df_data["Asset"].unique()), key="dashboard_asset_filter")
+                if selected_asset != "ทั้งหมด":
+                    df_data = df_data[df_data["Asset"] == selected_asset]
+            elif "Symbol" in df_data.columns:
+                selected_symbol = st.selectbox("🎯 Filter by Symbol", ["ทั้งหมด"] + sorted(df_data["Symbol"].unique()), key="dashboard_symbol_filter")
+                if selected_symbol != "ทั้งหมด":
+                    df_data = df_data[df_data["Symbol"] == selected_symbol]
+
+            st.markdown("### 🥧 Pie Chart: Win/Loss")
+            if "Risk $" in df_data.columns:
+                win_count = df_data[df_data["Risk $"].astype(float) > 0].shape[0]
+                loss_count = df_data[df_data["Risk $"].astype(float) <= 0].shape[0]
+            elif "Profit" in df_data.columns:
+                win_count = df_data[df_data["Profit"].astype(float) > 0].shape[0]
+                loss_count = df_data[df_data["Profit"].astype(float) <= 0].shape[0]
+            else:
+                win_count = loss_count = 0
+            pie_df = pd.DataFrame({"Result": ["Win", "Loss"], "Count": [win_count, loss_count]})
+            pie_chart = px.pie(pie_df, names="Result", values="Count", color="Result",
+                               color_discrete_map={"Win": "green", "Loss": "red"})
+            st.plotly_chart(pie_chart, use_container_width=True)
+
+            st.markdown("### 📊 Bar Chart: กำไร/ขาดทุนแต่ละวัน")
+            if "Timestamp" in df_data.columns or "Date" in df_data.columns:
+                if "Timestamp" in df_data.columns:
+                    df_data["Date"] = pd.to_datetime(df_data["Timestamp"], errors='coerce').dt.date
+                else:
+                    df_data["Date"] = pd.to_datetime(df_data["Date"], errors='coerce').dt.date
+                bar_df = df_data.groupby("Date").apply(
+                    lambda x: x["Risk $" if "Risk $" in x.columns else "Profit"].astype(float).sum()
+                ).reset_index(name="Profit/Loss")
+                bar_chart = px.bar(bar_df, x="Date", y="Profit/Loss", color="Profit/Loss",
                                    color_continuous_scale=["red", "orange", "green"])
                 st.plotly_chart(bar_chart, use_container_width=True)
 
-                st.markdown("### 📈 Timeline: Balance Curve")
-                df_log["Balance"] = acc_balance + df_log["Risk $"].astype(float).cumsum()
-                timeline_chart = px.line(df_log, x="Date", y="Balance", markers=True)
-                st.plotly_chart(timeline_chart, use_container_width=True)
+            st.markdown("### 📈 Timeline: Balance Curve")
+            if "Risk $" in df_data.columns:
+                df_data["Balance"] = 10000 + df_data["Risk $"].astype(float).cumsum()
+            elif "Profit" in df_data.columns:
+                df_data["Balance"] = 10000 + df_data["Profit"].astype(float).cumsum()
+            timeline_chart = px.line(df_data, x="Date", y="Balance", markers=True)
+            st.plotly_chart(timeline_chart, use_container_width=True)
 
-                st.markdown("### 🔍 Filter Dashboard")
-                asset_options = ["ทั้งหมด"] + sorted(df_log["Asset"].unique().tolist())
-                selected_asset = st.selectbox("Asset", asset_options, key="asset_filter_dashboard")
-                if selected_asset != "ทั้งหมด":
-                    df_log = df_log[df_log["Asset"] == selected_asset]
-                # เพิ่ม filter อื่นได้ที่นี่
 
-        except Exception as e:
-            st.error(f"Error loading dashboard: {e}")
-    else:
-        st.info("ยังไม่มีข้อมูล log_file สำหรับ Dashboard Visualization")
-
-# ----------- Tab 2: RR Histogram -----------
-with tab_rr:
-    if os.path.exists(log_file):
-        try:
-            df_log = pd.read_csv(log_file)
+    with tab_rr:
+        if df_data.empty:
+            st.info("ยังไม่มีข้อมูลสำหรับ RR Histogram")
+        else:
             rr_col = None
-            for col in df_log.columns:
+            for col in df_data.columns:
                 if col.strip().upper() == "RR":
                     rr_col = col
                     break
-            if rr_col is not None:
-                rr_data = pd.to_numeric(df_log[rr_col], errors='coerce').dropna()
-                if len(rr_data) == 0:
-                    st.info("ยังไม่มีข้อมูล RR ที่บันทึกใน log_file")
+            if rr_col:
+                rr_data = pd.to_numeric(df_data[rr_col], errors='coerce').dropna()
+                if rr_data.empty:
+                    st.info("ยังไม่มีข้อมูล RR ที่บันทึกในข้อมูล")
                 else:
                     st.markdown("#### RR Histogram (แจกแจง Risk:Reward)")
                     fig = px.histogram(
@@ -595,22 +782,17 @@ with tab_rr:
                     st.plotly_chart(fig, use_container_width=True)
                     st.caption("ดูว่า RR ส่วนใหญ่อยู่โซนไหน ถ้ามี RR < 2 เยอะ = เสี่ยง/หลุดวินัย")
             else:
-                st.warning("ไม่พบคอลัมน์ RR ใน log_file")
-        except Exception as e:
-            st.error(f"Error loading RR Histogram: {e}")
-    else:
-        st.info("ยังไม่มีข้อมูล log_file สำหรับ RR Histogram")
+                st.warning("ไม่พบคอลัมน์ RR ในข้อมูล")
 
-# ----------- Tab 3: Lot Size Evolution -----------
-with tab_lot:
-    if os.path.exists(log_file):
-        try:
-            df_log = pd.read_csv(log_file)
-            if "Lot" in df_log.columns:
-                df_log["Date"] = pd.to_datetime(df_log["Timestamp"], errors='coerce').dt.date
+    with tab_lot:
+        if df_data.empty:
+            st.info("ยังไม่มีข้อมูลสำหรับ Lot Size Evolution")
+        else:
+            if "Lot" in df_data.columns:
+                df_data["Date"] = pd.to_datetime(df_data["Timestamp"] if "Timestamp" in df_data.columns else df_data["Date"], errors='coerce').dt.date
                 st.markdown("#### Lot Size Evolution (การเปลี่ยนแปลง Lot Size ตามเวลา)")
                 fig = px.line(
-                    df_log,
+                    df_data,
                     x="Date",
                     y="Lot",
                     markers=True,
@@ -619,41 +801,32 @@ with tab_lot:
                 st.plotly_chart(fig, use_container_width=True)
                 st.caption("วิเคราะห์ Money Management/Scaling ได้ที่นี่")
             else:
-                st.warning("ไม่พบคอลัมน์ Lot ใน log_file")
-        except Exception as e:
-            st.error(f"Error loading Lot Size Evolution: {e}")
-    else:
-        st.info("ยังไม่มีข้อมูล log_file สำหรับ Lot Size Evolution")
+                st.warning("ไม่พบคอลัมน์ Lot ในข้อมูล")
 
-# ----------- Tab 4: Time Analysis -----------
-with tab_time:
-    if os.path.exists(log_file):
-        try:
-            df_log = pd.read_csv(log_file)
+    with tab_time:
+        if df_data.empty:
+            st.info("ยังไม่มีข้อมูลสำหรับ Time Analysis")
+        else:
             st.markdown("#### Time Analysis (วิเคราะห์ตามวัน/เวลา)")
-            df_log["Date"] = pd.to_datetime(df_log["Timestamp"], errors='coerce')
-            df_log["Weekday"] = df_log["Date"].dt.day_name()
-            weekday_df = df_log.groupby("Weekday")["Risk $"].sum().reindex(
-                ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]).reset_index()
-            bar_chart = px.bar(weekday_df, x="Weekday", y="Risk $", title="กำไร/ขาดทุนรวมตามวันในสัปดาห์")
+            df_data["Date"] = pd.to_datetime(df_data["Timestamp"] if "Timestamp" in df_data.columns else df_data["Date"], errors='coerce')
+            df_data["Weekday"] = df_data["Date"].dt.day_name()
+            weekday_df = df_data.groupby("Weekday").apply(
+                lambda x: x["Risk $" if "Risk $" in x.columns else "Profit"].astype(float).sum()
+            ).reindex(
+                ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+            ).reset_index(name="Profit/Loss")
+            bar_chart = px.bar(weekday_df, x="Weekday", y="Profit/Loss", title="กำไร/ขาดทุนรวมตามวันในสัปดาห์")
             st.plotly_chart(bar_chart, use_container_width=True)
             st.caption("ดูว่าเทรดวันไหนเวิร์ค วันไหนควรหลีกเลี่ยง")
-        except Exception as e:
-            st.error(f"Error loading Time Analysis: {e}")
-    else:
-        st.info("ยังไม่มีข้อมูล log_file สำหรับ Time Analysis")
 
-# ----------- Tab 5: AI Recommendation -----------
-with tab_ai:
-    if os.path.exists(log_file):
-        try:
-            df_log = pd.read_csv(log_file)
-            # ดึง insight/AI Section SEC 8 มาใส่ในนี้ได้เลย
-            # ตัวอย่างสั้น (ดึง insight จาก AI)
+    with tab_ai:
+        if df_data.empty:
+            st.info("ยังไม่มีข้อมูลสำหรับ AI Recommendation")
+        else:
             st.markdown("### AI Insight & Recommendation")
-            total_trades = df_log.shape[0]
-            win_trades = df_log[df_log["Risk $"].astype(float) > 0].shape[0]
-            loss_trades = df_log[df_log["Risk $"].astype(float) <= 0].shape[0]
+            total_trades = df_data.shape[0]
+            win_trades = df_data[df_data["Risk $" if "Risk $" in df_data.columns else "Profit"].astype(float) > 0].shape[0]
+            loss_trades = df_data[df_data["Risk $" if "Risk $" in df_data.columns else "Profit"].astype(float) <= 0].shape[0]
             winrate = 100 * win_trades / total_trades if total_trades > 0 else 0
             st.write(f"จำนวนแผนเทรด: {total_trades}")
             st.write(f"Winrate: {winrate:.2f}%")
@@ -666,29 +839,17 @@ with tab_ai:
                 insight.append("ยังไม่พบความเสี่ยงสำคัญ")
             for msg in insight:
                 st.info(msg)
-            # ขยายเพิ่มคำแนะนำ/alert ได้
-        except Exception as e:
-            st.error(f"Error loading AI Recommendation: {e}")
-    else:
-        st.info("ยังไม่มีข้อมูล log_file สำหรับ AI Recommendation")
 
-# ----------- Tab 6: Export/Report -----------
-with tab_export:
-    if os.path.exists(log_file):
-        try:
-            df_log = pd.read_csv(log_file)
+    with tab_export:
+        if df_data.empty:
+            st.info("ยังไม่มีข้อมูลสำหรับ Export/Report")
+        else:
             st.markdown("### Export/Download Report")
-            st.download_button("Download log_file (CSV)", df_log.to_csv(index=False), file_name="log_file.csv")
-            # ถ้าต้องการ export รูปภาพ chart หรือ export Excel เพิ่มเติมแจ้งได้
-        except Exception as e:
-            st.error(f"Error loading Export/Report: {e}")
-    else:
-        st.info("ยังไม่มีข้อมูล log_file สำหรับ Export/Report")
-
+            st.download_button("Download Report (CSV)", df_data.to_csv(index=False), file_name="report.csv")
 
 
 # ======================= SEC 6: LOG VIEWER (ล่างสุด + EXPANDER เดียว) =======================
-with st.expander("📚 Log Viewer (คลิกเพื่อเปิด/ปิด)", expanded=False):
+with st.expander("📚 Trade Log Viewer", expanded=False):
     if os.path.exists(log_file):
         try:
             df_log = pd.read_csv(log_file)
