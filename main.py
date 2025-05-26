@@ -5,10 +5,24 @@ import numpy as np
 import os
 from datetime import datetime
 import plotly.express as px
+import google.generativeai as genai # <--- เพิ่มบรรทัดนี้
 
 st.set_page_config(page_title="Legendary RR Planner", layout="wide")
-acc_balance = 10000  # FIX
+acc_balance = 10000 
 log_file = "trade_log.csv"
+
+# --- การตั้งค่า Google AI API Key ---
+try:
+    if "google_api" in st.secrets and "GOOGLE_API_KEY" in st.secrets["google_api"]:
+        genai.configure(api_key=st.secrets["google_api"]["GOOGLE_API_KEY"])
+        # st.success("Google API Key ถูกโหลดเรียบร้อยแล้ว!")
+    else:
+        st.error("❌ ไม่พบ GOOGLE_API_KEY ใน st.secrets['google_api'] ตรวจสอบไฟล์ .streamlit/secrets.toml ของคุณ")
+        st.info("คุณสามารถขอ API Key ได้ที่ https://aistudio.google.com/app/apikey")
+except Exception as e:
+    st.error(f"❌ เกิดข้อผิดพลาดในการตั้งค่า Google AI API: {e}")
+    st.info("อาจเป็นเพราะไลบรารี 'google-generativeai' ยังไม่ได้ติดตั้ง (pip install google-generativeai)")
+
 
 # ========== Function Utility ==========
 def get_today_drawdown(log_file, acc_balance):
@@ -199,9 +213,13 @@ elif mode == "CUSTOM":
             stop = None
         try:
             if stop is not None and stop > 0:
-                if 'direction' in locals() and direction == "Long":
+                # 'direction' is not defined in CUSTOM mode, assuming it's related to FIBO or needs to be set.
+                # For now, let's assume 'direction' is set globally or handle its absence.
+                # If 'direction' is needed, you might need to add it as an input in CUSTOM mode.
+                # For this example, I'll default to Long for TP calculation if direction is not found.
+                if 'direction' in locals() and direction == "Long": # This 'direction' would come from FIBO mode
                     tp_rr3 = entry_val + 3 * stop
-                else:
+                else: # Defaulting to Short if direction is not explicitly Long or not defined
                     tp_rr3 = entry_val - 3 * stop
                 tp_rr3_display = f"TP ที่ RR=3: {tp_rr3:.2f}"
             else:
@@ -340,32 +358,37 @@ with st.expander("📋 Entry Table (FIBO/CUSTOM)", expanded=True):
         col1, col2 = st.columns(2)
         with col1:
             st.markdown("### 🎯 Entry Levels")
-            if entry_data:
+            if 'entry_data' in locals() and entry_data: # Ensure entry_data is defined
                 entry_df = pd.DataFrame(entry_data)
                 st.dataframe(entry_df, hide_index=True, use_container_width=True)
+            else:
+                st.info("กรอกข้อมูล High/Low และเลือก Fibo Level เพื่อดู Entry Levels.")
         with col2:
             st.markdown("### 🎯 Take Profit Zones")
             try:
                 high = float(swing_high)
                 low = float(swing_low)
-                if direction == "Long":
-                    tp1 = low + (high - low) * 1.618
-                    tp2 = low + (high - low) * 2.618
-                    tp3 = low + (high - low) * 4.236
+                if high > low: # Ensure high is greater than low for valid calculation
+                    if direction == "Long":
+                        tp1 = low + (high - low) * 1.618
+                        tp2 = low + (high - low) * 2.618
+                        tp3 = low + (high - low) * 4.236
+                    else:
+                        tp1 = high - (high - low) * 1.618
+                        tp2 = high - (high - low) * 2.618
+                        tp3 = high - (high - low) * 4.236
+                    tp_df = pd.DataFrame({
+                        "TP": ["TP1", "TP2", "TP3"],
+                        "Price": [f"{tp1:.2f}", f"{tp2:.2f}", f"{tp3:.2f}"]
+                    })
+                    st.dataframe(tp_df, hide_index=True, use_container_width=True)
                 else:
-                    tp1 = high - (high - low) * 1.618
-                    tp2 = high - (high - low) * 2.618
-                    tp3 = high - (high - low) * 4.236
-                tp_df = pd.DataFrame({
-                    "TP": ["TP1", "TP2", "TP3"],
-                    "Price": [f"{tp1:.2f}", f"{tp2:.2f}", f"{tp3:.2f}"]
-                })
-                st.dataframe(tp_df, hide_index=True, use_container_width=True)
-            except Exception:
-                st.warning("📌 Define High and Low to unlock your TP projection.")        
+                    st.warning("📌 Define High and Low correctly to unlock your TP projection.")
+            except (ValueError, NameError): # Catch ValueError for float conversion and NameError if swing_high/low aren't set
+                st.warning("📌 Define High and Low to unlock your TP projection.")       
     elif mode == "CUSTOM":
         st.markdown("### 🎯 Entry & Take Profit Zones ")
-        if custom_entries:
+        if 'custom_entries' in locals() and custom_entries: # Ensure custom_entries is defined
             entry_df = pd.DataFrame(custom_entries)
             st.dataframe(entry_df, hide_index=True, use_container_width=True)
             # แจ้งเตือน RR
@@ -377,6 +400,9 @@ with st.expander("📋 Entry Table (FIBO/CUSTOM)", expanded=True):
 )
                 except:
                     pass
+        else:
+            st.info("กรอกข้อมูล Custom เพื่อดู Entry & TP Zones.")
+
 
 # ======================= SEC 5: เชื่อมปุ่ม Save Plan กับ save_plan + Drawdown Lock =======================
 drawdown_today = get_today_drawdown(log_file, acc_balance)
@@ -394,33 +420,48 @@ def save_plan(data, mode, asset, risk_pct, direction):
     df_save["Mode"] = mode
     df_save["Asset"] = asset
     df_save["Risk %"] = risk_pct
-    df_save["Direction"] = direction
+    df_save["Direction"] = direction # ensure direction is always passed
     df_save["Timestamp"] = now
     if os.path.exists(log_file):
         df_old = pd.read_csv(log_file)
         df_save = pd.concat([df_old, df_save], ignore_index=True)
     df_save.to_csv(log_file, index=False)
 
-if mode == "FIBO" and 'entry_data' in locals() and save_fibo and entry_data:
+
+# Check if 'direction' is defined for FIBO mode before calling save_plan
+# For CUSTOM mode, 'direction' might not be explicitly set, leading to NameError.
+# We need to ensure 'direction' is always available for save_plan.
+# A simple way for CUSTOM mode is to make it an input or default to 'N/A'
+# For this example, I'll default direction to 'N/A' if not defined in CUSTOM.
+current_direction = None
+if mode == "FIBO":
+    if 'direction' in locals():
+        current_direction = direction
+elif mode == "CUSTOM":
+    # If direction is not an input in CUSTOM mode, you might need to add it or default it
+    current_direction = "N/A" # Default or add a radio button for direction in CUSTOM mode
+
+
+if mode == "FIBO" and 'entry_data' in locals() and save_fibo and entry_data and current_direction is not None:
     if drawdown_today <= drawdown_limit:
         st.sidebar.error(
             f"หยุดเทรด! ขาดทุนรวมวันนี้ {abs(drawdown_today):,.2f} เกินลิมิต {abs(drawdown_limit):,.2f} ({drawdown_limit_pct:.1f}%)"
         )
     else:
         try:
-            save_plan(entry_data, "FIBO", asset, risk_pct, direction)
+            save_plan(entry_data, "FIBO", asset, risk_pct, current_direction)
             st.sidebar.success("บันทึกแผน (FIBO) สำเร็จ!")
         except Exception as e:
             st.sidebar.error(f"Save ไม่สำเร็จ: {e}")
 
-elif mode == "CUSTOM" and 'custom_entries' in locals() and save_custom and custom_entries:
+elif mode == "CUSTOM" and 'custom_entries' in locals() and save_custom and custom_entries and current_direction is not None:
     if drawdown_today <= drawdown_limit:
         st.sidebar.error(
             f"หยุดเทรด! ขาดทุนรวมวันนี้ {abs(drawdown_today):,.2f} เกินลิมิต {abs(drawdown_limit):,.2f} ({drawdown_limit_pct:.1f}%)"
         )
     else:
         try:
-            save_plan(custom_entries, "CUSTOM", asset, risk_pct, direction)
+            save_plan(custom_entries, "CUSTOM", asset, risk_pct, current_direction)
             st.sidebar.success("บันทึกแผน (CUSTOM) สำเร็จ!")
         except Exception as e:
             st.sidebar.error(f"Save ไม่สำเร็จ: {e}")
@@ -428,14 +469,9 @@ elif mode == "CUSTOM" and 'custom_entries' in locals() and save_custom and custo
 # ======================= SEC 7: VISUALIZER (เหลือแต่กราฟ) =======================
 
 with st.expander("📈 Chart Visualizer", expanded=True):
-
-    
-
-    # ไม่ต้องใช้ col1/col2 สองฝั่งแล้ว เอาแต่ col เดียวหรือเต็มแถวก็ได้
     plot = st.button("Plot Plan", key="plot_plan")
 
     if plot:
-        #st.markdown("#### กราฟ TradingView Widget (ลากเส้นได้, overlay plan จริง!)")
         st.components.v1.html("""
         <div class="tradingview-widget-container">
           <div id="tradingview_legendary"></div>
@@ -444,7 +480,7 @@ with st.expander("📈 Chart Visualizer", expanded=True):
           new TradingView.widget({
             "width": "100%",
             "height": 600,
-            "symbol": "OANDA:XAUUSD",         // ปรับ symbol ได้
+            "symbol": "OANDA:XAUUSD",      // ปรับ symbol ได้
             "interval": "15",
             "timezone": "Asia/Bangkok",
             "theme": "dark",
@@ -463,15 +499,8 @@ with st.expander("📈 Chart Visualizer", expanded=True):
           </script>
         </div>
         """, height=620)
-       # st.caption("ลาก Fibo, Line, Box, วัด RR ได้เต็มรูปแบบ")
-       # st.info("Overlay แผนเทรดจริงจาก input/log! (รอต่อยอด overlay เส้นอัตโนมัติใน engine ต่อไป)")
     else:
         st.info("กดปุ่ม Plot Plan เพื่อแสดงกราฟ TradingView")
-
-   # st.markdown("---")
-   # st.markdown("Visualizer รับข้อมูลแผนเทรดจริง พร้อม plot overlay (ขยาย/ปรับ engine ได้ทันทีในอนาคต)")
-
-
 
 # ======================= SEC 8: AI SUMMARY & INSIGHT =======================
 with st.expander("	🤖 AI Assistant", expanded=True):
@@ -529,7 +558,7 @@ with st.expander("	🤖 AI Assistant", expanded=True):
                 st.write(f"- **วันขาดทุนมากสุด:** {loss_day}")
 
                 # 7. Insight จุดแข็ง/จุดอ่อน (beta)
-                st.markdown("### 🤖 AI Insight")
+                st.markdown("### 🤖 AI Insight (จากข้อมูลภายใน)")
                 insight = []
                 if winrate >= 60:
                     insight.append("ระบบมี Winrate สูง มีความเสถียรภาพดี")
@@ -549,21 +578,17 @@ with st.expander("	🤖 AI Assistant", expanded=True):
             st.warning(f"เกิดข้อผิดพลาดในการวิเคราะห์ AI: {e}")
     else:
         st.info("ยังไม่มีข้อมูล log_file สำหรับ AI Summary")
-
 # ======================= SEC 7: Ultimate Statement Import & Auto-Mapping =======================
-
-with st.expander("🔥 SEC 7: Ultimate Statement Import & Auto-Mapping", expanded=False):
-    uploaded_files = st.file_uploader(
-        "📤 อัปโหลด Statement (.xlsx, .csv)", 
-        type=["xlsx", "csv"], 
-        accept_multiple_files=True, 
-        key="sec7_upload"
-    )
+uploaded_files = st.file_uploader(
+    "📤 อัปโหลด Statement (.xlsx, .csv)", 
+    type=["xlsx", "csv"], 
+    accept_multiple_files=True, 
+    key="sec7_upload"
+)
 
 def extract_sections_from_file(file):
     import pandas as pd
 
-    # อ่านไฟล์ Excel/CSV พร้อมระบุ engine openpyxl สำหรับ xlsx
     if file.name.endswith(".xlsx"):
         df_raw = pd.read_excel(file, header=None, engine='openpyxl')
     elif file.name.endswith(".csv"):
@@ -577,7 +602,6 @@ def extract_sections_from_file(file):
         "Total Trades", "Profit Trades", "Largest profit trade", "Average profit trade"
     ]
 
-    # หาตำแหน่งเริ่มต้นแต่ละ section ในไฟล์ raw
     for idx, row in df_raw.iterrows():
         for key in section_keys:
             if str(row[0]).strip().startswith(key):
@@ -585,7 +609,6 @@ def extract_sections_from_file(file):
 
     section_data = {}
 
-    # ฟังก์ชันแก้ชื่อคอลัมน์ซ้ำ และแปลงชื่อ NaN เป็น Unnamed_x
     def make_cols_unique(cols):
         counts = {}
         result = []
@@ -600,7 +623,6 @@ def extract_sections_from_file(file):
                 result.append(c)
         return result
 
-    # แยกแต่ละ section ออกมาเป็น DataFrame พร้อมตั้งชื่อคอลัมน์ใหม่
     if "Positions" in section_starts:
         header_row = section_starts["Positions"] + 1
         next_section = min([v for k, v in section_starts.items() if v > header_row] + [len(df_raw)])
@@ -609,15 +631,6 @@ def extract_sections_from_file(file):
         df_positions = df_positions[1:]
         df_positions.columns = make_cols_unique(raw_cols)
         section_data["Positions"] = df_positions.reset_index(drop=True)
-
-    if "Orders" in section_starts:
-        header_row = section_starts["Orders"] + 1
-        next_section = min([v for k, v in section_starts.items() if v > header_row] + [len(df_raw)])
-        df_orders = df_raw.iloc[header_row:next_section].dropna(how="all")
-        raw_cols = df_orders.iloc[0].tolist()
-        df_orders = df_orders[1:]
-        df_orders.columns = make_cols_unique(raw_cols)
-        section_data["Orders"] = df_orders.reset_index(drop=True)
 
     if "Deals" in section_starts:
         header_row = section_starts["Deals"] + 1
@@ -628,7 +641,6 @@ def extract_sections_from_file(file):
         df_deals.columns = make_cols_unique(raw_cols)
         section_data["Deals"] = df_deals.reset_index(drop=True)
 
-    # เก็บสถิติต่าง ๆ เป็น dict (ถ้ามี)
     stats = {}
     for key in section_keys[3:]:
         for idx, row in df_raw.iterrows():
@@ -639,23 +651,17 @@ def extract_sections_from_file(file):
 
     return section_data
 
-
 def preprocess_stmt_data(df):
     import pandas as pd
-    # แก้ชื่อคอลัมน์ NaN เป็น Unnamed_x
     df.columns = [f"Unnamed_{i}" if pd.isna(c) else c for i, c in enumerate(df.columns)]
-    # แปลง datetime ในคอลัมน์ Timestamp หรือ Time
     if 'Timestamp' in df.columns:
         df['Timestamp'] = pd.to_datetime(df['Timestamp'], errors='coerce')
     elif 'Time' in df.columns:
         df['Timestamp'] = pd.to_datetime(df['Time'], errors='coerce')
-    # กรองคอลัมน์ซ้ำออก
     df = df.loc[:, ~df.columns.duplicated()]
     return df
 
-
-df_stmt = pd.DataFrame()  # ตัวแปรเก็บข้อมูล Statement (หลัก)
-
+df_stmt = pd.DataFrame()
 if uploaded_files:
     for file in uploaded_files:
         try:
@@ -668,7 +674,7 @@ if uploaded_files:
                 df_stmt = pd.DataFrame()
 
             if not df_stmt.empty:
-                df_stmt = preprocess_stmt_data(df_stmt)  # เรียกใช้ฟังก์ชัน preprocess
+                df_stmt = preprocess_stmt_data(df_stmt)
 
             st.markdown(f"### 📂 ไฟล์: {file.name}")
             if not df_stmt.empty:
@@ -678,31 +684,39 @@ if uploaded_files:
         except Exception as e:
             st.error(f"❌ Error processing file {file.name}: {e}")
 
-# ======================= SEC 9: DASHBOARD + AI ULTIMATE (Tab Template with Source Selector) =======================
 # ======================= SEC 9: DASHBOARD + AI ULTIMATE =======================
-with st.expander("📊 Performance Dashboard", expanded=True):
+import pandas as pd
+import plotly.express as px
+import os
 
+# log_file และ acc_balance ถูกประกาศแล้วใน SEC 0
+
+def load_data_for_dashboard():
     source_option = st.selectbox(
         "เลือกแหล่งข้อมูลสำหรับแดชบอร์ด",
         ["Log File (แผน)", "Statement Import (ของจริง)"],
         index=0,
         key="dashboard_source_select"
     )
-
     if source_option == "Log File (แผน)":
-        if os.path.exists("trade_log.csv"):
-            df_data = pd.read_csv("trade_log.csv")
+        if os.path.exists(log_file):
+            df_data = pd.read_csv(log_file)
         else:
             df_data = pd.DataFrame()
     else:
+        # global df_stmt # df_stmt is already global from SEC 7
         df_data = df_stmt if not df_stmt.empty else pd.DataFrame()
+    return df_data
+
+with st.expander("📊 Performance Dashboard", expanded=True):
+    df_data = load_data_for_dashboard()
 
     tab_dashboard, tab_rr, tab_lot, tab_time, tab_ai, tab_export = st.tabs([
-        "📊 Dashboard", 
-        "📈 RR Histogram", 
-        "📉 Lot Size Evolution", 
-        "🕒 Time Analysis", 
-        "🤖 AI Recommendation", 
+        "📊 Dashboard",
+        "📈 RR Histogram",
+        "📉 Lot Size Evolution",
+        "🕒 Time Analysis",
+        "🤖 AI Recommendation", # Tab for AI
         "⬇️ Export/Report"
     ])
 
@@ -710,7 +724,6 @@ with st.expander("📊 Performance Dashboard", expanded=True):
         if df_data.empty:
             st.info("ยังไม่มีข้อมูลสำหรับ Dashboard")
         else:
-            st.write("Columns in df_data:", df_data.columns.tolist()) 
             if "Asset" in df_data.columns:
                 selected_asset = st.selectbox("🎯 Filter by Asset", ["ทั้งหมด"] + sorted(df_data["Asset"].unique()), key="dashboard_asset_filter")
                 if selected_asset != "ทั้งหมด":
@@ -723,7 +736,7 @@ with st.expander("📊 Performance Dashboard", expanded=True):
             st.markdown("### 🥧 Pie Chart: Win/Loss")
             if "Risk $" in df_data.columns:
                 win_count = df_data[df_data["Risk $"].astype(float) > 0].shape[0]
-                loss_count = df_data[df_data["Risk $"].astype(float) <= 0].shape[0]
+                loss_count = df_data[df_data["Risk $" if "Risk $" in df_data.columns else "Profit"].astype(float) <= 0].shape[0]
             elif "Profit" in df_data.columns:
                 win_count = df_data[df_data["Profit"].astype(float) > 0].shape[0]
                 loss_count = df_data[df_data["Profit"].astype(float) <= 0].shape[0]
@@ -754,7 +767,6 @@ with st.expander("📊 Performance Dashboard", expanded=True):
                 df_data["Balance"] = 10000 + df_data["Profit"].astype(float).cumsum()
             timeline_chart = px.line(df_data, x="Date", y="Balance", markers=True)
             st.plotly_chart(timeline_chart, use_container_width=True)
-
 
     with tab_rr:
         if df_data.empty:
@@ -825,20 +837,89 @@ with st.expander("📊 Performance Dashboard", expanded=True):
         else:
             st.markdown("### AI Insight & Recommendation")
             total_trades = df_data.shape[0]
-            win_trades = df_data[df_data["Risk $" if "Risk $" in df_data.columns else "Profit"].astype(float) > 0].shape[0]
-            loss_trades = df_data[df_data["Risk $" if "Risk $" in df_data.columns else "Profit"].astype(float) <= 0].shape[0]
-            winrate = 100 * win_trades / total_trades if total_trades > 0 else 0
+            # Use 'Risk $' or 'Profit' column for win/loss calculation based on availability
+            profit_col = "Risk $" if "Risk $" in df_data.columns else "Profit"
+            
+            if profit_col in df_data.columns:
+                win_trades = df_data[df_data[profit_col].astype(float) > 0].shape[0]
+                loss_trades = df_data[df_data[profit_col].astype(float) <= 0].shape[0]
+                winrate = 100 * win_trades / total_trades if total_trades > 0 else 0
+                gross_profit = df_data[profit_col].astype(float).sum()
+            else:
+                win_trades = 0
+                loss_trades = 0
+                winrate = 0
+                gross_profit = 0
+                st.warning(f"ไม่พบคอลัมน์ '{profit_col}' ในข้อมูลสำหรับคำนวณ Winrate/Profit.")
+
+
             st.write(f"จำนวนแผนเทรด: {total_trades}")
             st.write(f"Winrate: {winrate:.2f}%")
+            st.write(f"กำไร/ขาดทุนสุทธิ: {gross_profit:,.2f} USD")
+
+            # --- เพิ่มส่วนการใช้ Google AI Model จริงๆ ตรงนี้ ---
+            try:
+                # ตรวจสอบว่า genai ถูกตั้งค่าเรียบร้อยแล้ว
+                if "GOOGLE_API_KEY" in st.secrets.get("google_api", {}):
+                    model = genai.GenerativeModel('gemini-pro')
+                    
+                    # สร้าง prompt จากข้อมูลที่มี
+                    prompt_text = (
+                        f"Based on this trading data: Total trades: {total_trades}, "
+                        f"Winrate: {winrate:.2f}%, Gross Profit/Loss: {gross_profit:,.2f} USD. "
+                        f"Provide a concise trading insight and recommendation for improvement. "
+                        f"What are the strengths and weaknesses of this trading performance? "
+                        f"Respond in Thai."
+                    )
+                    
+                    with st.spinner("AI กำลังวิเคราะห์ข้อมูล..."):
+                        response = model.generate_content(prompt_text)
+                    st.markdown("---")
+                    st.markdown("**จาก Gemini AI:**")
+                    st.write(response.text) # แสดงผลลัพธ์จาก AI
+                    st.markdown("---")
+                else:
+                    st.info("โปรดตั้งค่า Google API Key ใน `.streamlit/secrets.toml` เพื่อเปิดใช้งาน AI Assistant")
+            except Exception as e:
+                st.error(f"❌ เกิดข้อผิดพลาดในการเรียกใช้ Google AI: {e}")
+                st.info("โปรดตรวจสอบว่าได้ตั้งค่า GOOGLE_API_KEY ถูกต้อง และมีโควต้าการใช้งาน AI เพียงพอ")
+
+
+            # Insight จุดแข็ง/จุดอ่อน (เดิม)
+            st.markdown("### 🤖 AI Insight (จากกฎที่คุณกำหนดเอง)")
             insight = []
             if winrate >= 60:
                 insight.append("Winrate สูง ระบบเสถียรภาพดี")
             elif winrate < 40:
                 insight.append("Winrate ต่ำ ควรพิจารณากลยุทธ์ใหม่")
+            # ถ้ามี RR เฉลี่ย ให้ใส่เงื่อนไขนี้ด้วย
+            if "RR" in df_data.columns:
+                rr_list_ai_tab = pd.to_numeric(df_data["RR"], errors='coerce').dropna().tolist()
+                avg_rr_ai_tab = np.mean(rr_list_ai_tab) if len(rr_list_ai_tab) > 0 else None
+                if avg_rr_ai_tab is not None and avg_rr_ai_tab < 2:
+                    insight.append("RR ต่ำกว่าค่าเฉลี่ยตลาด (<2) อาจเสี่ยงเกินไป")
+
+            # max_drawdown ควรคำนวณจาก df_data ที่ถูกกรองแล้ว
+            current_balance_ai_tab = acc_balance
+            max_balance_ai_tab = current_balance_ai_tab
+            drawdowns_ai_tab = []
+            if profit_col in df_data.columns:
+                for profit_val in df_data[profit_col].astype(float):
+                    current_balance_ai_tab += profit_val
+                    if current_balance_ai_tab > max_balance_ai_tab:
+                        max_balance_ai_tab = current_balance_ai_tab
+                    drawdown = max_balance_ai_tab - current_balance_ai_tab
+                    drawdowns_ai_tab.append(drawdown)
+                max_drawdown_ai_tab = max(drawdowns_ai_tab) if drawdowns_ai_tab else 0
+                if max_drawdown_ai_tab > acc_balance * 0.05:
+                    insight.append("Drawdown สูงกว่าปลอดภัย (5%) ควรควบคุม Money Management")
+
+
             if not insight:
                 insight.append("ยังไม่พบความเสี่ยงสำคัญ")
             for msg in insight:
                 st.info(msg)
+
 
     with tab_export:
         if df_data.empty:
@@ -855,11 +936,11 @@ with st.expander("📚 Trade Log Viewer", expanded=False):
             df_log = pd.read_csv(log_file)
             col1, col2, col3 = st.columns(3)
             with col1:
-                mode_filter = st.selectbox("Mode", ["ทั้งหมด"] + sorted(df_log["Mode"].unique().tolist()))
+                mode_filter = st.selectbox("Mode", ["ทั้งหมด"] + sorted(df_log["Mode"].unique().tolist()), key="log_mode_filter")
             with col2:
-                asset_filter = st.selectbox("Asset", ["ทั้งหมด"] + sorted(df_log["Asset"].unique().tolist()))
+                asset_filter = st.selectbox("Asset", ["ทั้งหมด"] + sorted(df_log["Asset"].unique().tolist()), key="log_asset_filter")
             with col3:
-                date_filter = st.text_input("ค้นหาวันที่ (YYYY-MM-DD)", value="")
+                date_filter = st.text_input("ค้นหาวันที่ (YYYY-MM-DD)", value="", key="log_date_filter")
             df_show = df_log.copy()
             if mode_filter != "ทั้งหมด":
                 df_show = df_show[df_show["Mode"] == mode_filter]
@@ -872,8 +953,3 @@ with st.expander("📚 Trade Log Viewer", expanded=False):
             st.error(f"อ่าน log ไม่ได้: {e}")
     else:
         st.info("ยังไม่มีข้อมูลแผนที่บันทึกไว้")
-
-
-
-
-
