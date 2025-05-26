@@ -5,7 +5,8 @@ import numpy as np
 import os
 from datetime import datetime
 import plotly.express as px
-import google.generativeai as genai # <--- เพิ่มบรรทัดนี้
+import google.generativeai as genai
+import gspread # <--- เพิ่ม import gspread ที่นี่
 
 st.set_page_config(page_title="Legendary RR Planner", layout="wide")
 acc_balance = 10000 
@@ -22,6 +23,87 @@ try:
 except Exception as e:
     st.error(f"❌ เกิดข้อผิดพลาดในการตั้งค่า Google AI API: {e}")
     st.info("อาจเป็นเพราะไลบรารี 'google-generativeai' ยังไม่ได้ติดตั้ง (pip install google-generativeai)")
+
+# --- การตั้งค่า Google Sheets API Key และ Gspread Client ---
+# กำหนดชื่อ Google Sheet และ Worksheet ที่จะใช้เก็บข้อมูล Statement
+GOOGLE_SHEET_NAME = "Legendary RR Planner Statement Data" # **เปลี่ยนเป็นชื่อ Google Sheet ของคุณ**
+GOOGLE_WORKSHEET_NAME = "Uploaded Statements" # ชื่อ Worksheet ที่จะใช้เก็บ Statement
+
+# ฟังก์ชันสำหรับเชื่อมต่อ gspread
+def get_gspread_client():
+    try:
+        if "gcp_service_account" not in st.secrets:
+            st.warning("⚠️ โปรดตั้งค่า 'gcp_service_account' ใน `.streamlit/secrets.toml` เพื่อเชื่อมต่อ Google Sheets.")
+            return None
+        return gspread.service_account_from_dict(st.secrets["gcp_service_account"])
+    except Exception as e:
+        st.error(f"❌ เกิดข้อผิดพลาดในการเชื่อมต่อ Google Sheets: {e}")
+        st.info("ตรวจสอบว่า 'gcp_service_account' ใน secrets.toml ถูกต้อง และได้แชร์ Sheet กับ Service Account แล้ว")
+        return None
+
+# ฟังก์ชันสำหรับอ่านข้อมูล Statement จาก Google Sheets
+@st.cache_data(ttl=3600) # แคชข้อมูล 1 ชั่วโมง เพื่อไม่ให้เรียก API บ่อยเกินไป
+def load_statement_from_gsheets():
+    gc = get_gspread_client()
+    if gc is None:
+        return pd.DataFrame()
+    try:
+        sh = gc.open(GOOGLE_SHEET_NAME)
+        try:
+            worksheet = sh.worksheet(GOOGLE_WORKSHEET_NAME)
+        except gspread.exceptions.WorksheetNotFound:
+            st.info(f"✨ กำลังสร้าง Worksheet '{GOOGLE_WORKSHEET_NAME}' ใน Google Sheet '{GOOGLE_SHEET_NAME}'...")
+            worksheet = sh.add_worksheet(title=GOOGLE_WORKSHEET_NAME, rows="1", cols="1") # เริ่มต้นด้วย 1x1
+
+        data = worksheet.get_all_records()
+        if not data: # ถ้า worksheet ว่างเปล่า
+            # st.info(f"Worksheet '{GOOGLE_WORKSHEET_NAME}' ว่างเปล่า.")
+            return pd.DataFrame()
+
+        df = pd.DataFrame(data)
+        # ทำความสะอาดข้อมูลที่อ่านได้ (ตามที่คุณต้องการ เช่น แปลง type)
+        for col in ['Profit', 'Risk $', 'Lot', 'RR', 'Entry', 'SL', 'TP', 'StopLoss']: # เพิ่มคอลัมน์ที่อาจเป็นตัวเลข
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors='coerce')
+
+        for col in ['Timestamp', 'Time', 'Date', 'Open Time', 'Close Time']: # เพิ่มคอลัมน์วันที่/เวลา
+            if col in df.columns:
+                df[col] = pd.to_datetime(df[col], errors='coerce')
+
+        # st.success(f"โหลดข้อมูล Statement จาก Google Sheet '{GOOGLE_SHEET_NAME}/{GOOGLE_WORKSHEET_NAME}' สำเร็จ!")
+        return df
+    except gspread.exceptions.SpreadsheetNotFound:
+        st.error(f"❌ ไม่พบ Google Sheet ชื่อ '{GOOGLE_SHEET_NAME}'. โปรดสร้างและแชร์กับ Service Account ของคุณ")
+        return pd.DataFrame()
+    except Exception as e:
+        st.error(f"❌ เกิดข้อผิดพลาดในการโหลดข้อมูล Statement จาก Google Sheets: {e}")
+        return pd.DataFrame()
+
+# ฟังก์ชันสำหรับบันทึก DataFrame ลง Google Sheets (แทนที่ข้อมูลเก่า)
+def save_statement_to_gsheets(df_to_save):
+    if df_to_save.empty:
+        st.warning("ไม่มีข้อมูลที่จะบันทึกไปยัง Google Sheets.")
+        return
+
+    gc = get_gspread_client()
+    if gc is None:
+        return
+
+    try:
+        sh = gc.open(GOOGLE_SHEET_NAME)
+        try:
+            worksheet = sh.worksheet(GOOGLE_WORKSHEET_NAME)
+        except gspread.exceptions.WorksheetNotFound:
+            st.info(f"✨ สร้าง Worksheet '{GOOGLE_WORKSHEET_NAME}' ใน Google Sheet '{GOOGLE_SHEET_NAME}'")
+            worksheet = sh.add_worksheet(title=GOOGLE_WORKSHEET_NAME, rows="1", cols="1")
+
+        # ลบข้อมูลเก่าทิ้งก่อน
+        worksheet.clear() 
+        # เขียน Header และข้อมูล
+        worksheet.update([df_to_save.columns.values.tolist()] + df_to_save.values.tolist())
+        st.success(f"บันทึกข้อมูล Statement ไปยัง Google Sheet '{GOOGLE_SHEET_NAME}/{GOOGLE_WORKSHEET_NAME}' เรียบร้อยแล้ว!")
+    except Exception as e:
+        st.error(f"❌ เกิดข้อผิดพลาดในการบันทึกข้อมูล Statement ไปยัง Google Sheets: {e}")
 
 
 # ========== Function Utility ==========
@@ -213,10 +295,6 @@ elif mode == "CUSTOM":
             stop = None
         try:
             if stop is not None and stop > 0:
-                # 'direction' is not defined in CUSTOM mode, assuming it's related to FIBO or needs to be set.
-                # For now, let's assume 'direction' is set globally or handle its absence.
-                # If 'direction' is needed, you might need to add it as an input in CUSTOM mode.
-                # For this example, I'll default to Long for TP calculation if direction is not found.
                 if 'direction' in locals() and direction == "Long": # This 'direction' would come from FIBO mode
                     tp_rr3 = entry_val + 3 * stop
                 else: # Defaulting to Short if direction is not explicitly Long or not defined
@@ -428,18 +506,12 @@ def save_plan(data, mode, asset, risk_pct, direction):
     df_save.to_csv(log_file, index=False)
 
 
-# Check if 'direction' is defined for FIBO mode before calling save_plan
-# For CUSTOM mode, 'direction' might not be explicitly set, leading to NameError.
-# We need to ensure 'direction' is always available for save_plan.
-# A simple way for CUSTOM mode is to make it an input or default to 'N/A'
-# For this example, I'll default direction to 'N/A' if not defined in CUSTOM.
 current_direction = None
 if mode == "FIBO":
     if 'direction' in locals():
         current_direction = direction
 elif mode == "CUSTOM":
-    # If direction is not an input in CUSTOM mode, you might need to add it or default it
-    current_direction = "N/A" # Default or add a radio button for direction in CUSTOM mode
+    current_direction = "N/A" 
 
 
 if mode == "FIBO" and 'entry_data' in locals() and save_fibo and entry_data and current_direction is not None:
@@ -558,7 +630,7 @@ with st.expander("	🤖 AI Assistant", expanded=True):
                 st.write(f"- **วันขาดทุนมากสุด:** {loss_day}")
 
                 # 7. Insight จุดแข็ง/จุดอ่อน (beta)
-                st.markdown("### 🤖 AI Insight (จากข้อมูลภายใน)")
+                st.markdown("### 🤖 AI Insight (จากกฎที่คุณกำหนดเอง)")
                 insight = []
                 if winrate >= 60:
                     insight.append("ระบบมี Winrate สูง มีความเสถียรภาพดี")
@@ -597,15 +669,21 @@ def extract_sections_from_file(file):
         return {}
 
     section_starts = {}
+    # เพิ่มคีย์ที่อาจพบใน Statement จริงของคุณ
     section_keys = [
         "Positions", "Orders", "Deals", "Balance", "Drawdown",
-        "Total Trades", "Profit Trades", "Largest profit trade", "Average profit trade"
+        "Total Trades", "Profit Trades", "Largest profit trade", "Average profit trade",
+        "History", # MT4/MT5 export often has a "History" section
+        "Trades" # Some statements might use "Trades"
     ]
 
     for idx, row in df_raw.iterrows():
+        if pd.isna(row[0]): # Skip empty first column
+            continue
         for key in section_keys:
             if str(row[0]).strip().startswith(key):
                 section_starts[key] = idx
+                break # Found the start, move to next row
 
     section_data = {}
 
@@ -613,84 +691,206 @@ def extract_sections_from_file(file):
         counts = {}
         result = []
         for c in cols:
-            if pd.isna(c):
+            if pd.isna(c) or str(c).strip() == '': # Handle NaN or empty strings in headers
                 c = 'Unnamed'
-            if c in counts:
-                counts[c] += 1
-                result.append(f"{c}_{counts[c]}")
+            c_str = str(c)
+            if c_str in counts:
+                counts[c_str] += 1
+                result.append(f"{c_str}_{counts[c_str]}")
             else:
-                counts[c] = 0
-                result.append(c)
+                counts[c_str] = 0
+                result.append(c_str)
         return result
 
-    if "Positions" in section_starts:
-        header_row = section_starts["Positions"] + 1
-        next_section = min([v for k, v in section_starts.items() if v > header_row] + [len(df_raw)])
-        df_positions = df_raw.iloc[header_row:next_section].dropna(how="all")
-        raw_cols = df_positions.iloc[0].tolist()
-        df_positions = df_positions[1:]
-        df_positions.columns = make_cols_unique(raw_cols)
-        section_data["Positions"] = df_positions.reset_index(drop=True)
+    # Priority for sections: Deals, Trades, Positions, History
+    target_sections = ["Deals", "Trades", "Positions", "History"]
+    found_section_key = None
+    for skey in target_sections:
+        if skey in section_starts:
+            found_section_key = skey
+            break
 
-    if "Deals" in section_starts:
-        header_row = section_starts["Deals"] + 1
-        next_section = min([v for k, v in section_starts.items() if v > header_row] + [len(df_raw)])
-        df_deals = df_raw.iloc[header_row:next_section].dropna(how="all")
-        raw_cols = df_deals.iloc[0].tolist()
-        df_deals = df_deals[1:]
-        df_deals.columns = make_cols_unique(raw_cols)
-        section_data["Deals"] = df_deals.reset_index(drop=True)
+    if found_section_key:
+        header_row = section_starts[found_section_key] + 1
+        # Find the start of the next section to define the end of the current one
+        next_section_start_idx = len(df_raw) # Default to end of file
 
+        # Find the next section in the list after the current found_section_key
+        current_key_idx = section_keys.index(found_section_key)
+        for i in range(current_key_idx + 1, len(section_keys)):
+            next_key = section_keys[i]
+            if next_key in section_starts:
+                next_section_start_idx = section_starts[next_key]
+                break
+
+        # Extract the relevant rows for the data
+        df_section = df_raw.iloc[header_row:next_section_start_idx].dropna(how="all")
+
+        # Use the first row as columns, then slice the DataFrame to remove it
+        if not df_section.empty:
+            raw_cols = df_section.iloc[0].tolist()
+            df_section = df_section[1:]
+            df_section.columns = make_cols_unique(raw_cols)
+            section_data[found_section_key] = df_section.reset_index(drop=True)
+        else:
+            st.warning(f"Warning: Section '{found_section_key}' found but no data rows underneath it.")
+
+    # You might want to parse other stats as well, but for now focus on the main data table
     stats = {}
-    for key in section_keys[3:]:
-        for idx, row in df_raw.iterrows():
-            if str(row[0]).strip().startswith(key):
-                stats[key] = " | ".join([str(x) for x in row if pd.notnull(x)])
+    for key in section_keys:
+        if key not in ["Positions", "Orders", "Deals", "History", "Trades"]: # Skip table headers
+            for idx, row in df_raw.iterrows():
+                if str(row[0]).strip().startswith(key):
+                    stats[key] = " | ".join([str(x) for x in row if pd.notnull(x)])
+                    break # Found stat, move to next stat key
     if stats:
         section_data["Stats"] = stats
 
     return section_data
 
 def preprocess_stmt_data(df):
-    import pandas as pd
-    df.columns = [f"Unnamed_{i}" if pd.isna(c) else c for i, c in enumerate(df.columns)]
+    # Rename columns to a consistent format
+    rename_map = {
+        'Open Time': 'Timestamp',
+        'Close Time': 'Timestamp', # Assuming Close Time is the primary timestamp for closed trades
+        'Time': 'Timestamp',
+        'Profit': 'Profit',
+        'Risk $': 'Profit', # If statement uses 'Risk $' for profit/loss from closed trades
+        'Symbol': 'Asset',
+        'Instrument': 'Asset',
+        'Lots': 'Lot',
+        'Size': 'Lot',
+        'Stop Loss': 'SL',
+        'Take Profit': 'TP',
+        'R': 'RR', # If RR is provided
+        'Order': 'Trade ID', # For identifying unique trades
+        'Ticket': 'Trade ID'
+    }
+    df.rename(columns=rename_map, inplace=True)
+
+    # Ensure timestamp column is datetime
     if 'Timestamp' in df.columns:
         df['Timestamp'] = pd.to_datetime(df['Timestamp'], errors='coerce')
-    elif 'Time' in df.columns:
-        df['Timestamp'] = pd.to_datetime(df['Time'], errors='coerce')
-    df = df.loc[:, ~df.columns.duplicated()]
+
+    # Ensure numerical columns are numeric
+    numerical_cols = ['Profit', 'Lot', 'Entry', 'SL', 'TP', 'RR'] # Add more if needed
+    for col in numerical_cols:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors='coerce')
+
+    # Filter out rows with NaN in critical columns if they indicate non-trade rows
+    # Example: if Profit is NaN, it might not be a closed trade
+    if 'Profit' in df.columns:
+        df = df.dropna(subset=['Profit'])
+
+    # Drop duplicate columns after renaming if any (e.g. if both 'Profit' and 'Risk $' existed and mapped to 'Profit')
+    df = df.loc[:,~df.columns.duplicated()]
+
     return df
 
-df_stmt = pd.DataFrame()
-if uploaded_files:
+# เริ่มต้น df_stmt เป็น DataFrame ว่างเปล่า หรือโหลดจาก Google Sheets ถ้ามี
+# ใช้ st.session_state เพื่อคงค่า df_stmt ระหว่าง rerun
+if 'df_stmt_current' not in st.session_state:
+    st.session_state.df_stmt_current = pd.DataFrame()
+    # โหลดข้อมูล Statement เก่าจาก Google Sheets ทันทีที่แอปเริ่มทำงานครั้งแรก
+    # เพื่อให้ Dashboard แสดงข้อมูลได้ทันที
+    df_stmt_from_gsheets = load_statement_from_gsheets()
+    if not df_stmt_from_gsheets.empty:
+        st.session_state.df_stmt_current = df_stmt_from_gsheets
+        st.info("โหลดข้อมูล Statement เดิมจาก Google Sheets แล้ว.")
+    else:
+        st.info("ยังไม่มีข้อมูล Statement ใน Google Sheets หรือกำลังโหลดครั้งแรก.")
+
+
+df_stmt = st.session_state.df_stmt_current # ดึงข้อมูลปัจจุบันมาใช้
+
+# ถ้ามีการอัปโหลดไฟล์ใหม่ ให้ประมวลผลและนำไปรวม/แทนที่
+if uploaded_files: 
+    processed_dfs_from_upload = []
     for file in uploaded_files:
+        st.markdown(f"**กำลังประมวลผลไฟล์: {file.name}**")
         try:
             sections = extract_sections_from_file(file)
-            if "Positions" in sections:
-                df_stmt = sections["Positions"]
-            elif "Deals" in sections:
-                df_stmt = sections["Deals"]
-            else:
-                df_stmt = pd.DataFrame()
+            current_df = pd.DataFrame()
 
-            if not df_stmt.empty:
-                df_stmt = preprocess_stmt_data(df_stmt)
+            # Check for the primary data sections in order of preference
+            if "Deals" in sections:
+                current_df = sections["Deals"]
+            elif "Trades" in sections:
+                current_df = sections["Trades"]
+            elif "Positions" in sections:
+                current_df = sections["Positions"] # Note: Positions are usually open trades, not closed statements
+            elif "History" in sections:
+                current_df = sections["History"]
 
-            st.markdown(f"### 📂 ไฟล์: {file.name}")
-            if not df_stmt.empty:
-                st.dataframe(df_stmt.head(20), use_container_width=True)
+            if not current_df.empty:
+                current_df = preprocess_stmt_data(current_df)
+                processed_dfs_from_upload.append(current_df)
+                st.dataframe(current_df.head(5), use_container_width=True) 
             else:
-                st.info("ไม่พบข้อมูล Positions หรือ Deals ในไฟล์นี้")
+                st.warning(f"⚠︎ ไม่พบข้อมูล Positions, Deals, Trades หรือ History ในไฟล์: {file.name}")
         except Exception as e:
-            st.error(f"❌ Error processing file {file.name}: {e}")
+            st.error(f"❌ เกิดข้อผิดพลาดในการประมวลผลไฟล์ {file.name}: {e}")
+
+    if processed_dfs_from_upload:
+        st.subheader("จัดการข้อมูลที่อัปโหลด")
+
+        # รวมข้อมูลที่อัปโหลดทั้งหมดเป็น DataFrame เดียว
+        df_new_uploads = pd.concat(processed_dfs_from_upload, ignore_index=True)
+
+        # เสนอตัวเลือกให้ผู้ใช้
+        merge_option = st.radio(
+            "มีข้อมูล Statement ที่อัปโหลดใหม่แล้ว ต้องการทำอย่างไร?",
+            ["แทนที่ข้อมูล Statement ทั้งหมดที่มีอยู่", "รวมข้อมูลใหม่กับข้อมูลเดิม (อาจมีข้อมูลซ้ำ)"],
+            index=0 # Default to replace
+        )
+
+        if merge_option == "แทนที่ข้อมูล Statement ทั้งหมดที่มีอยู่":
+            st.session_state.df_stmt_current = df_new_uploads
+            st.info("ข้อมูล Statement ถูกแทนที่ด้วยไฟล์ที่อัปโหลดใหม่แล้ว.")
+        else: # รวมข้อมูลใหม่
+            if not st.session_state.df_stmt_current.empty:
+                # รวมข้อมูลเก่ากับใหม่
+                df_combined = pd.concat([st.session_state.df_stmt_current, df_new_uploads], ignore_index=True)
+
+                # ลบข้อมูลซ้ำ (ถ้ามี Trade ID หรือ Timestamp ที่สามารถใช้ระบุรายการที่ไม่ซ้ำได้)
+                if 'Trade ID' in df_combined.columns and df_combined['Trade ID'].notna().any():
+                    df_combined.drop_duplicates(subset=['Trade ID'], inplace=True)
+                    st.info("ข้อมูลรวมและลบรายการซ้ำตาม 'Trade ID' แล้ว.")
+                elif 'Timestamp' in df_combined.columns:
+                    # อาจจะซับซ้อนขึ้นถ้าไม่มี Trade ID ที่ชัดเจน อาจต้องใช้ Timestamp + Profit + Lot
+                    # สำหรับตอนนี้ ให้ drop duplicates ทั้งหมด
+                    df_combined.drop_duplicates(inplace=True)
+                    st.info("ข้อมูลรวมและลบรายการซ้ำทั้งหมดแล้ว.")
+                else:
+                    df_combined.drop_duplicates(inplace=True)
+                    st.warning("รวมข้อมูลแล้ว แต่ไม่มีคอลัมน์ 'Trade ID' ที่ชัดเจนสำหรับการลบข้อมูลซ้ำที่แม่นยำ.")
+
+                st.session_state.df_stmt_current = df_combined
+                st.info("ข้อมูล Statement ถูกรวมกับไฟล์ที่อัปโหลดใหม่แล้ว.")
+            else:
+                st.session_state.df_stmt_current = df_new_uploads
+                st.info("ไม่มีข้อมูล Statement เดิม จึงเพิ่มข้อมูลที่อัปโหลดใหม่เข้ามา.")
+
+        # บันทึกข้อมูล Statement ปัจจุบัน (ที่ได้จากการโหลดเก่า หรืออัปโหลดใหม่) ไปยัง Google Sheets
+        if st.button("💾 บันทึกข้อมูล Statement นี้ไปยัง Google Sheets", key="save_uploaded_stmt_to_gsheets"):
+            save_statement_to_gsheets(st.session_state.df_stmt_current)
+            st.cache_data.clear() # Clear cache เพื่อให้โหลดข้อมูลใหม่ในการรันหน้าต่อไป
+            st.rerun() # Re-run เพื่อแสดงข้อมูลล่าสุด
+
+    else:
+        st.info("ไม่มีข้อมูล Statement ที่ถูกประมวลผลจากไฟล์ที่อัปโหลดใหม่.")
+
+# แสดงข้อมูล Statement ปัจจุบันที่ใช้ในแอป
+if not st.session_state.df_stmt_current.empty:
+    st.markdown("---")
+    st.subheader("ข้อมูล Statement ปัจจุบัน (สำหรับ Dashboard)")
+    st.dataframe(st.session_state.df_stmt_current.head(10), use_container_width=True)
+else:
+    st.info("ยังไม่มีข้อมูล Statement สำหรับ Dashboard (โปรดอัปโหลดหรือตรวจสอบการโหลดจาก Google Sheets)")
 
 # ======================= SEC 9: DASHBOARD + AI ULTIMATE =======================
-import pandas as pd
-import plotly.express as px
-import os
-
-# log_file และ acc_balance ถูกประกาศแล้วใน SEC 0
-
+# ปรับปรุง load_data_for_dashboard()
 def load_data_for_dashboard():
     source_option = st.selectbox(
         "เลือกแหล่งข้อมูลสำหรับแดชบอร์ด",
@@ -703,9 +903,9 @@ def load_data_for_dashboard():
             df_data = pd.read_csv(log_file)
         else:
             df_data = pd.DataFrame()
-    else:
-        # global df_stmt # df_stmt is already global from SEC 7
-        df_data = df_stmt if not df_stmt.empty else pd.DataFrame()
+    else: # Statement Import (ของจริง)
+        # เราใช้ st.session_state.df_stmt_current ซึ่งถูกโหลด/อัปเดตจาก SEC 7 แล้ว
+        return st.session_state.df_stmt_current 
     return df_data
 
 with st.expander("📊 Performance Dashboard", expanded=True):
@@ -716,7 +916,7 @@ with st.expander("📊 Performance Dashboard", expanded=True):
         "📈 RR Histogram",
         "📉 Lot Size Evolution",
         "🕒 Time Analysis",
-        "🤖 AI Recommendation", # Tab for AI
+        "🤖 AI Recommendation", 
         "⬇️ Export/Report"
     ])
 
@@ -724,49 +924,78 @@ with st.expander("📊 Performance Dashboard", expanded=True):
         if df_data.empty:
             st.info("ยังไม่มีข้อมูลสำหรับ Dashboard")
         else:
-            if "Asset" in df_data.columns:
-                selected_asset = st.selectbox("🎯 Filter by Asset", ["ทั้งหมด"] + sorted(df_data["Asset"].unique()), key="dashboard_asset_filter")
+            # ปรับปรุงการใช้คอลัมน์ "Symbol" หรือ "Asset"
+            column_for_asset_filter = None
+            if "Asset" in df_data.columns and df_data["Asset"].notna().any():
+                column_for_asset_filter = "Asset"
+            elif "Symbol" in df_data.columns and df_data["Symbol"].notna().any():
+                column_for_asset_filter = "Symbol"
+
+            if column_for_asset_filter:
+                selected_asset = st.selectbox(
+                    f"🎯 Filter by {column_for_asset_filter}", 
+                    ["ทั้งหมด"] + sorted(df_data[column_for_asset_filter].dropna().unique()), 
+                    key="dashboard_asset_filter"
+                )
                 if selected_asset != "ทั้งหมด":
-                    df_data = df_data[df_data["Asset"] == selected_asset]
-            elif "Symbol" in df_data.columns:
-                selected_symbol = st.selectbox("🎯 Filter by Symbol", ["ทั้งหมด"] + sorted(df_data["Symbol"].unique()), key="dashboard_symbol_filter")
-                if selected_symbol != "ทั้งหมด":
-                    df_data = df_data[df_data["Symbol"] == selected_symbol]
+                    df_data = df_data[df_data[column_for_asset_filter] == selected_asset]
+            else:
+                st.warning("ไม่พบคอลัมน์ 'Asset' หรือ 'Symbol' สำหรับการกรอง")
+
 
             st.markdown("### 🥧 Pie Chart: Win/Loss")
-            if "Risk $" in df_data.columns:
-                win_count = df_data[df_data["Risk $"].astype(float) > 0].shape[0]
-                loss_count = df_data[df_data["Risk $" if "Risk $" in df_data.columns else "Profit"].astype(float) <= 0].shape[0]
-            elif "Profit" in df_data.columns:
-                win_count = df_data[df_data["Profit"].astype(float) > 0].shape[0]
-                loss_count = df_data[df_data["Profit"].astype(float) <= 0].shape[0]
+            profit_col = None
+            if "Profit" in df_data.columns:
+                profit_col = "Profit"
+            elif "Risk $" in df_data.columns: # Fallback for log file
+                profit_col = "Risk $"
+
+            if profit_col:
+                win_count = df_data[df_data[profit_col].astype(float) > 0].shape[0]
+                loss_count = df_data[df_data[profit_col].astype(float) <= 0].shape[0]
+                pie_df = pd.DataFrame({"Result": ["Win", "Loss"], "Count": [win_count, loss_count]})
+                pie_chart = px.pie(pie_df, names="Result", values="Count", color="Result",
+                                color_discrete_map={"Win": "green", "Loss": "red"})
+                st.plotly_chart(pie_chart, use_container_width=True)
             else:
-                win_count = loss_count = 0
-            pie_df = pd.DataFrame({"Result": ["Win", "Loss"], "Count": [win_count, loss_count]})
-            pie_chart = px.pie(pie_df, names="Result", values="Count", color="Result",
-                               color_discrete_map={"Win": "green", "Loss": "red"})
-            st.plotly_chart(pie_chart, use_container_width=True)
+                st.warning("ไม่พบคอลัมน์กำไร/ขาดทุน (Profit หรือ Risk $) สำหรับ Pie Chart")
+
 
             st.markdown("### 📊 Bar Chart: กำไร/ขาดทุนแต่ละวัน")
-            if "Timestamp" in df_data.columns or "Date" in df_data.columns:
-                if "Timestamp" in df_data.columns:
-                    df_data["Date"] = pd.to_datetime(df_data["Timestamp"], errors='coerce').dt.date
-                else:
-                    df_data["Date"] = pd.to_datetime(df_data["Date"], errors='coerce').dt.date
-                bar_df = df_data.groupby("Date").apply(
-                    lambda x: x["Risk $" if "Risk $" in x.columns else "Profit"].astype(float).sum()
-                ).reset_index(name="Profit/Loss")
-                bar_chart = px.bar(bar_df, x="Date", y="Profit/Loss", color="Profit/Loss",
-                                   color_continuous_scale=["red", "orange", "green"])
+            date_col = None
+            if "Timestamp" in df_data.columns:
+                date_col = "Timestamp"
+            elif "Date" in df_data.columns:
+                date_col = "Date"
+            elif "Open Time" in df_data.columns:
+                date_col = "Open Time" # Assuming Open Time is the relevant date for daily sums
+            elif "Close Time" in df_data.columns:
+                date_col = "Close Time" # Assuming Close Time is the relevant date for daily sums
+
+            if date_col and profit_col:
+                df_data_copy = df_data.copy() # Make a copy to avoid SettingWithCopyWarning
+                df_data_copy["TradeDate"] = pd.to_datetime(df_data_copy[date_col], errors='coerce').dt.date
+                bar_df = df_data_copy.groupby("TradeDate")[profit_col].sum().reset_index(name="Profit/Loss")
+                bar_chart = px.bar(bar_df, x="TradeDate", y="Profit/Loss", color="Profit/Loss",
+                                color_continuous_scale=["red", "orange", "green"])
                 st.plotly_chart(bar_chart, use_container_width=True)
+            else:
+                st.warning("ไม่พบคอลัมน์วันที่/เวลา หรือ กำไร/ขาดทุน สำหรับ Bar Chart")
+
 
             st.markdown("### 📈 Timeline: Balance Curve")
-            if "Risk $" in df_data.columns:
-                df_data["Balance"] = 10000 + df_data["Risk $"].astype(float).cumsum()
-            elif "Profit" in df_data.columns:
-                df_data["Balance"] = 10000 + df_data["Profit"].astype(float).cumsum()
-            timeline_chart = px.line(df_data, x="Date", y="Balance", markers=True)
-            st.plotly_chart(timeline_chart, use_container_width=True)
+            if profit_col and date_col:
+                df_data_copy = df_data.copy()
+                df_data_copy["Balance"] = 10000 + df_data_copy[profit_col].astype(float).cumsum()
+                df_data_copy["TradeDate"] = pd.to_datetime(df_data_copy[date_col], errors='coerce') # Use full datetime for timeline x-axis
+
+                # Sort by date for correct balance curve
+                df_data_copy = df_data_copy.sort_values(by="TradeDate")
+
+                timeline_chart = px.line(df_data_copy, x="TradeDate", y="Balance", markers=True)
+                st.plotly_chart(timeline_chart, use_container_width=True)
+            else:
+                st.warning("ไม่พบคอลัมน์วันที่/เวลา หรือ กำไร/ขาดทุน สำหรับ Balance Curve")
 
     with tab_rr:
         if df_data.empty:
@@ -801,17 +1030,24 @@ with st.expander("📊 Performance Dashboard", expanded=True):
             st.info("ยังไม่มีข้อมูลสำหรับ Lot Size Evolution")
         else:
             if "Lot" in df_data.columns:
-                df_data["Date"] = pd.to_datetime(df_data["Timestamp"] if "Timestamp" in df_data.columns else df_data["Date"], errors='coerce').dt.date
-                st.markdown("#### Lot Size Evolution (การเปลี่ยนแปลง Lot Size ตามเวลา)")
-                fig = px.line(
-                    df_data,
-                    x="Date",
-                    y="Lot",
-                    markers=True,
-                    title="Lot Size Evolution"
-                )
-                st.plotly_chart(fig, use_container_width=True)
-                st.caption("วิเคราะห์ Money Management/Scaling ได้ที่นี่")
+                df_data_copy = df_data.copy()
+                df_data_copy["TradeDate"] = pd.to_datetime(df_data_copy["Timestamp"] if "Timestamp" in df_data_copy.columns else (df_data_copy["Date"] if "Date" in df_data_copy.columns else (df_data_copy["Open Time"] if "Open Time" in df_data_copy.columns else None)), errors='coerce')
+                df_data_copy = df_data_copy.dropna(subset=['TradeDate']) # Remove rows with invalid dates
+                df_data_copy = df_data_copy.sort_values(by="TradeDate") # Sort for correct timeline
+
+                if not df_data_copy.empty:
+                    st.markdown("#### Lot Size Evolution (การเปลี่ยนแปลง Lot Size ตามเวลา)")
+                    fig = px.line(
+                        df_data_copy,
+                        x="TradeDate",
+                        y="Lot",
+                        markers=True,
+                        title="Lot Size Evolution"
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+                    st.caption("วิเคราะห์ Money Management/Scaling ได้ที่นี่")
+                else:
+                    st.warning("ไม่พบข้อมูล Lot ที่ถูกต้อง หรือข้อมูลวันที่ไม่สมบูรณ์")
             else:
                 st.warning("ไม่พบคอลัมน์ Lot ในข้อมูล")
 
@@ -820,16 +1056,32 @@ with st.expander("📊 Performance Dashboard", expanded=True):
             st.info("ยังไม่มีข้อมูลสำหรับ Time Analysis")
         else:
             st.markdown("#### Time Analysis (วิเคราะห์ตามวัน/เวลา)")
-            df_data["Date"] = pd.to_datetime(df_data["Timestamp"] if "Timestamp" in df_data.columns else df_data["Date"], errors='coerce')
-            df_data["Weekday"] = df_data["Date"].dt.day_name()
-            weekday_df = df_data.groupby("Weekday").apply(
-                lambda x: x["Risk $" if "Risk $" in x.columns else "Profit"].astype(float).sum()
-            ).reindex(
-                ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
-            ).reset_index(name="Profit/Loss")
-            bar_chart = px.bar(weekday_df, x="Weekday", y="Profit/Loss", title="กำไร/ขาดทุนรวมตามวันในสัปดาห์")
-            st.plotly_chart(bar_chart, use_container_width=True)
-            st.caption("ดูว่าเทรดวันไหนเวิร์ค วันไหนควรหลีกเลี่ยง")
+
+            date_col_for_time = None
+            if "Timestamp" in df_data.columns:
+                date_col_for_time = "Timestamp"
+            elif "Date" in df_data.columns:
+                date_col_for_time = "Date"
+            elif "Open Time" in df_data.columns:
+                date_col_for_time = "Open Time"
+            elif "Close Time" in df_data.columns:
+                date_col_for_time = "Close Time"
+
+            if date_col_for_time and profit_col:
+                df_data_copy = df_data.copy()
+                df_data_copy["TradeDateFull"] = pd.to_datetime(df_data_copy[date_col_for_time], errors='coerce')
+                df_data_copy = df_data_copy.dropna(subset=['TradeDateFull']) # Remove rows with invalid dates
+
+                df_data_copy["Weekday"] = df_data_copy["TradeDateFull"].dt.day_name()
+
+                weekday_df = df_data_copy.groupby("Weekday")[profit_col].sum().reindex(
+                    ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+                ).reset_index(name="Profit/Loss")
+                bar_chart = px.bar(weekday_df, x="Weekday", y="Profit/Loss", title="กำไร/ขาดทุนรวมตามวันในสัปดาห์")
+                st.plotly_chart(bar_chart, use_container_width=True)
+                st.caption("ดูว่าเทรดวันไหนเวิร์ค วันไหนควรหลีกเลี่ยง")
+            else:
+                st.warning("ไม่พบคอลัมน์วันที่/เวลา หรือ กำไร/ขาดทุน สำหรับ Time Analysis")
 
     with tab_ai:
         if df_data.empty:
@@ -837,74 +1089,71 @@ with st.expander("📊 Performance Dashboard", expanded=True):
         else:
             st.markdown("### AI Insight & Recommendation")
             total_trades = df_data.shape[0]
-            # Use 'Risk $' or 'Profit' column for win/loss calculation based on availability
-            profit_col = "Risk $" if "Risk $" in df_data.columns else "Profit"
-            
-            if profit_col in df_data.columns:
-                win_trades = df_data[df_data[profit_col].astype(float) > 0].shape[0]
-                loss_trades = df_data[df_data[profit_col].astype(float) <= 0].shape[0]
-                winrate = 100 * win_trades / total_trades if total_trades > 0 else 0
-                gross_profit = df_data[profit_col].astype(float).sum()
+            profit_col_ai = None
+            if "Profit" in df_data.columns:
+                profit_col_ai = "Profit"
+            elif "Risk $" in df_data.columns:
+                profit_col_ai = "Risk $"
+
+            if profit_col_ai:
+                win_trades = df_data[df_data[profit_col_ai].astype(float) > 0].shape[0]
+                loss_trades = df_data[df_data[profit_col_ai].astype(float) <= 0].shape[0]
+                winrate_ai = 100 * win_trades / total_trades if total_trades > 0 else 0
+                gross_profit_ai = df_data[profit_col_ai].astype(float).sum()
             else:
                 win_trades = 0
                 loss_trades = 0
-                winrate = 0
-                gross_profit = 0
-                st.warning(f"ไม่พบคอลัมน์ '{profit_col}' ในข้อมูลสำหรับคำนวณ Winrate/Profit.")
-
+                winrate_ai = 0
+                gross_profit_ai = 0
+                st.warning(f"ไม่พบคอลัมน์กำไร/ขาดทุน (Profit หรือ Risk $) ในข้อมูลสำหรับ AI.")
 
             st.write(f"จำนวนแผนเทรด: {total_trades}")
-            st.write(f"Winrate: {winrate:.2f}%")
-            st.write(f"กำไร/ขาดทุนสุทธิ: {gross_profit:,.2f} USD")
+            st.write(f"Winrate: {winrate_ai:.2f}%")
+            st.write(f"กำไร/ขาดทุนสุทธิ: {gross_profit_ai:,.2f} USD")
 
-            # --- เพิ่มส่วนการใช้ Google AI Model จริงๆ ตรงนี้ ---
             try:
-                # ตรวจสอบว่า genai ถูกตั้งค่าเรียบร้อยแล้ว
                 if "GOOGLE_API_KEY" in st.secrets.get("google_api", {}):
                     model = genai.GenerativeModel('gemini-pro')
-                    
-                    # สร้าง prompt จากข้อมูลที่มี
+
                     prompt_text = (
                         f"Based on this trading data: Total trades: {total_trades}, "
-                        f"Winrate: {winrate:.2f}%, Gross Profit/Loss: {gross_profit:,.2f} USD. "
-                        f"Provide a concise trading insight and recommendation for improvement. "
-                        f"What are the strengths and weaknesses of this trading performance? "
-                        f"Respond in Thai."
+                        f"Winrate: {winrate_ai:.2f}%, Gross Profit/Loss: {gross_profit_ai:,.2f} USD. "
+                        f"If this is a trading performance report, analyze it and provide a concise trading insight "
+                        f"and recommendation for improvement. What are the strengths and weaknesses of this trading performance? "
+                        f"Focus on practical advice for a trader. Respond in Thai."
                     )
-                    
+
                     with st.spinner("AI กำลังวิเคราะห์ข้อมูล..."):
                         response = model.generate_content(prompt_text)
                     st.markdown("---")
                     st.markdown("**จาก Gemini AI:**")
-                    st.write(response.text) # แสดงผลลัพธ์จาก AI
+                    st.write(response.text)
                     st.markdown("---")
                 else:
                     st.info("โปรดตั้งค่า Google API Key ใน `.streamlit/secrets.toml` เพื่อเปิดใช้งาน AI Assistant")
             except Exception as e:
                 st.error(f"❌ เกิดข้อผิดพลาดในการเรียกใช้ Google AI: {e}")
-                st.info("โปรดตรวจสอบว่าได้ตั้งค่า GOOGLE_API_KEY ถูกต้อง และมีโควต้าการใช้งาน AI เพียงพอ")
+                st.info("โปรดตรวจสอบว่าได้ตั้งค่า GOOGLE_API_KEY ถูกต้อง และมีโควต้าการใช้งาน AI เพียงพอ หรือ Generative Language API ถูกเปิดใช้งานใน Google Cloud Console แล้ว.")
 
-
-            # Insight จุดแข็ง/จุดอ่อน (เดิม)
             st.markdown("### 🤖 AI Insight (จากกฎที่คุณกำหนดเอง)")
             insight = []
-            if winrate >= 60:
+            if winrate_ai >= 60:
                 insight.append("Winrate สูง ระบบเสถียรภาพดี")
-            elif winrate < 40:
+            elif winrate_ai < 40:
                 insight.append("Winrate ต่ำ ควรพิจารณากลยุทธ์ใหม่")
-            # ถ้ามี RR เฉลี่ย ให้ใส่เงื่อนไขนี้ด้วย
+
+            rr_list_ai_tab = []
             if "RR" in df_data.columns:
                 rr_list_ai_tab = pd.to_numeric(df_data["RR"], errors='coerce').dropna().tolist()
-                avg_rr_ai_tab = np.mean(rr_list_ai_tab) if len(rr_list_ai_tab) > 0 else None
-                if avg_rr_ai_tab is not None and avg_rr_ai_tab < 2:
-                    insight.append("RR ต่ำกว่าค่าเฉลี่ยตลาด (<2) อาจเสี่ยงเกินไป")
+            avg_rr_ai_tab = np.mean(rr_list_ai_tab) if len(rr_list_ai_tab) > 0 else None
+            if avg_rr_ai_tab is not None and avg_rr_ai_tab < 2:
+                insight.append("RR ต่ำกว่าค่าเฉลี่ยตลาด (<2) อาจเสี่ยงเกินไป")
 
-            # max_drawdown ควรคำนวณจาก df_data ที่ถูกกรองแล้ว
             current_balance_ai_tab = acc_balance
             max_balance_ai_tab = current_balance_ai_tab
             drawdowns_ai_tab = []
-            if profit_col in df_data.columns:
-                for profit_val in df_data[profit_col].astype(float):
+            if profit_col_ai in df_data.columns:
+                for profit_val in df_data[profit_col_ai].astype(float):
                     current_balance_ai_tab += profit_val
                     if current_balance_ai_tab > max_balance_ai_tab:
                         max_balance_ai_tab = current_balance_ai_tab
@@ -913,7 +1162,6 @@ with st.expander("📊 Performance Dashboard", expanded=True):
                 max_drawdown_ai_tab = max(drawdowns_ai_tab) if drawdowns_ai_tab else 0
                 if max_drawdown_ai_tab > acc_balance * 0.05:
                     insight.append("Drawdown สูงกว่าปลอดภัย (5%) ควรควบคุม Money Management")
-
 
             if not insight:
                 insight.append("ยังไม่พบความเสี่ยงสำคัญ")
@@ -930,7 +1178,7 @@ with st.expander("📊 Performance Dashboard", expanded=True):
 
 
 # ======================= SEC 6: LOG VIEWER (ล่างสุด + EXPANDER เดียว) =======================
-with st.expander("📚 Trade Log Viewer", expanded=False):
+with st.expander("📚 Trade Log Viewer (แผนเทรด)", expanded=False):
     if os.path.exists(log_file):
         try:
             df_log = pd.read_csv(log_file)
