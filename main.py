@@ -767,8 +767,6 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Auto-Mapping", expande
         st.session_state.df_stmt_current = pd.DataFrame() # และ df_stmt_current ว่างเปล่า
         
         st.info("กำลังโหลดข้อมูล Statement จาก Google Sheets ครั้งแรก...")
-        # เราจะปรับ load_statement_from_gsheets ให้ยืดหยุ่นขึ้นในอนาคต แต่ตอนนี้จะเน้นการโหลดจากไฟล์อัปโหลด
-        # NOTE: การโหลดจาก Google Sheet จะยังคงไม่พบ Positions, Orders, Results จนกว่า Google Sheet จะมี Keyword เหล่านี้
         loaded_data = load_statement_from_gsheets()
         
         st.session_state.all_statement_data = loaded_data # เก็บผลลัพธ์ทั้งหมดใน session_state
@@ -1034,7 +1032,65 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Auto-Mapping", expande
                 if st.session_state.debug_mode:
                     st.write("DEBUG Balance Summary: No stats found using current logic.")
 
-    return section_data # <--- บรรทัดนี้คือบรรทัดสุดท้ายของฟังก์ชันนี้
+    return section_data # <--- บรรทัดนี้คือบรรทัดสุดท้ายของฟังก์ชัน extract_sections_from_file
+
+    if uploaded_files:
+        for uploaded_file in uploaded_files:
+            file_name = uploaded_file.name
+            st.info(f"กำลังประมวลผลไฟล์: {file_name}")
+            
+            with st.spinner(f"กำลังแยกส่วนข้อมูลจาก {file_name}..."):
+                extracted_data = extract_sections_from_file(uploaded_file)
+                
+                if extracted_data:
+                    # อัปเดตข้อมูลทั้งหมดใน session_state
+                    for key, df in extracted_data.items():
+                        if key not in st.session_state.all_statement_data:
+                            st.session_state.all_statement_data[key] = df
+                        else:
+                            st.session_state.all_statement_data[key] = pd.concat([st.session_state.all_statement_data[key], df], ignore_index=True)
+                            st.session_state.all_statement_data[key].drop_duplicates(inplace=True) # ป้องกันข้อมูลซ้ำซ้อน
+                    
+                    # อัปเดต df_stmt_current ด้วยส่วน 'history' (ซึ่งตอนนี้เปลี่ยนเป็น 'deals')
+                    if 'history' in extracted_data: # ตรวจสอบ 'history' ก่อน
+                        st.session_state.df_stmt_current = extracted_data['history']
+                    elif 'deals' in extracted_data: # ถ้าไม่พบ 'history' ให้ใช้ 'deals'
+                        st.session_state.df_stmt_current = extracted_data['deals']
+                    else:
+                        st.warning(f"ไม่พบส่วน 'History' หรือ 'Deals' ในไฟล์ {file_name} เพื่ออัปเดต Dashboard หลัก")
+                        
+                    st.success(f"ประมวลผล {file_name} สำเร็จ! พบข้อมูลในส่วน: {', '.join(extracted_data.keys())}")
+
+                    # แสดงผล Balance Summary ถ้ามีและ Debug Mode เปิดอยู่
+                    if st.session_state.debug_mode and 'balance_summary' in extracted_data:
+                        st.write("### 📊 Balance Summary (จากไฟล์ที่ประมวลผล)")
+                        st.dataframe(extracted_data['balance_summary'])
+                    
+                    # แสดงส่วนอื่นๆ ที่แยกได้ (ถ้า Debug Mode เปิดอยู่)
+                    if st.session_state.debug_mode:
+                        for section_key, section_df in extracted_data.items():
+                            if section_key != 'balance_summary':
+                                st.write(f"### 📄 ข้อมูลส่วน: {section_key.replace('_', ' ').title()}")
+                                st.dataframe(section_df)
+                else:
+                    st.warning(f"ไม่สามารถแยกส่วนข้อมูลใดๆ จากไฟล์ {file_name} ได้ โปรดตรวจสอบรูปแบบไฟล์")
+        st.experimental_rerun() # บังคับให้แอป rerun เพื่อแสดงข้อมูลที่อัปเดตทันที
+    else:
+        st.info("ยังไม่มีไฟล์ Statement อัปโหลด")
+
+    st.markdown("---")
+    st.subheader("📁 ข้อมูล Statement ที่ถูกโหลดและประมวลผลล่าสุด")
+    st.info("นี่คือข้อมูล 'Deals' (หรือ History) ที่ถูกดึงมาใช้ใน Dashboard หลัก")
+    st.dataframe(df_stmt_current)
+
+    # ปุ่มล้างข้อมูลทั้งหมด
+    if st.button("🗑️ ล้างข้อมูล Statement ที่โหลดทั้งหมด (รวม Google Sheets)", key="clear_all_statements"):
+        st.session_state.all_statement_data = {}
+        st.session_state.df_stmt_current = pd.DataFrame()
+        st.success("ล้างข้อมูล Statement ทั้งหมดแล้ว")
+        st.experimental_rerun()
+
+# --- สิ้นสุดโค้ดสำหรับตรวจสอบส่วนอื่นๆ ---
 # ======================= SEC 9: DASHBOARD + AI ULTIMATE =======================
 # ปรับปรุง load_data_for_dashboard()
 def load_data_for_dashboard():
