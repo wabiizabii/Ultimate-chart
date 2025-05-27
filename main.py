@@ -767,6 +767,12 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Auto-Mapping", expande
         st.session_state.df_stmt_current = pd.DataFrame() # และ df_stmt_current ว่างเปล่า
         
         st.info("กำลังโหลดข้อมูล Statement จาก Google Sheets ครั้งแรก...")
+        # NOTE: load_statement_from_gsheets ควรถูก import หรือประกาศไว้ข้างบน
+        # ถ้ายังไม่มีฟังก์ชันนี้ใน main.py คุณอาจต้องเพิ่มมันใน SEC 0 หรือใกล้เคียง
+        # เช่น:
+        # def load_statement_from_gsheets():
+        #     # โค้ดสำหรับโหลดจาก Google Sheets
+        #     return {} # คืนค่าเป็น dictionary เปล่าถ้ายังไม่มีการใช้งานจริง
         loaded_data = load_statement_from_gsheets()
         
         st.session_state.all_statement_data = loaded_data # เก็บผลลัพธ์ทั้งหมดใน session_state
@@ -803,16 +809,19 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Auto-Mapping", expande
 
 
     # --- ฟังก์ชันช่วยในการแยกส่วนข้อมูลจากไฟล์ที่อัปโหลด (ปรับปรุงแล้ว) ---
+    # ฟังก์ชันนี้ต้องอยู่นอกส่วนของ `with st.expander(...)` และมีการเยื้องที่ถูกต้อง
+    # แต่เนื่องจากเราต้องการให้มันอยู่ใน SEC 7 เพื่อความง่ายในการจัดการ
+    # เราจะวางมันตรงนี้และให้มันมี indent เพียงพอที่จะอยู่ใต้ `with st.expander`
+    # (โดยทั่วไปฟังก์ชันควรจะอยู่ระดับนอกสุด หรือในคลาส)
+    # แต่เพื่อแก้ปัญหาเฉพาะหน้าเรื่อง IndentationError และ SyntaxError
+    # เราจะวางมันในระดับนี้
     def extract_sections_from_file(file):
-        # ไม่ต้อง import pandas ที่นี่แล้ว เพราะเรา import ไว้ด้านบนสุดของไฟล์ main.py แล้ว
-        # import pandas as pd # <-- ลบบรรทัดนี้หรือคอมเมนต์มันไป (ใส่ # หน้าบรรทัด)
-
         if file.name.endswith(".xlsx"):
             df_raw = pd.read_excel(file, header=None, engine='openpyxl')
         elif file.name.endswith(".csv"):
             df_raw = pd.read_csv(file, header=None)
         else:
-            return {}
+            return {} # คืนค่า dictionary เปล่า ถ้าไม่ใช่ excel หรือ csv
 
         section_starts = {}
         current_section = None
@@ -972,11 +981,9 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Auto-Mapping", expande
                 row = df_raw.iloc[r_idx]
                 
                 # Check for labels in the known label columns: B (1), E (4), I (8)
-                # These are the *potential* columns where a label might be found in any given row within the Results section
                 potential_label_columns_in_row = [1, 4, 8] 
                 
                 for current_label_col_idx in potential_label_columns_in_row:
-                    # Ensure the column exists and the cell is not empty
                     if current_label_col_idx < len(row) and pd.notna(row[current_label_col_idx]):
                         label_text_from_excel_raw = str(row[current_label_col_idx]).strip()
                         normalized_excel_label = "".join(filter(str.isalnum, label_text_from_excel_raw)).lower()
@@ -984,43 +991,32 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Auto-Mapping", expande
                         if st.session_state.debug_mode:
                             st.write(f"DEBUG Balance Summary: Scanning Row {r_idx}, Col {current_label_col_idx}: Raw Text='{label_text_from_excel_raw}', Normalized='{normalized_excel_label}'")
                         
-                        # Use the lookup map to find if this normalized Excel label corresponds to a known stat
                         if normalized_excel_label in stat_lookup_map:
                             original_stat_key, expected_label_col_for_this_stat, expected_value_col_for_this_stat = stat_lookup_map[normalized_excel_label]
                             
-                            # Crucial check: Ensure the found label is in the *expected column* for that specific stat
-                            # This prevents misattributing a label if it appears in an unexpected column.
                             if current_label_col_idx == expected_label_col_for_this_stat:
-                                value_col_to_read = expected_value_col_for_this_stat # Use the value column associated with the stat definition
+                                value_col_to_read = expected_value_col_for_this_stat 
                                 
                                 if value_col_to_read < len(row) and pd.notna(row[value_col_to_read]):
                                     value = str(row[value_col_to_read]).strip()
                                     
-                                    # Handle parentheses for negative numbers (e.g., (123.45) -> -123.45)
                                     if '(' in value and ')' in value:
                                         value = "-" + value.replace('(', '').replace(')', '').strip()
                                     
-                                    # Clean up formatting characters
                                     value = value.replace('$', '', regex=False).replace(',', '', regex=False).replace('%', '', regex=False)
                                     
-                                    # Attempt to convert to numeric (float then int)
                                     try:
                                         value = float(value)
                                     except ValueError:
                                         try:
                                             value = int(value)
                                         except ValueError:
-                                            pass # Keep as string if conversion fails
+                                            pass 
                                     
                                     results_stats[original_stat_key] = value
                                     
                                     if st.session_state.debug_mode:
                                         st.write(f"DEBUG Balance Summary: --- Found and extracted '{original_stat_key}' --- Value: '{value}' from Row {r_idx}, Label Col {current_label_col_idx}, Value Col {value_col_to_read}")
-                                
-                                    # Optional: If a stat is found and extracted, you could remove it from stat_lookup_map
-                                    # to prevent re-processing, but for Balance Summary, this might not be necessary
-                                    # as each stat should appear uniquely in its expected row/column.
-                                    # No 'break' here, as we want to check all potential label columns within the *current row*.
 
             if results_stats:
                 section_data["balance_summary"] = pd.DataFrame(list(results_stats.items()), columns=['Metric', 'Value'])
@@ -1032,8 +1028,9 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Auto-Mapping", expande
                 if st.session_state.debug_mode:
                     st.write("DEBUG Balance Summary: No stats found using current logic.")
 
-    return section_data # <--- บรรทัดนี้คือบรรทัดสุดท้ายของฟังก์ชัน extract_sections_from_file
+        return section_data # <--- บรรทัดนี้คือบรรทัดสุดท้ายของฟังก์ชัน extract_sections_from_file
 
+    # โค้ดที่ประมวลผลไฟล์ที่อัปโหลด (ต้องอยู่นอกฟังก์ชัน extract_sections_from_file)
     if uploaded_files:
         for uploaded_file in uploaded_files:
             file_name = uploaded_file.name
