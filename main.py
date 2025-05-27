@@ -33,7 +33,9 @@ try:
     gc = gspread.service_account_from_dict(creds_dict)
     
     # เปิด Google Sheet ด้วย ID
-    spreadsheet = gc.open_by_id(st.secrets["gcp_service_account"]["spreadsheet_id"])
+    # แก้ไขบรรทัดนี้:
+    spreadsheet = gc.open_by_id(st.secrets["gcp_service_account"]["spreadsheet_id"]) 
+    
     worksheet = spreadsheet.sheet1 # หรือชื่อ sheet ของคุณ เช่น spreadsheet.worksheet("Sheet1")
     st.success("เชื่อมต่อ Google Sheets สำเร็จ!")
 except Exception as e:
