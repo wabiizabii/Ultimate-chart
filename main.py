@@ -20,9 +20,9 @@ try:
     # ดึงข้อมูล Service Account จาก secrets
     creds_dict = {
         "type": "service_account",
+        "project_id": st.secrets["gcp_service_account"]["project_id"],
         "private_key": st.secrets["gcp_service_account"]["private_key"],
         "client_email": st.secrets["gcp_service_account"]["client_email"],
-        "client_id": st.secrets["gcp_service_account"]["client_id"],         # ถ้าไม่มีใน secrets.toml ให้ลบบรรทัดนี้ออก หรือตั้งค่าเป็น ""
         "auth_uri": "https://accounts.google.com/o/oauth2/auth",
         "token_uri": "https://oauth2.googleapis.com/token",
         "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
