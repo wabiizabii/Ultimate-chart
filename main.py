@@ -651,271 +651,177 @@ with st.expander("	🤖 AI Assistant", expanded=True):
     else:
         st.info("ยังไม่มีข้อมูล log_file สำหรับ AI Summary")
 # ======================= SEC 7: Ultimate Statement Import & Auto-Mapping =======================
-uploaded_files = st.file_uploader(
-    "📤 อัปโหลด Statement (.xlsx, .csv)",
-    type=["xlsx", "csv"],
-    accept_multiple_files=True,
-    key="sec7_upload"
-)
+with st.expander("📂 SEC 7: Ultimate Statement Import & Auto-Mapping", expanded=False):
+    uploaded_files = st.file_uploader(
+        "📤 อัปโหลด Statement (.xlsx, .csv)", 
+        type=["xlsx", "csv"], 
+        accept_multiple_files=True, 
+        key="sec7_upload"
+    )
 
-def extract_sections_from_file(file):
-    import pandas as pd
+    def extract_sections_from_file(file):
+        import pandas as pd
 
-    if file.name.endswith(".xlsx"):
-        df_raw = pd.read_excel(file, header=None, engine='openpyxl')
-    elif file.name.endswith(".csv"):
-        df_raw = pd.read_csv(file, header=None)
-    else:
-        return {}
-
-    section_starts = {}
-    # เพิ่มคีย์ที่อาจพบใน Statement จริงของคุณ
-    section_keys = [
-        "Positions", "Orders", "Deals", "Balance", "Drawdown",
-        "Total Trades", "Profit Trades", "Largest profit trade", "Average profit trade",
-        "History", # MT4/MT5 export often has a "History" section
-        "Trades" # Some statements might use "Trades"
-    ]
-
-    for idx, row in df_raw.iterrows():
-        if pd.isna(row[0]): # Skip empty first column
-            continue
-        for key in section_keys:
-            if str(row[0]).strip().startswith(key):
-                section_starts[key] = idx
-                break # Found the start, move to next row
-
-    section_data = {}
-
-    def make_cols_unique(cols):
-        counts = {}
-        result = []
-        for c in cols:
-            if pd.isna(c) or str(c).strip() == '': # Handle NaN or empty strings in headers
-                c = 'Unnamed'
-            c_str = str(c)
-            if c_str in counts:
-                counts[c_str] += 1
-                result.append(f"{c_str}_{counts[c_str]}")
-            else:
-                counts[c_str] = 0
-                result.append(c_str)
-        return result
-
-    # Priority for sections: Deals, Trades, Positions, History
-    target_sections = ["Deals", "Trades", "Positions", "History"]
-    found_section_key = None
-    for skey in target_sections:
-        if skey in section_starts:
-            found_section_key = skey
-            break
-
-    if found_section_key:
-        header_row = section_starts[found_section_key] + 1
-        # Find the start of the next section to define the end of the current one
-        next_section_start_idx = len(df_raw) # Default to end of file
-
-        # Find the next section in the list after the current found_section_key
-        current_key_idx = section_keys.index(found_section_key)
-        for i in range(current_key_idx + 1, len(section_keys)):
-            next_key = section_keys[i]
-            if next_key in section_starts:
-                next_section_start_idx = section_starts[next_key]
-                break
-
-        # Extract the relevant rows for the data
-        df_section = df_raw.iloc[header_row:next_section_start_idx].dropna(how="all")
-
-        # Use the first row as columns, then slice the DataFrame to remove it
-        if not df_section.empty:
-            raw_cols = df_section.iloc[0].tolist()
-            df_section = df_section[1:]
-            df_section.columns = make_cols_unique(raw_cols)
-            section_data[found_section_key] = df_section.reset_index(drop=True)
+        if file.name.endswith(".xlsx"):
+            df_raw = pd.read_excel(file, header=None, engine='openpyxl')
+        elif file.name.endswith(".csv"):
+            df_raw = pd.read_csv(file, header=None)
         else:
-            st.warning(f"Warning: Section '{found_section_key}' found but no data rows underneath it.")
+            return {}
 
-    # You might want to parse other stats as well, but for now focus on the main data table
-    stats = {}
-    for key in section_keys:
-        if key not in ["Positions", "Orders", "Deals", "History", "Trades"]: # Skip table headers
-            for idx, row in df_raw.iterrows():
+        section_starts = {}
+        # เพิ่มคีย์ที่อาจพบใน Statement จริงของคุณ
+        section_keys = [
+            "Positions", "Orders", "Deals", "Balance", "Drawdown",
+            "Total Trades", "Profit Trades", "Largest profit trade", "Average profit trade",
+            "History", # MT4/MT5 export often has a "History" section
+            "Trades"  # Some statements might use "Trades"
+        ]
+
+        for idx, row in df_raw.iterrows():
+            if pd.isna(row[0]): # Skip empty first column
+                continue
+            for key in section_keys:
                 if str(row[0]).strip().startswith(key):
-                    stats[key] = " | ".join([str(x) for x in row if pd.notnull(x)])
-                    break # Found stat, move to next stat key
-    if stats:
-        section_data["Stats"] = stats
+                    section_starts[key] = idx
+                    break
 
-    return section_data
+        section_data = {}
 
-def preprocess_stmt_data(df):
-    # Rename columns to a consistent format
-    rename_map = {
-        'Login': 'Portfolio', # <--- เพิ่มการ map 'Login' ไปยัง 'Portfolio'
-        'Open Time': 'Timestamp',
-        'Close Time': 'Timestamp', # Assuming Close Time is the primary timestamp for closed trades
-        'Time': 'Timestamp',
-        'Profit': 'Profit',
-        'Risk $': 'Profit', # If statement uses 'Risk $' for profit/loss from closed trades
-        'Symbol': 'Asset',
-        'Instrument': 'Asset',
-        'Lots': 'Lot',
-        'Size': 'Lot',
-        'Stop Loss': 'SL',
-        'Take Profit': 'TP',
-        'R': 'RR', # If RR is provided
-        'Order': 'Trade ID', # For identifying unique trades
-        'Ticket': 'Trade ID'
-    }
-    df.rename(columns=rename_map, inplace=True)
-
-    # Ensure timestamp column is datetime
-    if 'Timestamp' in df.columns:
-        df['Timestamp'] = pd.to_datetime(df['Timestamp'], errors='coerce')
-
-    # Ensure numerical columns are numeric
-    numerical_cols = ['Profit', 'Lot', 'Entry', 'SL', 'TP', 'RR'] # Add more if needed
-    for col in numerical_cols:
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors='coerce')
-
-    # Filter out rows with NaN in critical columns if they indicate non-trade rows
-    # Example: if Profit is NaN, it might not be a closed trade
-    if 'Profit' in df.columns:
-        df = df.dropna(subset=['Profit'])
-
-    # Drop duplicate columns after renaming if any (e.g. if both 'Profit' and 'Risk $' existed and mapped to 'Profit')
-    df = df.loc[:,~df.columns.duplicated()]
-
-    return df
-
-# เริ่มต้น df_stmt เป็น DataFrame ว่างเปล่า หรือโหลดจาก Google Sheets ถ้ามี
-# ใช้ st.session_state เพื่อคงค่า df_stmt ระหว่าง rerun
-if 'df_stmt_current' not in st.session_state:
-    st.session_state.df_stmt_current = pd.DataFrame()
-    # โหลดข้อมูล Statement เก่าจาก Google Sheets ทันทีที่แอปเริ่มทำงานครั้งแรก
-    # เพื่อให้ Dashboard แสดงข้อมูลได้ทันที
-    df_stmt_from_gsheets = load_statement_from_gsheets()
-    if not df_stmt_from_gsheets.empty:
-        st.session_state.df_stmt_current = df_stmt_from_gsheets
-        st.info("โหลดข้อมูล Statement เดิมจาก Google Sheets แล้ว.")
-    else:
-        st.info("ยังไม่มีข้อมูล Statement ใน Google Sheets หรือกำลังโหลดครั้งแรก.")
-
-
-df_stmt = st.session_state.df_stmt_current # ดึงข้อมูลปัจจุบันมาใช้
-
-# ถ้ามีการอัปโหลดไฟล์ใหม่ ให้ประมวลผลและนำไปรวม/แทนที่
-if uploaded_files:
-    processed_dfs_from_upload = []
-    for file in uploaded_files:
-        st.markdown(f"**กำลังประมวลผลไฟล์: {file.name}**")
-        try:
-            sections = extract_sections_from_file(file)
-            current_df = pd.DataFrame()
-
-            # Check for the primary data sections in order of preference
-            if "Deals" in sections:
-                current_df = sections["Deals"]
-            elif "Trades" in sections:
-                current_df = sections["Trades"]
-            elif "Positions" in sections:
-                current_df = sections["Positions"] # Note: Positions are usually open trades, not closed statements
-            elif "History" in sections:
-                current_df = sections["History"]
-
-            if not current_df.empty:
-                current_df = preprocess_stmt_data(current_df)
-                processed_dfs_from_upload.append(current_df)
-                st.dataframe(current_df.head(5), use_container_width=True)
-            else:
-                st.warning(f"⚠︎ ไม่พบข้อมูล Positions, Deals, Trades หรือ History ในไฟล์: {file.name}")
-        except Exception as e:
-            st.error(f"❌ เกิดข้อผิดพลาดในการประมวลผลไฟล์ {file.name}: {e}")
-            st.exception(e)
-            #st.stop()
-    if processed_dfs_from_upload:
-        st.subheader("จัดการข้อมูลที่อัปโหลด")
-
-        # รวมข้อมูลที่อัปโหลดทั้งหมดเป็น DataFrame เดียว
-        df_new_uploads = pd.concat(processed_dfs_from_upload, ignore_index=True)
-
-        # เสนอตัวเลือกให้ผู้ใช้
-        merge_option = st.radio(
-            "มีข้อมูล Statement ที่อัปโหลดใหม่แล้ว ต้องการทำอย่างไร?",
-            ["แทนที่ข้อมูล Statement ทั้งหมดที่มีอยู่", "รวมข้อมูลใหม่กับข้อมูลเดิม (อาจมีข้อมูลซ้ำ)"],
-            index=0 # Default to replace
-        )
-
-        if merge_option == "แทนที่ข้อมูล Statement ทั้งหมดที่มีอยู่":
-            st.session_state.df_stmt_current = df_new_uploads
-            st.info("ข้อมูล Statement ถูกแทนที่ด้วยไฟล์ที่อัปโหลดใหม่แล้ว.")
-        else: # รวมข้อมูลใหม่
-            if not st.session_state.df_stmt_current.empty:
-                # รวมข้อมูลเก่ากับใหม่
-                df_combined = pd.concat([st.session_state.df_stmt_current, df_new_uploads], ignore_index=True)
-
-                # ลบข้อมูลซ้ำ (ถ้ามี Trade ID หรือ Timestamp ที่สามารถใช้ระบุรายการที่ไม่ซ้ำได้)
-                if 'Trade ID' in df_combined.columns and df_combined['Trade ID'].notna().any():
-                    df_combined.drop_duplicates(subset=['Trade ID'], inplace=True)
-                    st.info("ข้อมูลรวมและลบรายการซ้ำตาม 'Trade ID' แล้ว.")
-                elif 'Timestamp' in df_combined.columns:
-                    # อาจจะซับซ้อนขึ้นถ้าไม่มี Trade ID ที่ชัดเจน อาจต้องใช้ Timestamp + Profit + Lot
-                    # สำหรับตอนนี้ ให้ drop duplicates ทั้งหมด
-                    df_combined.drop_duplicates(inplace=True)
-                    st.info("ข้อมูลรวมและลบรายการซ้ำทั้งหมดแล้ว.")
+        def make_cols_unique(cols):
+            counts = {}
+            result = []
+            for c in cols:
+                if pd.isna(c) or str(c).strip() == '':
+                    c = 'Unnamed'
+                c_str = str(c)
+                if c_str in counts:
+                    counts[c_str] += 1
+                    result.append(f"{c_str}_{counts[c_str]}")
                 else:
-                    df_combined.drop_duplicates(inplace=True)
-                    st.warning("รวมข้อมูลแล้ว แต่ไม่มีคอลัมน์ 'Trade ID' ที่ชัดเจนสำหรับการลบข้อมูลซ้ำที่แม่นยำ.")
+                    counts[c_str] = 0
+                    result.append(c_str)
+            return result
 
-                st.session_state.df_stmt_current = df_combined
-                st.info("ข้อมูล Statement ถูกรวมกับไฟล์ที่อัปโหลดใหม่แล้ว.")
+        target_sections = ["Deals", "Trades", "Positions", "History"]
+        found_section_key = next((s for s in target_sections if s in section_starts), None)
+
+        if found_section_key:
+            header_row = section_starts[found_section_key] + 1
+            next_section_start_idx = len(df_raw)
+            current_key_idx = section_keys.index(found_section_key)
+            for next_key in section_keys[current_key_idx + 1:]:
+                if next_key in section_starts:
+                    next_section_start_idx = section_starts[next_key]
+                    break
+
+            df_section = df_raw.iloc[header_row:next_section_start_idx].dropna(how="all")
+            if not df_section.empty:
+                raw_cols = df_section.iloc[0].tolist()
+                df_section = df_section[1:]
+                df_section.columns = make_cols_unique(raw_cols)
+                section_data[found_section_key] = df_section.reset_index(drop=True)
             else:
-                st.session_state.df_stmt_current = df_new_uploads
-                st.info("ไม่มีข้อมูล Statement เดิม จึงเพิ่มข้อมูลที่อัปโหลดใหม่เข้ามา.")
+                st.warning(f"Warning: Section '{found_section_key}' found but no data rows underneath it.")
 
-        # บันทึกข้อมูล Statement ปัจจุบัน (ที่ได้จากการโหลดเก่า หรืออัปโหลดใหม่) ไปยัง Google Sheets
-        if st.button("💾 บันทึกข้อมูล Statement นี้ไปยัง Google Sheets", key="save_uploaded_stmt_to_gsheets"):
-            save_statement_to_gsheets(st.session_state.df_stmt_current)
-            st.cache_data.clear() # Clear cache เพื่อให้โหลดข้อมูลใหม่ในการรันหน้าต่อไป
-            st.rerun() # Re-run เพื่อแสดงข้อมูลล่าสุด
+        stats = {}
+        for key in section_keys:
+            if key not in ["Positions", "Orders", "Deals", "History", "Trades"]:
+                for idx, row in df_raw.iterrows():
+                    if str(row[0]).strip().startswith(key):
+                        stats[key] = " | ".join([str(x) for x in row if pd.notnull(x)])
+                        break
+        if stats:
+            section_data["Stats"] = stats
 
+        return section_data
+
+    def preprocess_stmt_data(df):
+        rename_map = {
+            'Open Time': 'Timestamp',
+            'Close Time': 'Timestamp',
+            'Time': 'Timestamp',
+            'Profit': 'Profit',
+            'Risk $': 'Profit',
+            'Symbol': 'Asset',
+            'Instrument': 'Asset',
+            'Lots': 'Lot',
+            'Size': 'Lot',
+            'Stop Loss': 'SL',
+            'Take Profit': 'TP',
+            'R': 'RR',
+            'Order': 'Trade ID',
+            'Ticket': 'Trade ID'
+        }
+        df = df.rename(columns=rename_map)
+        if 'Timestamp' in df.columns:
+            df['Timestamp'] = pd.to_datetime(df['Timestamp'], errors='coerce')
+        for col in ['Profit', 'Lot', 'Entry', 'SL', 'TP', 'RR']:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors='coerce')
+        if 'Profit' in df.columns:
+            df = df.dropna(subset=['Profit'])
+        return df.loc[:,~df.columns.duplicated()]
+
+    if 'df_stmt_current' not in st.session_state:
+        st.session_state.df_stmt_current = pd.DataFrame()
+        df_stmt_from_gsheets = load_statement_from_gsheets()
+        if not df_stmt_from_gsheets.empty:
+            st.session_state.df_stmt_current = df_stmt_from_gsheets
+            st.info("โหลดข้อมูล Statement เดิมจาก Google Sheets แล้ว.")
+        else:
+            st.info("ยังไม่มีข้อมูล Statement ใน Google Sheets หรือกำลังโหลดครั้งแรก.")
+
+    df_stmt = st.session_state.df_stmt_current
+
+    if uploaded_files:
+        processed = []
+        for file in uploaded_files:
+            st.markdown(f"**กำลังประมวลผลไฟล์: {file.name}**")
+            try:
+                sections = extract_sections_from_file(file)
+                current_df = sections.get("Deals") or sections.get("Trades") or sections.get("Positions") or sections.get("History") or pd.DataFrame()
+                if not current_df.empty:
+                    df_clean = preprocess_stmt_data(current_df)
+                    processed.append(df_clean)
+                    st.dataframe(df_clean.head(5), use_container_width=True)
+                else:
+                    st.warning(f"⚠︎ ไม่พบข้อมูล Positions, Deals, Trades หรือ History ในไฟล์: {file.name}")
+            except Exception as e:
+                st.error(f"❌ เกิดข้อผิดพลาดในการประมวลผลไฟล์ {file.name}: {e}")
+                st.exception(e)
+
+        if processed:
+            st.subheader("จัดการข้อมูลที่อัปโหลด")
+            df_new = pd.concat(processed, ignore_index=True)
+            merge_option = st.radio(
+                "ข้อมูลใหม่จะ…",
+                ["แทนที่ทั้งหมด", "รวมกับเดิม"],
+                index=0
+            )
+            if merge_option == "แทนที่ทั้งหมด":
+                st.session_state.df_stmt_current = df_new
+                st.info("แทนที่ข้อมูล Statement เรียบร้อย.")
+            else:
+                combined = pd.concat([st.session_state.df_stmt_current, df_new], ignore_index=True)
+                if 'Trade ID' in combined.columns:
+                    combined = combined.drop_duplicates(subset=['Trade ID'])
+                else:
+                    combined = combined.drop_duplicates()
+                st.session_state.df_stmt_current = combined
+                st.info("รวมข้อมูลใหม่กับเดิม และลบรายการซ้ำแล้ว.")
+            if st.button("💾 บันทึกไปยัง Google Sheets", key="save_stmt_to_gs"):
+                save_statement_to_gsheets(st.session_state.df_stmt_current)
+                st.cache_data.clear()
+                st.rerun()
+
+    if not st.session_state.df_stmt_current.empty:
+        st.markdown("---")
+        st.subheader("ข้อมูล Statement ปัจจุบัน (Dashboard)")
+        st.dataframe(st.session_state.df_stmt_current.head(10), use_container_width=True)
     else:
-        st.info("ไม่มีข้อมูล Statement ที่ถูกประมวลผลจากไฟล์ที่อัปโหลดใหม่.")
+        st.info("ยังไม่มีข้อมูล Statement สำหรับ Dashboard (โปรดอัปโหลดหรือโหลดจาก Google Sheets)")
 
-
-# ======================= START: โค้ดที่อัปเดตสำหรับแสดงผลและกรองข้อมูล =======================
-
-# สร้าง DataFrame ที่จะแสดงผลเริ่มต้นเป็นข้อมูลทั้งหมด
-df_display = st.session_state.df_stmt_current
-
-# แสดงข้อมูล Statement ปัจจุบันที่ใช้ในแอป
-if not df_display.empty:
-    st.markdown("---")
-    st.subheader("ข้อมูล Statement ปัจจุบัน (สำหรับ Dashboard)")
-
-    # --- เพิ่ม Dropdown กรอง Portfolio ---
-    # ตรวจสอบว่ามีคอลัมน์ 'Portfolio' หรือไม่
-    if 'Portfolio' in df_display.columns:
-        # ดึงรายการ portfolio ที่ไม่ซ้ำกันออกมา
-        portfolios = ["ทั้งหมด"] + sorted(df_display['Portfolio'].dropna().unique().tolist())
-        
-        selected_portfolio = st.selectbox(
-            "เลือกพอร์ตโฟลิโอเพื่อแสดงข้อมูล:",
-            options=portfolios,
-            key="portfolio_selector"
-        )
-
-        # กรอง DataFrame ตาม portfolio ที่เลือก
-        if selected_portfolio != "ทั้งหมด":
-            df_display = df_display[df_display['Portfolio'] == selected_portfolio]
-    else:
-        st.info("ไม่พบคอลัมน์ 'Portfolio' (หรือ 'Login') ใน Statement สำหรับการกรอง [cite: 6]")
-
-
-    st.dataframe(df_display.head(10), use_container_width=True)
-else:
-    st.info("ยังไม่มีข้อมูล Statement สำหรับ Dashboard (โปรดอัปโหลดหรือตรวจสอบการโหลดจาก Google Sheets)")
 
 # ======================= END: โค้ดที่อัปเดตสำหรับแสดงผลและกรองข้อมูล =======================
 
