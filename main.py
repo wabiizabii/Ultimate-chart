@@ -909,62 +909,66 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Auto-Mapping", expande
             # B=1, C=2
             # E=4, F=5
             # I=8, N=13
+            # NOTE: ลบ ":" ออกจาก stat_key เพื่อความยืดหยุ่นในการจับคู่
             stat_definitions_results = [
-                ("Total Net Profit:", 1, 2), 
-                ("Profit Factor:", 1, 2), 
-                ("Recovery Factor:", 1, 2),
-                ("Balance Drawdown Absolute:", 1, 2), 
-                ("Total Trades:", 1, 2),
+                ("Total Net Profit", 1, 2), 
+                ("Profit Factor", 1, 2), 
+                ("Recovery Factor", 1, 2),
+                ("Balance Drawdown Absolute", 1, 2), 
+                ("Total Trades", 1, 2),
 
-                ("Gross Profit:", 4, 5), 
-                ("Expected Payoff:", 4, 5), 
-                ("Sharpe Ratio:", 4, 5),
-                ("Balance Drawdown Maximal:", 4, 5), # Label in E, Value in F
-                ("Short Trades (won %):", 4, 5),
-                ("Profit Trades (% of total):", 4, 5),
-                ("Largest profit trade:", 4, 5),
-                ("Average profit trade:", 4, 5),
-                ("Maximum consecutive wins ($):", 4, 5),
-                ("Maximal consecutive profit (count):", 4, 5),
-                ("Average consecutive wins:", 4, 5),
+                ("Gross Profit", 4, 5), 
+                ("Expected Payoff", 4, 5), 
+                ("Sharpe Ratio", 4, 5),
+                ("Balance Drawdown Maximal", 4, 5), # Label in E, Value in F
+                ("Short Trades (won %)", 4, 5),
+                ("Profit Trades (% of total)", 4, 5),
+                ("Largest profit trade", 4, 5),
+                ("Average profit trade", 4, 5),
+                ("Maximum consecutive wins ($)", 4, 5),
+                ("Maximal consecutive profit (count)", 4, 5),
+                ("Average consecutive wins", 4, 5),
 
-                ("Gross Loss:", 8, 13), # Label in I, Value in N (col 13)
-                ("Balance Drawdown Relative:", 8, 13), # Label in I, Value in N
-                ("Long Trades (won %):", 8, 13), # Label in I, Value in N
-                ("Loss Trades (% of total):", 8, 13), # Label in I, Value in N
-                ("Largest loss trade:", 8, 13), # Label in I, Value in N
-                ("Average loss trade:", 8, 13), # Label in I, Value in N
-                ("Maximum consecutive losses ($):", 8, 13), # Label in I, Value in N
-                ("Maximal consecutive loss (count):", 8, 13), # Label in I, Value in N
-                ("Average consecutive losses:", 8, 13)
+                ("Gross Loss", 8, 13), # Label in I, Value in N (col 13)
+                ("Balance Drawdown Relative", 8, 13), # Label in I, Value in N
+                ("Long Trades (won %)", 8, 13), # Label in I, Value in N
+                ("Loss Trades (% of total)", 8, 13), # Label in I, Value in N
+                ("Largest loss trade", 8, 13), # Label in I, Value in N
+                ("Average loss trade", 8, 13), # Label in I, Value in N
+                ("Maximum consecutive losses ($)", 8, 13), # Label in I, Value in N
+                ("Maximal consecutive loss (count)", 8, 13), # Label in I, Value in N
+                ("Average consecutive losses", 8, 13)
             ]
             
             for r_idx in range(results_start_row + 1, min(len(df_raw), results_start_row + 1 + scan_rows_for_stats)):
                 row = df_raw.iloc[r_idx]
                 for stat_key, label_col_idx, value_col_idx in stat_definitions_results:
-                    # ตรวจสอบว่าคอลัมน์มีอยู่จริงในแถว และไม่เป็น NaN และตรงกับ Keyword
-                    if (label_col_idx < len(row) and pd.notna(row[label_col_idx]) and 
-                        str(row[label_col_idx]).strip() == stat_key):
-                        if value_col_idx < len(row) and pd.notna(row[value_col_idx]):
-                            value = str(row[value_col_idx]).strip()
-                            
-                            # ทำความสะอาดค่าตัวเลข (ลบ $, คอมม่า, % และข้อความในวงเล็บ)
-                            # ถ้ามีวงเล็บ ให้เอาเฉพาะส่วนหน้าวงเล็บมาแปลง
-                            if '(' in value and ')' in value:
-                                value = value.split('(')[0].strip()
+                    # ตรวจสอบว่าคอลัมน์มีอยู่จริงในแถว และไม่เป็น NaN
+                    if (label_col_idx < len(row) and pd.notna(row[label_col_idx])):
+                        # ทำความสะอาด label_text จาก Excel ก่อนเปรียบเทียบ
+                        label_text_from_excel = str(row[label_col_idx]).strip().replace(':', '')
+                        
+                        if label_text_from_excel == stat_key: # เปรียบเทียบกับ stat_key ที่ไม่มี ":"
+                            if value_col_idx < len(row) and pd.notna(row[value_col_idx]):
+                                value = str(row[value_col_idx]).strip()
                                 
-                            value = value.replace('$', '', regex=False).replace(',', '', regex=False).replace('%', '', regex=False)
-                            
-                            try:
-                                # ลองแปลงเป็น float ก่อน
-                                value = float(value)
-                            except ValueError:
-                                # ถ้าแปลงไม่ได้ ลองเป็น int
+                                # ทำความสะอาดค่าตัวเลข (ลบ $, คอมม่า, % และข้อความในวงเล็บ)
+                                # ถ้ามีวงเล็บ ให้เอาเฉพาะส่วนหน้าวงเล็บมาแปลง
+                                if '(' in value and ')' in value:
+                                    value = value.split('(')[0].strip()
+                                    
+                                value = value.replace('$', '', regex=False).replace(',', '', regex=False).replace('%', '', regex=False)
+                                
                                 try:
-                                    value = int(value)
+                                    # ลองแปลงเป็น float ก่อน
+                                    value = float(value)
                                 except ValueError:
-                                    pass # เก็บเป็น string ถ้าแปลงไม่ได้จริงๆ
-                            results_stats[stat_key] = value
+                                    # ถ้าแปลงไม่ได้ ลองเป็น int
+                                    try:
+                                        value = int(value)
+                                    except ValueError:
+                                        pass # เก็บเป็น string ถ้าแปลงไม่ได้จริงๆ
+                                results_stats[stat_key] = value
             
             if results_stats:
                 # เก็บเป็น DataFrame 2 คอลัมน์ (Metric, Value) เพื่อความสอดคล้องกันในการแสดงผล
@@ -1134,8 +1138,6 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Auto-Mapping", expande
         st.dataframe(all_statement_data['balance_summary'], use_container_width=True) # แสดงทั้งหมด เพราะเป็นสถิติ
     else:
         st.info("ไม่พบข้อมูล Balance Summary ใน Statement หรือเป็น DataFrame ว่างเปล่า.")
-
-    # --- สิ้นสุดโค้ดสำหรับตรวจสอบส่วนอื่นๆ ---
 
     # --- สิ้นสุดโค้ดสำหรับตรวจสอบส่วนอื่นๆ ---
 
