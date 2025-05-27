@@ -923,10 +923,10 @@ df_stmt_current = st.session_state.df_stmt_current
     if uploaded_files: 
         processed_dfs_from_upload = []
         for file in uploaded_files:
-            st.markdown(f"**กำลังประมวลผลไฟล์: {file.name}**")
-            try:
-                sections = extract_sections_from_file(file)
-                current_df = pd.DataFrame()
+        st.markdown(f"**กำลังประมวลผลไฟล์: {file.name}**")
+        try:
+        sections = extract_sections_from_file(file)
+        current_df = pd.DataFrame()
 
                 # Check for the primary data sections in order of preference
                 if "Deals" in sections:
