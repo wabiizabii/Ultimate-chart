@@ -8,7 +8,7 @@ import plotly.express as px
 import google.generativeai as genai
 import gspread # <--- เพิ่ม import gspread ที่นี่
 
-st.set_page_config(page_title="Legendary RR Planner", layout="wide")
+st.set_page_config(page_title="Ultimate-Chart", layout="wide")
 acc_balance = 10000 
 log_file = "trade_log.csv"
 
