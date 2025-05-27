@@ -757,7 +757,7 @@ with st.expander("	🤖 AI Assistant", expanded=True):
             st.warning(f"เกิดข้อผิดพลาดในการวิเคราะห์ AI: {e}")
     else:
         st.info("ยังไม่มีข้อมูล log_file สำหรับ AI Summary")
-# ======================= SEC 7: Ultimate Statement Import & Auto-Mapping =======================
+# ======================= SEC 7: Ultimate Statement Import & Auto-Mapping (Final Version) =======================
 with st.expander("📂 SEC 7: Ultimate Statement Import & Auto-Mapping", expanded=True):
     st.markdown("### 📊 จัดการ Statement และข้อมูลดิบ")
 
@@ -765,10 +765,6 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Auto-Mapping", expande
     if 'all_statement_data' not in st.session_state:
         st.session_state.all_statement_data = {}
         st.session_state.df_stmt_current = pd.DataFrame()
-        # initial_data = load_statement_from_gsheets()
-        # if 'deals' in initial_data and not initial_data['deals'].empty:
-        #     st.session_state.all_statement_data = initial_data
-        #     st.session_state.df_stmt_current = initial_data['deals']
 
     st.markdown("---")
     st.subheader("📤 อัปโหลด Statement (CSV/XLSX) เพื่อประมวลผลและบันทึก")
@@ -777,16 +773,13 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Auto-Mapping", expande
         "ลากและวางไฟล์ Statement ที่นี่ หรือคลิกเพื่อเลือกไฟล์",
         type=["xlsx", "csv"],
         accept_multiple_files=True,
-        key="sec7_upload"
+        key="sec7_final_upload"
     )
 
-    # --- Debug Mode Checkbox ---
-    if 'debug_mode' not in st.session_state:
-        st.session_state.debug_mode = False
-    st.session_state.debug_mode = st.checkbox("⚙️ เปิดโหมด Debug", value=st.session_state.debug_mode, key="debug_checkbox")
+    st.checkbox("⚙️ เปิดโหมด Debug (แสดงตารางข้อมูลทั้งหมดที่แยกได้)", key="debug_mode_final")
     
-    # --- ฟังก์ชันหลักที่แก้ไขสมบูรณ์แล้ว ---
-    def extract_data_from_report(file_buffer, stat_definitions):
+    # --- ฟังก์ชันหลัก (ไม่มีการเปลี่ยนแปลง) ---
+    def extract_data_from_report(file_buffer, stat_definitions_arg):
         df_raw = None
         try:
             file_buffer.seek(0)
@@ -805,7 +798,6 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Auto-Mapping", expande
         section_starts = {}
         section_keywords = ["Positions", "Orders", "Deals", "History", "Results"]
         for keyword in section_keywords:
-            # ใช้ loop เพื่อหา keyword และเก็บตำแหน่งแรกที่เจอ
             if keyword not in section_starts:
                 for r_idx, row in df_raw.iterrows():
                     if row.astype(str).str.contains(keyword, case=False, regex=False).any():
@@ -817,77 +809,68 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Auto-Mapping", expande
         extracted_data = {}
         sorted_sections = sorted(section_starts.items(), key=lambda x: x[1])
 
-        # 1. ประมวลผล Section ที่เป็นตาราง
         tabular_keywords = ["Positions", "Orders", "Deals"]
         for i, (section_name, start_row) in enumerate(sorted_sections):
             if section_name not in tabular_keywords:
                 continue
-
             header_row_idx = start_row + 1
             while header_row_idx < len(df_raw) and df_raw.iloc[header_row_idx].isnull().all():
                 header_row_idx += 1
-
             if header_row_idx < len(df_raw):
                 headers = [str(h).strip() for h in df_raw.iloc[header_row_idx] if pd.notna(h) and str(h).strip() != '']
                 data_start_row = header_row_idx + 1
-
                 end_row = len(df_raw)
                 if i + 1 < len(sorted_sections):
                     end_row = sorted_sections[i+1][1]
-
                 df_section = df_raw.iloc[data_start_row:end_row].copy().dropna(how='all')
-
                 if not df_section.empty:
-                    # --- จุดแก้ไข ValueError ที่สมบูรณ์ ---
                     num_data_cols = df_section.shape[1]
                     final_headers = headers[:num_data_cols]
                     if len(final_headers) < num_data_cols:
-                        final_headers.extend([f'Unnamed: {i}' for i in range(len(final_headers), num_data_cols)])
-                    
+                        final_headers.extend([f'Unnamed:{i}' for i in range(len(final_headers), num_data_cols)])
                     df_section.columns = final_headers
                     extracted_data[section_name.lower()] = df_section
 
-        # 2. ประมวลผล Section "Results"
         if "Results" in section_starts:
             results_stats = {}
             start_row = section_starts["Results"]
             results_df = df_raw.iloc[start_row : start_row + 15]
-
-            stat_definitions = {
-                "Total Net Profit", "Gross Profit", "Gross Loss", "Profit Factor", "Expected Payoff", "Recovery Factor",
-                "Sharpe Ratio", "Balance Drawdown Absolute", "Balance Drawdown Maximal", "Balance Drawdown Relative",
-                "Total Trades", "Short Trades (won %)", "Long Trades (won %)", "Profit Trades (% of total)", 
-                "Loss Trades (% of total)", "Largest profit trade", "Largest loss trade", "Average profit trade", 
-                "Average loss trade", "Maximum consecutive wins ($)", "Maximal consecutive profit (count)",
-                "Average consecutive wins", "Maximum consecutive losses ($)", "Maximal consecutive loss (count)", 
-                "Average consecutive losses"
-            }
-            
             for _, row in results_df.iterrows():
                 for c_idx, cell in enumerate(row):
                     if pd.notna(cell):
                         label = str(cell).strip().replace(':', '')
-                        if label in stat_definitions:
+                        if label in stat_definitions_arg:
                             for i in range(1, 4):
                                 if (c_idx + i) < len(row):
                                     value = row.iloc[c_idx + i]
                                     if pd.notna(value) and str(value).strip() != "":
-                                        # ทำความสะอาดค่า value ที่อาจมีวงเล็บหรือสัญลักษณ์
                                         clean_value = str(value).split('(')[0].strip()
                                         results_stats[label] = clean_value
                                         break
                             break 
-
             if results_stats:
                 extracted_data["balance_summary"] = pd.DataFrame(list(results_stats.items()), columns=['Metric', 'Value'])
-
         return extracted_data
 
     # --- ส่วนที่เรียกใช้ฟังก์ชันและแสดงผล ---
+    
+    # <<< จุดแก้ไขสำคัญที่แก้ NameError >>>
+    # ย้าย stat_definitions ออกมาสร้างไว้ข้างนอกก่อนเสมอ
+    stat_definitions = {
+        "Total Net Profit", "Gross Profit", "Gross Loss", "Profit Factor", "Expected Payoff", "Recovery Factor",
+        "Sharpe Ratio", "Balance Drawdown Absolute", "Balance Drawdown Maximal", "Balance Drawdown Relative",
+        "Total Trades", "Short Trades (won %)", "Long Trades (won %)", "Profit Trades (% of total)", 
+        "Loss Trades (% of total)", "Largest profit trade", "Largest loss trade", "Average profit trade", 
+        "Average loss trade", "Maximum consecutive wins ($)", "Maximal consecutive profit (count)",
+        "Average consecutive wins", "Maximum consecutive losses ($)", "Maximal consecutive loss (count)", 
+        "Average consecutive losses"
+    }
+
     if uploaded_files:
         for uploaded_file in uploaded_files:
             st.info(f"กำลังประมวลผลไฟล์: {uploaded_file.name}")
             with st.spinner(f"กำลังแยกส่วนข้อมูล..."):
+                # ส่ง stat_definitions เข้าไปในฟังก์ชันตรงๆ
                 extracted_data = extract_data_from_report(uploaded_file, stat_definitions)
                 
                 if extracted_data:
@@ -903,7 +886,7 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Auto-Mapping", expande
                         st.write("### 📊 Balance Summary")
                         st.dataframe(extracted_data['balance_summary'])
                     
-                    if st.session_state.debug_mode:
+                    if st.session_state.debug_mode_final:
                         for section_key, section_df in extracted_data.items():
                             if section_key != 'balance_summary':
                                 st.write(f"### 📄 ข้อมูลส่วน: {section_key.replace('_', ' ').title()}")
@@ -917,12 +900,11 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Auto-Mapping", expande
     st.subheader("📁 ข้อมูล Statement ที่ถูกโหลดและประมวลผลล่าสุด (Deals)")
     st.dataframe(st.session_state.df_stmt_current)
 
-    if st.button("🗑️ ล้างข้อมูล Statement ที่โหลดทั้งหมด", key="clear_all_statements"):
+    if st.button("🗑️ ล้างข้อมูล Statement ที่โหลดทั้งหมด", key="clear_all_statements_final"):
         st.session_state.all_statement_data = {}
         st.session_state.df_stmt_current = pd.DataFrame()
         st.success("ล้างข้อมูล Statement ทั้งหมดแล้ว")
         st.rerun()
-
 # ======================= SEC 9: DASHBOARD + AI ULTIMATE =======================
 # ปรับปรุง load_data_for_dashboard()
 def load_data_for_dashboard():
