@@ -816,13 +816,18 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Auto-Mapping", expande
         ]
 
         for idx, row in df_raw.iterrows():
-            if pd.isna(row[0]) or str(row[0]).strip() == '': # ข้ามบรรทัดที่คอลัมน์แรกว่างเปล่าจริงๆ
+            if pd.isna(row[0]) or str(row[0]).strip() == '': # Skip empty rows
                 continue
             for key in section_keys:
-                # ใช้ .strip() และ == เพื่อความแม่นยำในการจับคู่ Keyword
-                if str(row[0]).strip() == key or (len(row) > 1 and str(row[1]).strip() == key): # ตรวจสอบคอลัมน์ A และ B ด้วย
-                    section_starts[key] = idx
-                    break # เจอ Keyword แล้ว ไปหา Keyword ต่อไป
+                # ตรวจสอบว่า Keyword อยู่ในคอลัมน์ใดๆ ในช่วง 9 คอลัมน์แรกของแถว (Index 0-8)
+                found_in_row = False
+                for col_idx in range(min(len(row), 9)): # Check up to column I (index 8)
+                    if pd.notna(row[col_idx]) and str(row[col_idx]).strip() == key:
+                        section_starts[key] = idx
+                        found_in_row = True
+                        break
+                if found_in_row:
+                    break # Found keyword in this row, move to next row in df_raw
 
         section_data = {}
 
@@ -875,16 +880,15 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Auto-Mapping", expande
                     break # เจอ Keyword ถัดไปที่ใกล้ที่สุดแล้ว
 
                 # Extract the relevant rows for the data
-                # ใช้ header_row_idx + 1 เพื่อเริ่มที่ข้อมูล ไม่ใช่หัวตาราง
-                # แต่ต้องใช้ header_row_idx เพื่อดึงหัวตารางก่อน
-                
                 if header_row_idx >= len(df_raw):
                     st.warning(f"Warning: Section '{section_key}' header row index out of bounds.")
                     continue
 
+                # ดึงหัวตารางจาก df_raw ที่ header_row_idx
                 raw_cols = df_raw.iloc[header_row_idx].tolist()
                 
-                df_section = df_raw.iloc[header_row_idx + 1 : next_section_start_idx].copy() # เริ่มจากแถวถัดจาก header
+                # ดึงข้อมูลจากแถวถัดจาก header_row_idx ไปจนถึงจุดสิ้นสุดของ section
+                df_section = df_raw.iloc[header_row_idx + 1 : next_section_start_idx].copy()
                 
                 # ลบแถวที่คอลัมน์แรกว่างเปล่าทั้งหมดในส่วนข้อมูล (ถ้ามี)
                 df_section = df_section.dropna(subset=[0], how='all')
@@ -904,7 +908,7 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Auto-Mapping", expande
             # กำหนด Keyword สถิติและตำแหน่งคอลัมน์ (label_col_idx, value_col_idx) ตามภาพ 16.01.48.png
             # B=1, C=2
             # E=4, F=5
-            # I=8, J=9, K=10, L=11, M=12, N=13
+            # I=8, N=13
             stat_definitions_results = [
                 ("Total Net Profit:", 1, 2), 
                 ("Profit Factor:", 1, 2), 
@@ -949,7 +953,7 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Auto-Mapping", expande
                             if '(' in value and ')' in value:
                                 value = value.split('(')[0].strip()
                                 
-                            value = value.replace('$', '').replace(',', '').replace('%', '')
+                            value = value.replace('$', '', regex=False).replace(',', '', regex=False).replace('%', '', regex=False)
                             
                             try:
                                 # ลองแปลงเป็น float ก่อน
@@ -1070,6 +1074,7 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Auto-Mapping", expande
             if merge_option == "แทนที่ข้อมูล Statement ทั้งหมดที่มีอยู่":
                 st.session_state.df_stmt_current = df_new_uploads
                 st.info("ข้อมูล Statement ถูกแทนที่ด้วยไฟล์ที่อัปโหลดใหม่แล้ว.")
+                st.rerun() # เพิ่ม rerun เพื่อให้อัปเดตหน้าจอทันที
             else:
                 if not st.session_state.df_stmt_current.empty:
                     df_combined = pd.concat([st.session_state.df_stmt_current, df_new_uploads], ignore_index=True)
@@ -1088,6 +1093,7 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Auto-Mapping", expande
                 else:
                     st.session_state.df_stmt_current = df_new_uploads
                     st.info("ไม่มีข้อมูล Statement เดิม จึงเพิ่มข้อมูลที่อัปโหลดใหม่เข้ามา.")
+                st.rerun() # เพิ่ม rerun เพื่อให้อัปเดตหน้าจอทันที
 
             if st.button("💾 บันทึกข้อมูล Statement นี้ไปยัง Google Sheets", key="save_uploaded_stmt_to_gsheets"):
                 save_statement_to_gsheets(st.session_state.df_stmt_current)
@@ -1128,6 +1134,8 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Auto-Mapping", expande
         st.dataframe(all_statement_data['balance_summary'], use_container_width=True) # แสดงทั้งหมด เพราะเป็นสถิติ
     else:
         st.info("ไม่พบข้อมูล Balance Summary ใน Statement หรือเป็น DataFrame ว่างเปล่า.")
+
+    # --- สิ้นสุดโค้ดสำหรับตรวจสอบส่วนอื่นๆ ---
 
     # --- สิ้นสุดโค้ดสำหรับตรวจสอบส่วนอื่นๆ ---
 
