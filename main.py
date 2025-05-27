@@ -849,6 +849,7 @@ if uploaded_files:
         except Exception as e:
             st.error(f"❌ เกิดข้อผิดพลาดในการประมวลผลไฟล์ {file.name}: {e}")
             st.exception(e)
+            st.stop()
     if processed_dfs_from_upload:
         st.subheader("จัดการข้อมูลที่อัปโหลด")
 
