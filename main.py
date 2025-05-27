@@ -794,6 +794,16 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Auto-Mapping", expande
         key="sec7_upload"
     )
 
+    # --- เพิ่ม Debug Mode Checkbox ตรงนี้ ---
+    if 'debug_mode' not in st.session_state:
+        st.session_state.debug_mode = False
+    
+    st.session_state.debug_mode = st.checkbox("⚙️ เปิดโหมด Debug สำหรับ Balance Summary (อาจมีข้อความเยอะ)", value=st.session_state.debug_mode)
+    if st.session_state.debug_mode:
+        st.warning("⚠️ โหมด Debug ทำงานอยู่: ข้อความแสดงผลลัพธ์จาก Excel อาจเยอะและรกตา")
+    # --- สิ้นสุดการเพิ่ม Debug Mode Checkbox ---
+
+
     # --- ฟังก์ชันช่วยในการแยกส่วนข้อมูลจากไฟล์ที่อัปโหลด (ปรับปรุงแล้ว) ---
     def extract_sections_from_file(file):
         import pandas as pd # <-- ตรวจสอบให้แน่ใจว่า import pandas ไว้ด้านบนสุดของ main.py แล้ว
@@ -945,13 +955,18 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Auto-Mapping", expande
                 for stat_key, label_col_idx, value_col_idx in stat_definitions_results:
                     # ตรวจสอบว่าคอลัมน์มีอยู่จริงในแถว และไม่เป็น NaN
                     if (label_col_idx < len(row) and pd.notna(row[label_col_idx])):
-                        # **ส่วนที่แก้ไข: ทำความสะอาดข้อความทั้งจาก Excel และ stat_key เพื่อการเปรียบเทียบที่แข็งแกร่ง**
                         label_text_from_excel = str(row[label_col_idx]).strip()
                         
                         # Normalize ทั้งสอง string โดยลบอักขระที่ไม่ใช่ตัวอักษรและตัวเลข แล้วแปลงเป็น lowercase
                         normalized_excel_label = "".join(filter(str.isalnum, label_text_from_excel)).lower()
                         normalized_stat_key = "".join(filter(str.isalnum, stat_key)).lower()
                         
+                        # --- เพิ่ม Debug Print เพื่อแสดงค่าที่อ่านได้จาก Excel ---
+                        if st.session_state.debug_mode:
+                            st.write(f"DEBUG Balance Summary: Trying to match '{stat_key}' (Normalized: '{normalized_stat_key}')")
+                            st.write(f"  -- Found at Row {r_idx}, Col {label_col_idx}: Raw Text='{label_text_from_excel}', Normalized='{normalized_excel_label}'")
+                        # --- สิ้นสุด Debug Print ---
+
                         if normalized_excel_label == normalized_stat_key: # เปรียบเทียบ string ที่ normalized แล้ว
                             if value_col_idx < len(row) and pd.notna(row[value_col_idx]):
                                 value = str(row[value_col_idx]).strip()
