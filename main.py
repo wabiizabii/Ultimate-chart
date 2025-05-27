@@ -996,13 +996,22 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Auto-Mapping", expande
                             if current_label_col_idx == expected_label_col_for_this_stat:
                                 value_col_to_read = expected_value_col_for_this_stat 
                                 
+                                # --- START ADDED DEBUG PRINT HERE ---
+                                if st.session_state.debug_mode:
+                                    if value_col_to_read < len(row):
+                                        st.write(f"DEBUG Balance Summary: Attempting to read value for '{original_stat_key}' from Row {r_idx}, Value Col {value_col_to_read}. Raw Cell Content: '{row[value_col_to_read]}', Is NaN: {pd.isna(row[value_col_to_read])}")
+                                    else:
+                                        st.write(f"DEBUG Balance Summary: Value column {value_col_to_read} out of bounds for Row {r_idx}. Row length: {len(row)}.")
+                                # --- END ADDED DEBUG PRINT HERE ---
+
                                 if value_col_to_read < len(row) and pd.notna(row[value_col_to_read]):
                                     value = str(row[value_col_to_read]).strip()
                                     
                                     if '(' in value and ')' in value:
                                         value = "-" + value.replace('(', '').replace(')', '').strip()
                                     
-                                    value = value.replace('$', '', regex=False).replace(',', '', regex=False).replace('%', '', regex=False)
+                                    # Use regex for replace only if necessary, otherwise direct string replace is faster
+                                    value = value.replace('$', '').replace(',', '').replace('%', '')
                                     
                                     try:
                                         value = float(value)
@@ -1010,6 +1019,7 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Auto-Mapping", expande
                                         try:
                                             value = int(value)
                                         except ValueError:
+                                            # If still can't convert, keep it as original string for inspection
                                             pass 
                                     
                                     results_stats[original_stat_key] = value
