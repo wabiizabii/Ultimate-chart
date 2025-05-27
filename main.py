@@ -896,16 +896,28 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Auto-Mapping", expande
 
     # เริ่มต้น df_stmt เป็น DataFrame ว่างเปล่า หรือโหลดจาก Google Sheets ถ้ามี
     # ใช้ st.session_state เพื่อคงค่า df_stmt ระหว่าง rerun
-    if 'df_stmt_current' not in st.session_state:
-        st.session_state.df_stmt_current = pd.DataFrame()
-        df_stmt_from_gsheets = load_statement_from_gsheets()
-        if not df_stmt_from_gsheets.empty:
-            st.session_state.df_stmt_current = df_stmt_from_gsheets
-            st.info("โหลดข้อมูล Statement เดิมจาก Google Sheets แล้ว.")
-        else:
-            st.info("ยังไม่มีข้อมูล Statement ใน Google Sheets หรือกำลังโหลดครั้งแรก.")
+# <--- คัดลอกโค้ดนี้ทั้งหมด 14 บรรทัด ไปวางแทนที่ --->
+# ใช้ st.session_state เพื่อคงค่า all_statement_data และ df_stmt_current ระหว่าง rerun
+if 'all_statement_data' not in st.session_state: # ตรวจสอบว่ามี all_statement_data หรือยัง
+    st.session_state.all_statement_data = {} # เริ่มต้นด้วย Dictionary ว่างเปล่า
+    st.session_state.df_stmt_current = pd.DataFrame() # และ df_stmt_current ว่างเปล่า
 
-    df_stmt = st.session_state.df_stmt_current
+    st.info("กำลังโหลดข้อมูล Statement จาก Google Sheets ครั้งแรก...")
+    loaded_data = load_statement_from_gsheets() # เรียกใช้ฟังก์ชันโหลด
+
+    st.session_state.all_statement_data = loaded_data # เก็บผลลัพธ์ทั้งหมดใน session_state
+
+    # ดึงเฉพาะส่วน 'deals' มาใส่ใน df_stmt_current
+    if 'deals' in loaded_data and not loaded_data['deals'].empty:
+        st.session_state.df_stmt_current = loaded_data['deals']
+        st.success("โหลดข้อมูล 'Deals' สำหรับ Dashboard สำเร็จ!")
+    else:
+        st.info("ไม่พบข้อมูล 'Deals' หรือกำลังโหลดครั้งแรก.")
+
+# ดึงค่าจาก session_state มาใช้งานในส่วนที่เหลือของแอป
+all_statement_data = st.session_state.all_statement_data
+df_stmt_current = st.session_state.df_stmt_current
+# <--- สิ้นสุดโค้ดที่ต้องคัดลอก --->
 
     # ถ้ามีการอัปโหลดไฟล์ใหม่ ให้ประมวลผลและนำไปรวม/แทนที่
     if uploaded_files: 
