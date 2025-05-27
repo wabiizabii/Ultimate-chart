@@ -911,30 +911,178 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Auto-Mapping", expande
                                 # Apply cleaning only to columns that are likely to contain numbers
                                 if temp_df[col].dtype == 'object': # Check if it's an object/string type
                                     if temp_df[col].astype(str).str.contains(r'[$,%()]', regex=True).any():
-                                        temp_df[col] = temp_df[col].astype(str).str.replace('$', '', regex=False).str.replace(',', '', regex=False).str.replace('%', '', regex=False).str.replace('(', '-', regex=False).str.replace(')', '', regex=False
+                                        temp_df[col] = temp_df[col].astype(str).str.replace('$', '', regex=False).str.replace(',', '', regex=False).str.replace('%', '', regex=False).str.replace('(', '-', regex=False).str.replace(')', '', regex=False)
+                                        # Attempt conversion to numeric after cleaning
+                                        temp_df[col] = pd.to_numeric(temp_df[col], errors='coerce')
+                                elif pd.api.types.is_numeric_dtype(temp_df[col]):
+                                    # If already numeric, ensure negative signs from parentheses are handled if any exist (unlikely but safe)
+                                    temp_df[col] = temp_df[col].apply(lambda x: -abs(x) if isinstance(x, (str, bytes)) and '(' in str(x) and ')' in str(x) else x)
 
-# ======================= SEC 6: LOG VIEWER (ล่างสุด + EXPANDER เดียว) =======================
-with st.expander("📚 Trade Log Viewer (แผนเทรด)", expanded=False):
-    if os.path.exists(log_file):
-        try:
-            df_log = pd.read_csv(log_file)
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                mode_filter = st.selectbox("Mode", ["ทั้งหมด"] + sorted(df_log["Mode"].unique().tolist()), key="log_mode_filter")
-            with col2:
-                asset_filter = st.selectbox("Asset", ["ทั้งหมด"] + sorted(df_log["Asset"].unique().tolist()), key="log_asset_filter")
-            with col3:
-                date_filter = st.text_input("ค้นหาวันที่ (YYYY-MM-DD)", value="", key="log_date_filter")
-            df_show = df_log.copy()
-            if mode_filter != "ทั้งหมด":
-                df_show = df_show[df_show["Mode"] == mode_filter]
-            if asset_filter != "ทั้งหมด":
-                df_show = df_show[df_show["Asset"] == asset_filter]
-            if date_filter:
-                df_show = df_show[df_show["Timestamp"].str.contains(date_filter)]
-            st.dataframe(df_show, use_container_width=True, hide_index=True)
-        except Exception as e:
-            st.error(f"อ่าน log ไม่ได้: {e}")
+
+                            section_data[section_name.lower().replace(" ", "_")] = temp_df
+                        else:
+                            st.warning(f"Warning: No valid data rows found for section '{section_name}'.")
+                    else:
+                        st.warning(f"Warning: Section '{section_name}' found but no data could be extracted.")
+                else:
+                    st.warning(f"Warning: Could not find header row for section '{section_name}'.")
+
+        # --- Process "Results" section (Balance Summary) ---
+        results_stats = {}
+        if "Results" in section_starts:
+            results_start_row = section_starts["Results"]
+            scan_rows_for_stats = 30 # Scan up to 30 rows after "Results" start for stats
+            
+            # Use a dictionary for faster lookup, mapping normalized label to (original_label, expected_label_col_idx, expected_value_col_idx)
+            stat_lookup_map = {}
+            # Columns are 0-indexed, so B=1, E=4, I=8
+            stat_definitions_for_results = [
+                ("Total Net Profit", 1, 2), 
+                ("Profit Factor", 1, 2), 
+                ("Recovery Factor", 1, 2),
+                ("Balance Drawdown Absolute", 1, 2), 
+                ("Total Trades", 1, 2),
+
+                ("Gross Profit", 4, 5), 
+                ("Expected Payoff", 4, 5), 
+                ("Sharpe Ratio", 4, 5),
+                ("Balance Drawdown Maximal", 4, 5), 
+                ("Short Trades (won %)", 4, 5),
+                ("Profit Trades (% of total)", 4, 5),
+                ("Largest profit trade", 4, 5),
+                ("Average profit trade", 4, 5),
+                ("Maximum consecutive wins ($)", 4, 5),
+                ("Maximal consecutive profit (count)", 4, 5),
+                ("Average consecutive wins", 4, 5),
+
+                ("Gross Loss", 8, 13), 
+                ("Balance Drawdown Relative", 8, 13), 
+                ("Long Trades (won %)", 8, 13), 
+                ("Loss Trades (% of total)", 8, 13), 
+                ("Largest loss trade", 8, 13), 
+                ("Average loss trade", 8, 13), 
+                ("Maximum consecutive losses ($)", 8, 13), 
+                ("Maximal consecutive loss (count)", 8, 13), 
+                ("Average consecutive losses", 8, 13)
+            ]
+
+            for original_label, label_col, value_col in stat_definitions_for_results:
+                normalized_key = "".join(filter(str.isalnum, original_label)).lower()
+                stat_lookup_map[normalized_key] = (original_label, label_col, value_col)
+
+            # ADD THIS DEBUG PRINT: แสดงเนื้อหาของ stat_lookup_map
+            if st.session_state.debug_mode:
+                st.write("DEBUG Balance Summary: stat_lookup_map built:")
+                st.write(stat_lookup_map)
+            
+            # Iterate through rows where results are expected
+            for r_idx in range(results_start_row + 1, min(len(df_raw), results_start_row + 1 + scan_rows_for_stats)):
+                row = df_raw.iloc[r_idx]
+                
+                # Check for labels in the known label columns: B (1), E (4), I (8)
+                potential_label_columns_in_row = [1, 4, 8] 
+                
+                for current_label_col_idx in potential_label_columns_in_row:
+                    if current_label_col_idx < len(row) and pd.notna(row[current_label_col_idx]):
+                        label_text_from_excel_raw = str(row[current_label_col_idx]).strip()
+                        normalized_excel_label = "".join(filter(str.isalnum, label_text_from_excel_raw)).lower()
+
+                        if st.session_state.debug_mode:
+                            st.write(f"DEBUG Balance Summary: Scanning Row {r_idx}, Col {current_label_col_idx}: Raw Text='{label_text_from_excel_raw}', Normalized='{normalized_excel_label}'")
+                        
+                        if normalized_excel_label in stat_lookup_map:
+                            original_stat_key, expected_label_col_for_this_stat, expected_value_col_for_this_stat = stat_lookup_map[normalized_excel_label]
+                            
+                            if current_label_col_idx == expected_label_col_for_this_stat:
+                                value_col_to_read = expected_value_col_for_this_stat 
+                                
+                                if value_col_to_read < len(row) and pd.notna(row[value_col_to_read]):
+                                    value = str(row[value_col_to_read]).strip()
+                                    
+                                    if '(' in value and ')' in value:
+                                        value = "-" + value.replace('(', '').replace(')', '').strip()
+                                    
+                                    value = value.replace('$', '', regex=False).replace(',', '', regex=False).replace('%', '', regex=False)
+                                    
+                                    try:
+                                        value = float(value)
+                                    except ValueError:
+                                        try:
+                                            value = int(value)
+                                        except ValueError:
+                                            pass 
+                                    
+                                    results_stats[original_stat_key] = value
+                                    
+                                    if st.session_state.debug_mode:
+                                        st.write(f"DEBUG Balance Summary: --- Found and extracted '{original_stat_key}' --- Value: '{value}' from Row {r_idx}, Label Col {current_label_col_idx}, Value Col {value_col_to_read}")
+
+            if results_stats:
+                section_data["balance_summary"] = pd.DataFrame(list(results_stats.items()), columns=['Metric', 'Value'])
+                if st.session_state.debug_mode:
+                    st.write("DEBUG Balance Summary: Final results_stats collected:")
+                    st.write(results_stats)
+            else:
+                st.warning("Warning: 'Results' section found but no recognizable statistics extracted for Balance Summary.")
+                if st.session_state.debug_mode:
+                    st.write("DEBUG Balance Summary: No stats found using current logic.")
+
+        return section_data # <--- บรรทัดนี้คือบรรทัดสุดท้ายของฟังก์ชัน extract_sections_from_file
+
+    # โค้ดที่ประมวลผลไฟล์ที่อัปโหลด (ต้องอยู่นอกฟังก์ชัน extract_sections_from_file)
+    # แต่ยังคงอยู่ใน with st.expander("📂 SEC 7: ..."):
+    if uploaded_files:
+        for uploaded_file in uploaded_files:
+            file_name = uploaded_file.name
+            st.info(f"กำลังประมวลผลไฟล์: {file_name}")
+            
+            with st.spinner(f"กำลังแยกส่วนข้อมูลจาก {file_name}..."):
+                extracted_data = extract_sections_from_file(uploaded_file)
+                
+                if extracted_data:
+                    # อัปเดตข้อมูลทั้งหมดใน session_state
+                    for key, df in extracted_data.items():
+                        if key not in st.session_state.all_statement_data:
+                            st.session_state.all_statement_data[key] = df
+                        else:
+                            st.session_session.all_statement_data[key] = pd.concat([st.session_session.all_statement_data[key], df], ignore_index=True)
+                            st.session_session.all_statement_data[key].drop_duplicates(inplace=True) # ป้องกันข้อมูลซ้ำซ้อน
+                    
+                    # อัปเดต df_stmt_current ด้วยส่วน 'history' (ซึ่งตอนนี้เปลี่ยนเป็น 'deals')
+                    if 'history' in extracted_data: # ตรวจสอบ 'history' ก่อน
+                        st.session_state.df_stmt_current = extracted_data['history']
+                    elif 'deals' in extracted_data: # ถ้าไม่พบ 'history' ให้ใช้ 'deals'
+                        st.session_state.df_stmt_current = extracted_data['deals']
+                    else:
+                        st.warning(f"ไม่พบส่วน 'History' หรือ 'Deals' ในไฟล์ {file_name} เพื่ออัปเดต Dashboard หลัก")
+                        
+                    st.success(f"ประมวลผล {file_name} สำเร็จ! พบข้อมูลในส่วน: {', '.join(extracted_data.keys())}")
+
+                    # แสดงผล Balance Summary ถ้ามีและ Debug Mode เปิดอยู่
+                    if st.session_state.debug_mode and 'balance_summary' in extracted_data:
+                        st.write("### 📊 Balance Summary (จากไฟล์ที่ประมวลผล)")
+                        st.dataframe(extracted_data['balance_summary'])
+                    
+                    # แสดงส่วนอื่นๆ ที่แยกได้ (ถ้า Debug Mode เปิดอยู่)
+                    if st.session_state.debug_mode:
+                        for section_key, section_df in extracted_data.items():
+                            if section_key != 'balance_summary':
+                                st.write(f"### 📄 ข้อมูลส่วน: {section_key.replace('_', ' ').title()}")
+                                st.dataframe(section_df)
+                else:
+                    st.warning(f"ไม่สามารถแยกส่วนข้อมูลใดๆ จากไฟล์ {file_name} ได้ โปรดตรวจสอบรูปแบบไฟล์")
+        # st.experimental_rerun() # บรรทัดนี้ถูกลบออกเพื่อแก้ AttributeError
     else:
-        st.info("ยังไม่มีข้อมูลแผนที่บันทึกไว้")
+        st.info("ยังไม่มีไฟล์ Statement อัปโหลด")
 
+    st.markdown("---")
+    st.subheader("📁 ข้อมูล Statement ที่ถูกโหลดและประมวลผลล่าสุด")
+    st.info("นี่คือข้อมูล 'Deals' (หรือ History) ที่ถูกดึงมาใช้ใน Dashboard หลัก")
+    st.dataframe(df_stmt_current)
+
+    # ปุ่มล้างข้อมูลทั้งหมด
+    if st.button("🗑️ ล้างข้อมูล Statement ที่โหลดทั้งหมด (รวม Google Sheets)", key="clear_all_statements"):
+        st.session_state.all_statement_data = {}
+        st.session_state.df_stmt_current = pd.DataFrame()
+        st.success("ล้างข้อมูล Statement ทั้งหมดแล้ว")
+        st.experimental_rerun() # อันนี้ยังคงอยู่
