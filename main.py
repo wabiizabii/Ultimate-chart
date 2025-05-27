@@ -30,42 +30,148 @@ def get_gspread_client():
         return None
 
 # ฟังก์ชันสำหรับอ่านข้อมูล Statement จาก Google Sheets
-@st.cache_data(ttl=3600) # แคชข้อมูล 1 ชั่วโมง เพื่อไม่ให้เรียก API บ่อยเกินไป
+import pandas as pd # <-- ตรวจสอบให้แน่ใจว่ามีบรรทัดนี้อยู่ด้านบนสุดของไฟล์ main.py
+import gspread     # <-- ตรวจสอบให้แน่ใจว่ามีบรรทัดนี้อยู่ด้านบนสุดของไฟล์ main.py
+import streamlit as st # <-- ตรวจสอบให้แน่ใจว่ามีบรรทัดนี้อยู่ด้านบนสุดของไฟล์ main.py
+
+@st.cache_data(ttl=3600)
 def load_statement_from_gsheets():
     gc = get_gspread_client()
     if gc is None:
-        return pd.DataFrame()
+        return {}
+
     try:
         sh = gc.open(GOOGLE_SHEET_NAME)
         try:
             worksheet = sh.worksheet(GOOGLE_WORKSHEET_NAME)
         except gspread.exceptions.WorksheetNotFound:
             st.info(f"✨ กำลังสร้าง Worksheet '{GOOGLE_WORKSHEET_NAME}' ใน Google Sheet '{GOOGLE_SHEET_NAME}'...")
-            worksheet = sh.add_worksheet(title=GOOGLE_WORKSHEET_NAME, rows="1", cols="1") # เริ่มต้นด้วย 1x1
+            worksheet = sh.add_worksheet(title=GOOGLE_WORKSHEET_NAME, rows="1", cols="1")
+            return {}
 
-        data = worksheet.get_all_records()
-        if not data: # ถ้า worksheet ว่างเปล่า
-            # st.info(f"Worksheet '{GOOGLE_WORKSHEET_NAME}' ว่างเปล่า.")
-            return pd.DataFrame()
+        all_sheet_values = worksheet.get_all_values()
 
-        df = pd.DataFrame(data)
-        # ทำความสะอาดข้อมูลที่อ่านได้ (ตามที่คุณต้องการ เช่น แปลง type)
-        for col in ['Profit', 'Risk $', 'Lot', 'RR', 'Entry', 'SL', 'TP', 'StopLoss']: # เพิ่มคอลัมน์ที่อาจเป็นตัวเลข
-            if col in df.columns:
-                df[col] = pd.to_numeric(df[col], errors='coerce')
+        if not all_sheet_values or len(all_sheet_values) < 2:
+            st.info(f"Worksheet '{GOOGLE_WORKSHEET_NAME}' ว่างเปล่าหรือมีข้อมูลน้อยเกินไป.")
+            return {}
 
-        for col in ['Timestamp', 'Time', 'Date', 'Open Time', 'Close Time']: # เพิ่มคอลัมน์วันที่/เวลา
-            if col in df.columns:
-                df[col] = pd.to_datetime(df[col], errors='coerce')
+        parser_config = {
+            "positions": {
+                "start_keyword": "Positions",
+                "header_row_offset": 1, 
+                "end_keyword": "Orders"
+            },
+            "orders": {
+                "start_keyword": "Orders",
+                "header_row_offset": 1,
+                "end_keyword": "Deals"
+            },
+            "deals": {
+                "start_keyword": "Deals",
+                "header_row_offset": 1,
+                "end_keyword": "Balance" 
+            },
+            "balance_summary": { # เพิ่มส่วนนี้ตามที่คุณต้องการ
+                "start_keyword": "Balance",
+                "header_row_offset": 0, # หรืออาจจะเป็น 1 ถ้าหัวตารางไม่ได้อยู่บรรทัดเดียวกับ Balance
+                "end_keyword": "Drawdown"
+            },
+            # *** สำคัญ: คุณสามารถเพิ่มส่วนอื่นๆ ที่คุณต้องการได้ที่นี่ ***
+            # โดยการดูจาก Statement ของคุณว่ามี Keyword อะไรที่ใช้ระบุส่วนนั้น
+            # และหัวตารางอยู่ห่างจาก Keyword นั้นกี่บรรทัด (header_row_offset)
+            # และส่วนนั้นสิ้นสุดที่ Keyword อะไร (end_keyword)
+        }
 
-        # st.success(f"โหลดข้อมูล Statement จาก Google Sheet '{GOOGLE_SHEET_NAME}/{GOOGLE_WORKSHEET_NAME}' สำเร็จ!")
-        return df
+        all_sections_dfs = {}
+        st.write("--- กำลังแยกส่วนข้อมูล ---")
+
+        for section_name, config in parser_config.items():
+            start_row_idx = -1
+            end_row_idx = -1
+
+            for i, row in enumerate(all_sheet_values):
+                # ค้นหา start_keyword ในแถว อาจจะอยู่ในคอลัมน์แรก หรือคอลัมน์อื่น
+                # ใช้ " ".join(row) เพื่อรวมคอลัมน์ในแถวนั้นเป็น string เดียวแล้วค้นหา
+                if config["start_keyword"] in " ".join(row): 
+                    start_row_idx = i
+                    break
+
+            if start_row_idx == -1:
+                st.warning(f"⚠️ ไม่พบส่วน '{section_name}' ด้วย keyword: '{config['start_keyword']}'.")
+                continue
+
+            if "end_keyword" in config and config["end_keyword"]:
+                for i in range(start_row_idx + 1, len(all_sheet_values)):
+                    if config["end_keyword"] in " ".join(all_sheet_values[i]):
+                        end_row_idx = i
+                        break
+
+            if end_row_idx == -1:
+                end_row_idx = len(all_sheet_values)
+
+            header_row_actual_idx = start_row_idx + config["header_row_offset"]
+
+            if header_row_actual_idx >= len(all_sheet_values):
+                st.warning(f"⚠️ หัวตารางของส่วน '{section_name}' เกินขอบเขต. ข้ามส่วนนี้.")
+                continue
+
+            header = all_sheet_values[header_row_actual_idx]
+            clean_header = [h for h in header if h.strip() != '']
+
+            if not clean_header:
+                st.warning(f"⚠️ ไม่พบหัวตารางที่ถูกต้องสำหรับส่วน '{section_name}'. ข้ามส่วนนี้.")
+                continue
+
+            # หาตำแหน่งของคอลัมน์ที่ไม่ว่างใน header เพื่อใช้ตัดข้อมูล
+            # และตรวจสอบว่าคอลัมน์ว่างเหล่านั้นเป็นแค่ช่องว่างหรือคอลัมน์ที่ไม่มีข้อมูลจริงๆ
+            col_indices = []
+            for i, h_val in enumerate(header):
+                if h_val.strip() != '':
+                    col_indices.append(i)
+                elif len(col_indices) > 0 and (i - col_indices[-1] == 1): # ถ้าเป็นคอลัมน์ว่างถัดจากคอลัมน์ที่มีข้อมูล
+                    # อาจจะเกิดจากการรวมเซลล์ใน Excel
+                    # ให้ลองดูว่าคอลัมน์ถัดไปเป็นส่วนหนึ่งของหัวตารางหรือไม่
+                    # แต่สำหรับตอนนี้ เราจะพึ่ง clean_header ที่ไม่รวมคอลัมน์ว่างเลย
+                    pass
+
+
+            section_raw_data = []
+            for row_idx in range(header_row_actual_idx + 1, end_row_idx):
+                current_row = all_sheet_values[row_idx]
+                if not any(c.strip() for c in current_row):
+                    break
+
+                # ตัดข้อมูลตามคอลัมน์ที่มีใน clean_header
+                truncated_row = [current_row[idx] if idx < len(current_row) else '' for idx in col_indices]
+                section_raw_data.append(truncated_row)
+
+            if section_raw_data:
+                df_section = pd.DataFrame(section_raw_data, columns=clean_header)
+                df_section.replace('', pd.NA, inplace=True)
+                df_section.dropna(how='all', inplace=True)
+
+                if not df_section.empty:
+                    all_sections_dfs[section_name] = df_section
+                    st.success(f"โหลดข้อมูลส่วน '{section_name}' สำเร็จ ({len(df_section)} แถว).")
+                else:
+                    st.info(f"ส่วน '{section_name}' มีข้อมูลแต่ไม่สามารถประมวลผลเป็น DataFrame ได้.")
+            else:
+                st.info(f"ไม่พบข้อมูลสำหรับส่วน '{section_name}'.")
+
+        if all_sections_dfs:
+            st.success(f"โหลดข้อมูล Statement ทั้งหมดจาก Google Sheet '{GOOGLE_SHEET_NAME}/{GOOGLE_WORKSHEET_NAME}' สำเร็จ!")
+        else:
+            st.warning("ไม่พบข้อมูลส่วนใดๆ ใน Google Sheet. โปรดตรวจสอบไฟล์ Statement และโครงสร้าง.")
+
+        return all_sections_dfs
+
     except gspread.exceptions.SpreadsheetNotFound:
         st.error(f"❌ ไม่พบ Google Sheet ชื่อ '{GOOGLE_SHEET_NAME}'. โปรดสร้างและแชร์กับ Service Account ของคุณ")
-        return pd.DataFrame()
+        return {}
     except Exception as e:
         st.error(f"❌ เกิดข้อผิดพลาดในการโหลดข้อมูล Statement จาก Google Sheets: {e}")
-        return pd.DataFrame()
+        st.exception(e)
+        return {}
 
 # ฟังก์ชันสำหรับบันทึก DataFrame ลง Google Sheets (แทนที่ข้อมูลเก่า)
 # (โค้ดส่วนอื่น ๆ ของคุณอยู่เหมือนเดิม)
