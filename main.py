@@ -768,7 +768,8 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Auto-Mapping", expande
         
         st.info("กำลังโหลดข้อมูล Statement จาก Google Sheets ครั้งแรก...")
         # เราจะปรับ load_statement_from_gsheets ให้ยืดหยุ่นขึ้นในอนาคต แต่ตอนนี้จะเน้นการโหลดจากไฟล์อัปโหลด
-        loaded_data = load_statement_from_gsheets() # เรียกใช้ฟังก์ชันโหลด (อาจจะโหลดได้แค่ Deals จาก GSheet)
+        # NOTE: การโหลดจาก Google Sheet จะยังคงไม่พบ Positions, Orders, Results จนกว่า Google Sheet จะมี Keyword เหล่านี้
+        loaded_data = load_statement_from_gsheets()
         
         st.session_state.all_statement_data = loaded_data # เก็บผลลัพธ์ทั้งหมดใน session_state
         
@@ -806,46 +807,51 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Auto-Mapping", expande
 
         section_starts = {}
         # อัปเดต Keyword ที่อาจพบใน Statement จริงของคุณตามที่คุณให้ข้อมูลมา
+        # เพิ่ม 'Results' และ 'Balance graph' ใน section_keys
         section_keys = [
-            "Positions", "Orders", "Deals", "Results", # 'Results' สำหรับ Balance Summary
-            "Total Net Profit", "Profit Factor", "Recovery Factor", # สถิติอื่นๆ ที่อาจไม่ใช่หัวตาราง
+            "Positions", "Orders", "Deals", "Results", "Balance graph",
+            "Total Net Profit", "Profit Factor", "Recovery Factor", # สถิติอื่นๆ ที่อาจไม่ใช่หัวตาราง แต่เป็น Keyword
             "Balance", "Equity", "Drawdown", # Keyword อื่นๆ ที่อาจเป็นส่วนสรุป
             "History", "Trades" # สำหรับ Deals ที่อาจใช้คำอื่น
         ]
 
         for idx, row in df_raw.iterrows():
-            if pd.isna(row[0]): # ข้ามบรรทัดที่คอลัมน์แรกว่างเปล่า
+            if pd.isna(row[0]) or str(row[0]).strip() == '': # ข้ามบรรทัดที่คอลัมน์แรกว่างเปล่าจริงๆ
                 continue
             for key in section_keys:
-                if str(row[0]).strip().startswith(key):
+                # ใช้ .strip() และ == เพื่อความแม่นยำในการจับคู่ Keyword
+                if str(row[0]).strip() == key or (len(row) > 1 and str(row[1]).strip() == key): # ตรวจสอบคอลัมน์ A และ B ด้วย
                     section_starts[key] = idx
                     break # เจอ Keyword แล้ว ไปหา Keyword ต่อไป
 
         section_data = {}
 
-        # ฟังก์ชันช่วยทำให้ชื่อคอลัมน์ไม่ซ้ำกัน
+        # ฟังก์ชันช่วยทำให้ชื่อคอลัมน์ไม่ซ้ำกันและจัดการค่าว่างใน Header
         def make_cols_unique(cols):
             counts = {}
             result = []
             for c in cols:
-                if pd.isna(c) or str(c).strip() == '': # จัดการ NaN หรือสตริงว่างใน Header
-                    c = 'Unnamed'
-                c_str = str(c).strip() # Trim whitespace
+                # ใช้ 'Unnamed' สำหรับคอลัมน์ที่ว่างเปล่าจริงๆ หรือเป็นค่า NaN
+                if pd.isna(c) or (isinstance(c, str) and c.strip() == ''):
+                    c_str = 'Unnamed'
+                else:
+                    c_str = str(c).strip()
+                    
                 if c_str in counts:
                     counts[c_str] += 1
                     result.append(f"{c_str}_{counts[c_str]}")
                 else:
-                    counts[c_str] = 0
+                    counts[c_str] = 0 # เริ่มต้นนับที่ 0 เพื่อให้ชื่อแรกไม่มี _1
                     result.append(c_str)
             return result
 
         # Priority สำหรับส่วนตารางหลัก: Deals, Trades, Positions, Orders, History
         tabular_sections = {
-            "Deals": {"start_keyword": "Deals", "header_offset": 2},
-            "Trades": {"start_keyword": "Trades", "header_offset": 2}, # เผื่อมี
-            "Positions": {"start_keyword": "Positions", "header_offset": 2},
-            "Orders": {"start_keyword": "Orders", "header_offset": 2},
-            "History": {"start_keyword": "History", "header_offset": 2} # เผื่อมี
+            "Deals": {"start_keyword": "Deals", "header_offset": 1}, # แก้เป็น 1 ตามการยืนยัน
+            "Trades": {"start_keyword": "Trades", "header_offset": 1}, # เผื่อมี
+            "Positions": {"start_keyword": "Positions", "header_offset": 1}, # แก้เป็น 1 ตามการยืนยัน
+            "Orders": {"start_keyword": "Orders", "header_offset": 1}, # แก้เป็น 1 ตามการยืนยัน
+            "History": {"start_keyword": "History", "header_offset": 1} # เผื่อมี
         }
 
         # ประมวลผลส่วนที่เป็นตาราง
@@ -856,60 +862,104 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Auto-Mapping", expande
                 
                 # หาจุดสิ้นสุดของตาราง (คือจุดเริ่มต้นของส่วนถัดไป หรือท้ายไฟล์)
                 next_section_start_idx = len(df_raw)
-                # ค้นหาส่วนถัดไปจาก Keyword ที่อยู่ใน section_keys
-                for skey in section_keys:
-                    if skey != config["start_keyword"] and skey in section_starts and section_starts[skey] > start_row:
-                        next_section_start_idx = min(next_section_start_idx, section_starts[skey])
                 
-                # Extract the relevant rows for the data
-                df_section = df_raw.iloc[header_row_idx:next_section_start_idx].copy() # ใช้ .copy() เพื่อหลีกเลี่ยง SettingWithCopyWarning
-                df_section = df_section.dropna(how="all") # ลบบรรทัดที่ว่างเปล่าทั้งหมด
+                # ค้นหาส่วนถัดไปจาก Keyword ที่อยู่ใน section_keys
+                # เรียงตาม Index เพื่อหา Keyword ถัดไปที่ใกล้ที่สุด
+                sorted_section_starts_after_current = sorted([
+                    (k, idx) for k, idx in section_starts.items() 
+                    if idx > start_row and k != config["start_keyword"]
+                ], key=lambda item: item[1])
 
+                for skey, s_idx in sorted_section_starts_after_current:
+                    next_section_start_idx = s_idx
+                    break # เจอ Keyword ถัดไปที่ใกล้ที่สุดแล้ว
+
+                # Extract the relevant rows for the data
+                # ใช้ header_row_idx + 1 เพื่อเริ่มที่ข้อมูล ไม่ใช่หัวตาราง
+                # แต่ต้องใช้ header_row_idx เพื่อดึงหัวตารางก่อน
+                
+                if header_row_idx >= len(df_raw):
+                    st.warning(f"Warning: Section '{section_key}' header row index out of bounds.")
+                    continue
+
+                raw_cols = df_raw.iloc[header_row_idx].tolist()
+                
+                df_section = df_raw.iloc[header_row_idx + 1 : next_section_start_idx].copy() # เริ่มจากแถวถัดจาก header
+                
+                # ลบแถวที่คอลัมน์แรกว่างเปล่าทั้งหมดในส่วนข้อมูล (ถ้ามี)
+                df_section = df_section.dropna(subset=[0], how='all')
+                
                 if not df_section.empty:
-                    # ใช้แถวแรกของ df_section เป็น Header
-                    raw_cols = df_section.iloc[0].tolist()
-                    df_section = df_section[1:]
                     df_section.columns = make_cols_unique(raw_cols)
                     section_data[section_key.lower()] = df_section.reset_index(drop=True)
                 else:
                     st.warning(f"Warning: Section '{section_key}' found but no data rows underneath it.")
 
         # --- ประมวลผลส่วนสรุปสถิติ (Results) ---
+        results_stats = {}
         if "Results" in section_starts:
             results_start_row = section_starts["Results"]
-            results_stats = {}
-            scan_rows = 30 # สแกน 30 บรรทัดหลังจาก Keyword "Results" เพื่อหาสถิติ
+            scan_rows_for_stats = 30 # สแกน 30 บรรทัดหลังจาก Keyword "Results"
+            
+            # กำหนด Keyword สถิติและตำแหน่งคอลัมน์ (label_col_idx, value_col_idx) ตามภาพ 16.01.48.png
+            # B=1, C=2
+            # E=4, F=5
+            # I=8, J=9, K=10, L=11, M=12, N=13
+            stat_definitions_results = [
+                ("Total Net Profit:", 1, 2), 
+                ("Profit Factor:", 1, 2), 
+                ("Recovery Factor:", 1, 2),
+                ("Balance Drawdown Absolute:", 1, 2), 
+                ("Total Trades:", 1, 2),
 
-            # กำหนด Keyword สถิติและตำแหน่งคอลัมน์ (label_col, value_col)
-            # ต้องดูตามโครงสร้างจริงในไฟล์ของคุณ
-            stat_definitions = [
-                ("Total Net Profit", 0, 1), ("Profit Factor", 0, 1), ("Recovery Factor", 0, 1),
-                ("Balance Drawdown Absolute", 0, 1), ("Total Trades", 0, 1),
-                ("Gross Profit", 2, 3), ("Expected Payoff", 2, 3), ("Sharpe Ratio", 2, 3),
-                ("Balance Drawdown Maximal", 2, 3), ("Short Trades (won %)", 2, 3),
-                ("Profit Trades (% of total)", 2, 3), ("Largest profit trade", 2, 3),
-                ("Average profit trade", 2, 3), ("Maximum consecutive wins ($)", 2, 3),
-                ("Maximal consecutive profit (count)", 2, 3), ("Average consecutive wins", 2, 3),
-                ("Gross Loss", 4, 5), ("Balance Drawdown Relative", 4, 5),
-                ("Long Trades (won %)", 4, 5), ("Loss Trades (% of total)", 4, 5),
-                ("Largest loss trade", 4, 5), ("Average loss trade", 4, 5),
-                ("Maximum consecutive losses ($)", 4, 5), ("Maximal consecutive loss (count)", 4, 5),
-                ("Average consecutive losses", 4, 5)
+                ("Gross Profit:", 4, 5), 
+                ("Expected Payoff:", 4, 5), 
+                ("Sharpe Ratio:", 4, 5),
+                ("Balance Drawdown Maximal:", 4, 5), # Label in E, Value in F
+                ("Short Trades (won %):", 4, 5),
+                ("Profit Trades (% of total):", 4, 5),
+                ("Largest profit trade:", 4, 5),
+                ("Average profit trade:", 4, 5),
+                ("Maximum consecutive wins ($):", 4, 5),
+                ("Maximal consecutive profit (count):", 4, 5),
+                ("Average consecutive wins:", 4, 5),
+
+                ("Gross Loss:", 8, 13), # Label in I, Value in N (col 13)
+                ("Balance Drawdown Relative:", 8, 13), # Label in I, Value in N
+                ("Long Trades (won %):", 8, 13), # Label in I, Value in N
+                ("Loss Trades (% of total):", 8, 13), # Label in I, Value in N
+                ("Largest loss trade:", 8, 13), # Label in I, Value in N
+                ("Average loss trade:", 8, 13), # Label in I, Value in N
+                ("Maximum consecutive losses ($):", 8, 13), # Label in I, Value in N
+                ("Maximal consecutive loss (count):", 8, 13), # Label in I, Value in N
+                ("Average consecutive losses:", 8, 13)
             ]
             
-            for r_idx in range(results_start_row + 1, min(len(df_raw), results_start_row + 1 + scan_rows)):
+            for r_idx in range(results_start_row + 1, min(len(df_raw), results_start_row + 1 + scan_rows_for_stats)):
                 row = df_raw.iloc[r_idx]
-                for stat_key, label_col, value_col in stat_definitions:
-                    if (label_col < len(row) and pd.notna(row[label_col]) and 
-                        str(row[label_col]).strip().startswith(stat_key)):
-                        if value_col < len(row) and pd.notna(row[value_col]):
-                            value = str(row[value_col]).strip()
-                            # ทำความสะอาดค่าตัวเลข (ลบ $, คอมม่า, %)
+                for stat_key, label_col_idx, value_col_idx in stat_definitions_results:
+                    # ตรวจสอบว่าคอลัมน์มีอยู่จริงในแถว และไม่เป็น NaN และตรงกับ Keyword
+                    if (label_col_idx < len(row) and pd.notna(row[label_col_idx]) and 
+                        str(row[label_col_idx]).strip() == stat_key):
+                        if value_col_idx < len(row) and pd.notna(row[value_col_idx]):
+                            value = str(row[value_col_idx]).strip()
+                            
+                            # ทำความสะอาดค่าตัวเลข (ลบ $, คอมม่า, % และข้อความในวงเล็บ)
+                            # ถ้ามีวงเล็บ ให้เอาเฉพาะส่วนหน้าวงเล็บมาแปลง
+                            if '(' in value and ')' in value:
+                                value = value.split('(')[0].strip()
+                                
                             value = value.replace('$', '').replace(',', '').replace('%', '')
+                            
                             try:
-                                value = pd.to_numeric(value)
+                                # ลองแปลงเป็น float ก่อน
+                                value = float(value)
                             except ValueError:
-                                pass # ถ้าแปลงไม่ได้ ให้เก็บเป็น String
+                                # ถ้าแปลงไม่ได้ ลองเป็น int
+                                try:
+                                    value = int(value)
+                                except ValueError:
+                                    pass # เก็บเป็น string ถ้าแปลงไม่ได้จริงๆ
                             results_stats[stat_key] = value
             
             if results_stats:
@@ -917,6 +967,9 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Auto-Mapping", expande
                 section_data["balance_summary"] = pd.DataFrame(list(results_stats.items()), columns=['Metric', 'Value'])
             else:
                 st.warning("Warning: 'Results' section found but no recognizable statistics extracted.")
+        
+        # NOTE: ถ้าต้องการดึง Balance/Equity จากส่วน 'Balance graph' ในอนาคต ต้องเพิ่ม logic ตรงนี้
+        # โดยอาจจะใช้ 'Balance graph' เป็นจุดสิ้นสุด และ scan หา 'Balance', 'Equity' ก่อนหน้านั้น
 
         return section_data
 
@@ -925,7 +978,7 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Auto-Mapping", expande
         rename_map = {
             'Open Time': 'Timestamp',
             'Close Time': 'Timestamp',
-            'Time': 'Timestamp',
+            'Time': 'Timestamp', # เพิ่ม Time สำหรับคอลัมน์ Time ใน Deals และ Positions
             'Profit': 'Profit',
             'Risk $': 'Profit',
             'Symbol': 'Asset',
@@ -943,11 +996,17 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Auto-Mapping", expande
         df.rename(columns=rename_map, inplace=True)
 
         if 'Timestamp' in df.columns:
-            df['Timestamp'] = pd.to_datetime(df['Timestamp'], errors='coerce')
+            # ลองหลาย format เพื่อให้ครอบคลุม (สำหรับ MT4/MT5 มักเป็น '%Y.%m.%d %H:%M:%S')
+            df['Timestamp'] = pd.to_datetime(df['Timestamp'], format='%Y.%m.%d %H:%M:%S', errors='coerce')
+            if df['Timestamp'].isna().all(): # ถ้าแปลงไม่ได้ทั้งหมด ลอง format อื่น
+                 df['Timestamp'] = pd.to_datetime(df['Timestamp'], errors='coerce')
+
 
         numerical_cols = ['Profit', 'Lot', 'Entry', 'SL', 'TP', 'RR', 'Volume', 'Price', 'Commission', 'Fee', 'Swap', 'Balance'] # เพิ่มคอลัมน์ตัวเลข
         for col in numerical_cols:
             if col in df.columns:
+                # ทำความสะอาดข้อมูลที่ไม่ใช่ตัวเลข เช่น '$', ',' ก่อนแปลง
+                df[col] = df[col].astype(str).str.replace('$', '', regex=False).str.replace(',', '', regex=False)
                 df[col] = pd.to_numeric(df[col], errors='coerce')
 
         if 'Profit' in df.columns:
@@ -968,17 +1027,18 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Auto-Mapping", expande
                 sections = extract_sections_from_file(file)
                 
                 # เก็บทุกส่วนที่ parser ได้จากไฟล์ที่อัปโหลด
+                # ใช้ update เพื่อรวมข้อมูลจากหลายไฟล์หากมีการอัปโหลดหลายไฟล์
                 parsed_all_sections.update(sections) 
 
                 current_df = pd.DataFrame()
                 # ตรวจสอบส่วนข้อมูลหลัก (Deals/Trades)
-                if "deals" in sections:
+                if "deals" in sections and not sections["deals"].empty:
                     current_df = sections["deals"]
-                elif "trades" in sections:
+                elif "trades" in sections and not sections["trades"].empty:
                     current_df = sections["trades"]
-                elif "positions" in sections: # ถ้าไม่มี deals/trades อาจจะเอา positions แทน
+                elif "positions" in sections and not sections["positions"].empty: # ถ้าไม่มี deals/trades อาจจะเอา positions แทน
                     current_df = sections["positions"]
-                elif "history" in sections: # ถ้าไม่มี deals/trades อาจจะเอา history แทน
+                elif "history" in sections and not sections["history"].empty: # ถ้าไม่มี deals/trades อาจจะเอา history แทน
                     current_df = sections["history"]
 
 
@@ -987,7 +1047,7 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Auto-Mapping", expande
                     processed_dfs_from_upload.append(current_df)
                     st.dataframe(current_df.head(5), use_container_width=True)
                 else:
-                    st.warning(f"⚠︎ ไม่พบข้อมูล Deals, Trades, Positions หรือ History ในไฟล์: {file.name}")
+                    st.warning(f"⚠︎ ไม่พบข้อมูล Deals, Trades, Positions หรือ History ที่มีข้อมูลในไฟล์: {file.name}")
             except Exception as e:
                 st.error(f"❌ เกิดข้อผิดพลาดในการประมวลผลไฟล์ {file.name}: {e}")
                 st.exception(e)
