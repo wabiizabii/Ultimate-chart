@@ -1078,7 +1078,7 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Auto-Mapping", expande
             if merge_option == "แทนที่ข้อมูล Statement ทั้งหมดที่มีอยู่":
                 st.session_state.df_stmt_current = df_new_uploads
                 st.info("ข้อมูล Statement ถูกแทนที่ด้วยไฟล์ที่อัปโหลดใหม่แล้ว.")
-                st.rerun() # เพิ่ม rerun เพื่อให้อัปเดตหน้าจอทันที
+                # st.rerun() # <<< ลบออกแล้ว
             else:
                 if not st.session_state.df_stmt_current.empty:
                     df_combined = pd.concat([st.session_state.df_stmt_current, df_new_uploads], ignore_index=True)
@@ -1097,12 +1097,12 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Auto-Mapping", expande
                 else:
                     st.session_state.df_stmt_current = df_new_uploads
                     st.info("ไม่มีข้อมูล Statement เดิม จึงเพิ่มข้อมูลที่อัปโหลดใหม่เข้ามา.")
-                st.rerun() # เพิ่ม rerun เพื่อให้อัปเดตหน้าจอทันที
+                # st.rerun() # <<< ลบออกแล้ว
 
             if st.button("💾 บันทึกข้อมูล Statement นี้ไปยัง Google Sheets", key="save_uploaded_stmt_to_gsheets"):
                 save_statement_to_gsheets(st.session_state.df_stmt_current)
                 st.cache_data.clear()
-                st.rerun()
+                st.rerun() # อันนี้ยังคงอยู่
         else:
             st.info("ไม่มีข้อมูล Statement ที่ถูกประมวลผลจากไฟล์ที่อัปโหลดใหม่.")
 
@@ -1140,7 +1140,6 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Auto-Mapping", expande
         st.info("ไม่พบข้อมูล Balance Summary ใน Statement หรือเป็น DataFrame ว่างเปล่า.")
 
     # --- สิ้นสุดโค้ดสำหรับตรวจสอบส่วนอื่นๆ ---
-
 # ======================= SEC 9: DASHBOARD + AI ULTIMATE =======================
 # ปรับปรุง load_data_for_dashboard()
 def load_data_for_dashboard():
