@@ -12,17 +12,16 @@ st.set_page_config(page_title="Legendary RR Planner", layout="wide")
 acc_balance = 10000 
 log_file = "trade_log.csv"
 
-# --- การตั้งค่า Google AI API Key ---
-try:
-    if "google_api" in st.secrets and "GOOGLE_API_KEY" in st.secrets["google_api"]:
-        genai.configure(api_key=st.secrets["google_api"]["GOOGLE_API_KEY"])
-        # st.success("Google API Key ถูกโหลดเรียบร้อยแล้ว!")
-    else:
-        st.error("❌ ไม่พบ GOOGLE_API_KEY ใน st.secrets['google_api'] ตรวจสอบไฟล์ .streamlit/secrets.toml ของคุณ")
-        st.info("คุณสามารถขอ API Key ได้ที่ https://aistudio.google.com/app/apikey")
-except Exception as e:
-    st.error(f"❌ เกิดข้อผิดพลาดในการตั้งค่า Google AI API: {e}")
-    st.info("อาจเป็นเพราะไลบรารี 'google-generativeai' ยังไม่ได้ติดตั้ง (pip install google-generativeai)")
+16  #-- Google AI API Key ---
+17  try:
+18      if "gemini" in st.secrets and "api_key" in st.secrets["gemini"]:
+19          genai.configure(api_key=st.secrets["gemini"]["api_key"])
+20          st.success("Google Gemini API Key ใช้งานได้!")
+21      else:
+22          st.error("❌ ไม่พบ Gemini API Key ใน st.secrets['gemini']['api_key'] ตรวจสอบไฟล์ .streamlit/secrets.toml ของคุณ")
+23          st.info("คุณสามารถขอ API Key ได้ที่ https://aistudio.google.com/app/apikey")
+24  except Exception as e:
+25      st.error(f"❌ เกิดข้อผิดพลาดในการเรียกใช้งาน Google AI API: {e}")
 
 # --- การตั้งค่า Google Sheets API Key และ Gspread Client ---
 # กำหนดชื่อ Google Sheet และ Worksheet ที่จะใช้เก็บข้อมูล Statement
