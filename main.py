@@ -13,31 +13,28 @@ acc_balance = 10000
 log_file = "trade_log.csv"
 
 #--- Google AI API Key ---  # <-- บรรทัดที่ 16 อาจจะเปลี่ยน comment เป็นแบบนี้
-try:                      # <-- บรรทัดที่ 17
-18      if "gemini" in st.secrets and "api_key" in st.secrets["gemini"]:
-19          genai.configure(api_key=st.secrets["gemini"]["api_key"])
-20          st.success("Google Gemini API Key ใช้งานได้!")
-21      else:
-22          st.error("❌ ไม่พบ Gemini API Key ใน st.secrets['gemini']['api_key'] ตรวจสอบไฟล์ .streamlit/secrets.toml ของคุณ")
-23          st.info("คุณสามารถขอ API Key ได้ที่ https://aistudio.google.com/app/apikey")
-24  except Exception as e:
-25      st.error(f"❌ เกิดข้อผิดพลาดในการเรียกใช้งาน Google AI API: {e}")
+    try:
+    if "gemini" in st.secrets and "api_key" in st.secrets["gemini"]: # <--- บรรทัดนี้ต้องเยื้อง 4 ช่องว่าง
+        genai.configure(api_key=st.secrets["gemini"]["api_key"])  # <--- บรรทัดนี้ต้องเยื้อง 8 ช่องว่าง
+        st.success("Google Gemini API Key ใช้งานได้!")           # <--- บรรทัดนี้ต้องเยื้อง 8 ช่องว่าง
+    else:                                                     # <--- บรรทัดนี้ต้องเยื้อง 4 ช่องว่าง
+        st.error("❌ ไม่พบ Gemini API Key ใน st.secrets['gemini']['api_key'] ตรวจสอบไฟล์ .streamlit/secrets.toml ของคุณ") # <--- บรรทัดนี้ต้องเยื้อง 8 ช่องว่าง
+        st.info("คุณสามารถขอ API Key ได้ที่ https://aistudio.google.com/app/apikey") # <--- บรรทัดนี้ต้องเยื้อง 8 ช่องว่าง
+except Exception as e:                                    # <--- 'except' ต้องอยู่ระดับเดียวกับ 'try' (ไม่เยื้อง)
+    st.error(f"❌ เกิดข้อผิดพลาดในการเรียกใช้งาน Google AI API: {e}") # <--- บรรทัดนี้ต้องเยื้อง 4 ช่องว่าง
 
-26  #--- เชื่อมต่อ Google Sheets Objects API Key และ gspread Client ---
-27  try:
-28      # ใช้ st.secrets['gcp_service_account'] เพื่อดึงค่าจาก secrets
-29      creds = st.secrets["gcp_service_account"]
-30      
-31      # สร้าง gspread client
-32      gc = gspread.service_account_from_dict(creds)
-33      
-34      # เปิด Google Sheet ด้วย ID
-35      spreadsheet = gc.open_by_id(st.secrets["gcp_service_account"]["spreadsheet_id"])
-36      worksheet = spreadsheet.sheet1 # หรือชื่อ sheet ของคุณ เช่น spreadsheet.worksheet("Sheet1")
-37      st.success("เชื่อมต่อ Google Sheets สำเร็จ!")
-38  except Exception as e:
-39      st.error(f"❌ เกิดข้อผิดพลาดในการเชื่อมต่อ Google Sheets: {e}")
-40      st.warning("⚠️ โปรดตั้งค่า 'gcp_service_account' ใน .streamlit/secrets.toml เพื่อเชื่อมต่อ Google Sheets.")
+#--- เชื่อมต่อ Google Sheets Objects API Key และ gspread Client ---
+import gspread # <--- ต้องมีบรรทัดนี้ด้วย ถ้ายังไม่มี
+
+try:
+    creds = st.secrets["gcp_service_account"]                   # <--- บรรทัดนี้ต้องเยื้อง 4 ช่องว่าง
+    gc = gspread.service_account_from_dict(creds)               # <--- บรรทัดนี้ต้องเยื้อง 4 ช่องว่าง
+    spreadsheet = gc.open_by_id(st.secrets["gcp_service_account"]["spreadsheet_id"]) # <--- บรรทัดนี้ต้องเยื้อง 4 ช่องว่าง
+    worksheet = spreadsheet.sheet1                              # <--- บรรทัดนี้ต้องเยื้อง 4 ช่องว่าง
+    st.success("เชื่อมต่อ Google Sheets สำเร็จ!")             # <--- บรรทัดนี้ต้องเยื้อง 4 ช่องว่าง
+except Exception as e:                                      # <--- 'except' ต้องอยู่ระดับเดียวกับ 'try' (ไม่เยื้อง)
+    st.error(f"❌ เกิดข้อผิดพลาดในการเชื่อมต่อ Google Sheets: {e}") # <--- บรรทัดนี้ต้องเยื้อง 4 ช่องว่าง
+    st.warning("⚠️ โปรดตั้งค่า 'gcp_service_account' ใน .streamlit/secrets.toml เพื่อเชื่อมต่อ Google Sheets.")
 
 # โค้ดส่วนอื่นๆ ของแอปคุณจะมาต่อจากนี้# --- การตั้งค่า Google Sheets API Key และ Gspread Client ---
 # กำหนดชื่อ Google Sheet และ Worksheet ที่จะใช้เก็บข้อมูล Statement
