@@ -939,17 +939,17 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Auto-Mapping", expande
             # Use a dictionary for faster lookup, mapping normalized label to (original_label, expected_label_col_idx, expected_value_col_idx)
             stat_lookup_map = {}
             
-            # Based on your screenshot for ReportHistory-300379.xlsx:
+            # Based on your screenshots for ReportHistory-300379.xlsx and the new file:
             # Column mapping (0-indexed):
             # C (index 2) is value for B (index 1)
             # H (index 7) is value for G (index 6)
             # N (index 13) is value for K (index 10)
             stat_definitions_for_results = [
-                ("Total Net Profit", 1, 2), # Expecting label in B, value in C (not seen in screenshot, assuming previous structure)
-                ("Profit Factor", 1, 2),    # Expecting label in B, value in C
-                ("Recovery Factor", 1, 2),  # Expecting label in B, value in C
-                ("Balance Drawdown Absolute", 1, 2), # Expecting label in B, value in C
-                ("Total Trades", 1, 2),     # Expecting label in B, value in C
+                ("Total Net Profit", 1, 2), # Label in B, Value in C
+                ("Profit Factor", 1, 2),    # Label in B, Value in C
+                ("Recovery Factor", 1, 2),  # Label in B, Value in C
+                ("Balance Drawdown Absolute", 1, 2), # Label in B, Value in C
+                ("Total Trades", 1, 2),     # Label in B, Value in C
 
                 ("Gross Profit", 6, 7),     # Label in G, Value in H
                 ("Expected Payoff", 6, 7),  # Label in G, Value in H
@@ -987,11 +987,19 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Auto-Mapping", expande
             for r_idx in range(results_start_row + 1, min(len(df_raw), results_start_row + 1 + scan_rows_for_stats)):
                 row = df_raw.iloc[r_idx]
                 
-                # Update potential_label_columns_in_row to include G (6) and K (10)
+                # Update potential_label_columns_in_row to include B (1), G (6) and K (10)
                 potential_label_columns_in_row = [1, 6, 10] 
                 
                 for current_label_col_idx in potential_label_columns_in_row:
-                    if current_label_col_idx < len(row) and pd.notna(row[current_label_col_idx]):
+                    # ADD THIS DEBUG PRINT: Debugging for label text before checking pd.notna
+                    if st.session_state.debug_mode:
+                        if current_label_col_idx < len(row):
+                            st.write(f"DEBUG Balance Summary: Checking Label Row {r_idx}, Col {current_label_col_idx}. Raw Cell Content: '{df_raw.iloc[r_idx, current_label_col_idx]}', Is NaN: {pd.isna(df_raw.iloc[r_idx, current_label_col_idx])}")
+                        else:
+                            st.write(f"DEBUG Balance Summary: Label column {current_label_col_idx} out of bounds for Row {r_idx}. Row length: {len(row)}.")
+
+
+                    if current_label_col_idx < len(row) and pd.notna(df_raw.iloc[r_idx, current_label_col_idx]):
                         label_text_from_excel_raw = str(df_raw.iloc[r_idx, current_label_col_idx]).strip() # Use df_raw.iloc directly
                         normalized_excel_label = "".join(filter(str.isalnum, label_text_from_excel_raw)).lower()
 
@@ -1001,6 +1009,7 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Auto-Mapping", expande
                         if normalized_excel_label in stat_lookup_map:
                             original_stat_key, expected_label_col_for_this_stat, expected_value_col_for_this_stat = stat_lookup_map[normalized_excel_label]
                             
+                            # Ensure we are looking at the correct label column for this specific stat
                             if current_label_col_idx == expected_label_col_for_this_stat:
                                 value_col_to_read = expected_value_col_for_this_stat 
                                 
@@ -1018,9 +1027,11 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Auto-Mapping", expande
                                     # Handle percentages like "11.46% (1 211.92)" by taking only the first part
                                     if '%' in value and '(' in value:
                                         value = value.split('%')[0].strip()
+                                    # Handle negative numbers in parentheses like "(123.45)"
                                     elif '(' in value and ')' in value:
                                         value = "-" + value.replace('(', '').replace(')', '').strip()
                                     
+                                    # Remove common non-numeric characters
                                     value = value.replace('$', '').replace(',', '').replace('%', '')
                                     
                                     try:
@@ -1032,12 +1043,22 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Auto-Mapping", expande
                                             # If still can't convert, keep it as original string for inspection
                                             if st.session_state.debug_mode:
                                                 st.warning(f"DEBUG Balance Summary: Could not convert '{value}' for '{original_stat_key}' to numeric. Keeping as string.")
-                                            pass 
+                                            # Do not assign value to results_stats if it's not numeric and we can't convert
+                                            continue # Skip to next iteration if value is not numeric
                                     
                                     results_stats[original_stat_key] = value
                                     
                                     if st.session_state.debug_mode:
                                         st.write(f"DEBUG Balance Summary: --- Found and extracted '{original_stat_key}' --- Value: '{value}' from Row {r_idx}, Label Col {current_label_col_idx}, Value Col {value_col_to_read}")
+                                else: # If value is NaN or column out of bounds
+                                     if st.session_state.debug_mode:
+                                         st.write(f"DEBUG Balance Summary: Skipping '{original_stat_key}' - Value is NaN or column out of bounds.")
+                            else: # If current_label_col_idx != expected_label_col_for_this_stat
+                                if st.session_state.debug_mode:
+                                    st.write(f"DEBUG Balance Summary: Mismatch label column for '{original_stat_key}'. Expected {expected_label_col_for_this_stat}, got {current_label_col_idx}.")
+                        else: # If normalized_excel_label not in stat_lookup_map
+                            if st.session_state.debug_mode:
+                                st.write(f"DEBUG Balance Summary: '{normalized_excel_label}' (from Col {current_label_col_idx}) not in stat_lookup_map.")
 
             if results_stats:
                 section_data["balance_summary"] = pd.DataFrame(list(results_stats.items()), columns=['Metric', 'Value'])
