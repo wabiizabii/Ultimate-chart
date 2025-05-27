@@ -945,10 +945,14 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Auto-Mapping", expande
                 for stat_key, label_col_idx, value_col_idx in stat_definitions_results:
                     # ตรวจสอบว่าคอลัมน์มีอยู่จริงในแถว และไม่เป็น NaN
                     if (label_col_idx < len(row) and pd.notna(row[label_col_idx])):
-                        # ทำความสะอาด label_text จาก Excel ก่อนเปรียบเทียบ
-                        label_text_from_excel = str(row[label_col_idx]).strip().replace(':', '')
+                        # **ส่วนที่แก้ไข: ทำความสะอาดข้อความทั้งจาก Excel และ stat_key เพื่อการเปรียบเทียบที่แข็งแกร่ง**
+                        label_text_from_excel = str(row[label_col_idx]).strip()
                         
-                        if label_text_from_excel == stat_key: # เปรียบเทียบกับ stat_key ที่ไม่มี ":"
+                        # Normalize ทั้งสอง string โดยลบอักขระที่ไม่ใช่ตัวอักษรและตัวเลข แล้วแปลงเป็น lowercase
+                        normalized_excel_label = "".join(filter(str.isalnum, label_text_from_excel)).lower()
+                        normalized_stat_key = "".join(filter(str.isalnum, stat_key)).lower()
+                        
+                        if normalized_excel_label == normalized_stat_key: # เปรียบเทียบ string ที่ normalized แล้ว
                             if value_col_idx < len(row) and pd.notna(row[value_col_idx]):
                                 value = str(row[value_col_idx]).strip()
                                 
@@ -968,7 +972,7 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Auto-Mapping", expande
                                         value = int(value)
                                     except ValueError:
                                         pass # เก็บเป็น string ถ้าแปลงไม่ได้จริงๆ
-                                results_stats[stat_key] = value
+                                results_stats[stat_key] = value # เก็บด้วย stat_key เดิม (ที่ไม่ใช่ normalized)
             
             if results_stats:
                 # เก็บเป็น DataFrame 2 คอลัมน์ (Metric, Value) เพื่อความสอดคล้องกันในการแสดงผล
@@ -1078,7 +1082,6 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Auto-Mapping", expande
             if merge_option == "แทนที่ข้อมูล Statement ทั้งหมดที่มีอยู่":
                 st.session_state.df_stmt_current = df_new_uploads
                 st.info("ข้อมูล Statement ถูกแทนที่ด้วยไฟล์ที่อัปโหลดใหม่แล้ว.")
-                # st.rerun() # <<< ลบออกแล้ว
             else:
                 if not st.session_state.df_stmt_current.empty:
                     df_combined = pd.concat([st.session_state.df_stmt_current, df_new_uploads], ignore_index=True)
@@ -1097,12 +1100,11 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Auto-Mapping", expande
                 else:
                     st.session_state.df_stmt_current = df_new_uploads
                     st.info("ไม่มีข้อมูล Statement เดิม จึงเพิ่มข้อมูลที่อัปโหลดใหม่เข้ามา.")
-                # st.rerun() # <<< ลบออกแล้ว
 
             if st.button("💾 บันทึกข้อมูล Statement นี้ไปยัง Google Sheets", key="save_uploaded_stmt_to_gsheets"):
                 save_statement_to_gsheets(st.session_state.df_stmt_current)
                 st.cache_data.clear()
-                st.rerun() # อันนี้ยังคงอยู่
+                st.rerun() 
         else:
             st.info("ไม่มีข้อมูล Statement ที่ถูกประมวลผลจากไฟล์ที่อัปโหลดใหม่.")
 
