@@ -12,8 +12,8 @@ st.set_page_config(page_title="Legendary RR Planner", layout="wide")
 acc_balance = 10000 
 log_file = "trade_log.csv"
 
-16  #-- Google AI API Key ---
-17  try:
+#--- Google AI API Key ---  # <-- บรรทัดที่ 16 อาจจะเปลี่ยน comment เป็นแบบนี้
+try:                      # <-- บรรทัดที่ 17
 18      if "gemini" in st.secrets and "api_key" in st.secrets["gemini"]:
 19          genai.configure(api_key=st.secrets["gemini"]["api_key"])
 20          st.success("Google Gemini API Key ใช้งานได้!")
