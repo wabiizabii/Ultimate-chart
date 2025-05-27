@@ -97,6 +97,8 @@ def load_statement_from_gsheets():
         return pd.DataFrame()
 
 # ฟังก์ชันสำหรับบันทึก DataFrame ลง Google Sheets (แทนที่ข้อมูลเก่า)
+# (โค้ดส่วนอื่น ๆ ของคุณอยู่เหมือนเดิม)
+
 def save_statement_to_gsheets(df_to_save):
     if df_to_save.empty:
         st.warning("ไม่มีข้อมูลที่จะบันทึกไปยัง Google Sheets.")
@@ -114,13 +116,23 @@ def save_statement_to_gsheets(df_to_save):
             st.info(f"✨ สร้าง Worksheet '{GOOGLE_WORKSHEET_NAME}' ใน Google Sheet '{GOOGLE_SHEET_NAME}'")
             worksheet = sh.add_worksheet(title=GOOGLE_WORKSHEET_NAME, rows="1", cols="1")
 
-        # ลบข้อมูลเก่าทิ้งก่อน
-        worksheet.clear() 
-        # เขียน Header และข้อมูล
-        worksheet.update([df_to_save.columns.values.tolist()] + df_to_save.values.tolist())
+        # --- เพิ่มส่วนนี้เข้ามา ---
+        df_to_save_str = df_to_save.copy()
+        for col in df_to_save_str.columns:
+            if pd.api.types.is_datetime64_any_dtype(df_to_save_str[col]):
+                df_to_save_str[col] = df_to_save_str[col].dt.strftime('%Y-%m-%d %H:%M:%S')
+        # --- สิ้นสุดส่วนที่เพิ่ม ---
+
+        worksheet.clear()
+        worksheet.update([df_to_save_str.columns.values.tolist()] + df_to_save_str.astype(str).values.tolist())
         st.success(f"บันทึกข้อมูล Statement ไปยัง Google Sheet '{GOOGLE_SHEET_NAME}/{GOOGLE_WORKSHEET_NAME}' เรียบร้อยแล้ว!")
     except Exception as e:
         st.error(f"❌ เกิดข้อผิดพลาดในการบันทึกข้อมูล Statement ไปยัง Google Sheets: {e}")
+        st.exception(e) # ให้คงบรรทัดนี้ไว้ เผื่อยังมี Error อื่น
+        # แต่ถ้ามี st.stop() อยู่ ให้เอา # ใส่ข้างหน้า หรือลบทิ้งครับ เช่น
+        # # st.stop()
+
+# (โค้ดส่วนอื่น ๆ ของคุณอยู่เหมือนเดิม)
 
 
 # ========== Function Utility ==========
@@ -849,7 +861,7 @@ if uploaded_files:
         except Exception as e:
             st.error(f"❌ เกิดข้อผิดพลาดในการประมวลผลไฟล์ {file.name}: {e}")
             st.exception(e)
-            st.stop()
+            #st.stop()
     if processed_dfs_from_upload:
         st.subheader("จัดการข้อมูลที่อัปโหลด")
 
