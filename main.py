@@ -758,16 +758,43 @@ with st.expander("	🤖 AI Assistant", expanded=True):
         st.info("ยังไม่มีข้อมูล log_file สำหรับ AI Summary")
 # ======================= SEC 7: Ultimate Statement Import & Auto-Mapping =======================
 with st.expander("📂 SEC 7: Ultimate Statement Import & Auto-Mapping", expanded=False):
+    st.markdown("### 📊 จัดการ Statement และข้อมูลดิบ")
+
+    # ใช้ st.session_state เพื่อคงค่า all_statement_data และ df_stmt_current ระหว่าง rerun
+    # บล็อกนี้จะถูกรันแค่ครั้งเดียวเมื่อแอปโหลดขึ้นมาครั้งแรก หรือเมื่อข้อมูลถูกล้าง
+    if 'all_statement_data' not in st.session_state: 
+        st.session_state.all_statement_data = {} # เริ่มต้นด้วย Dictionary ว่างเปล่า
+        st.session_state.df_stmt_current = pd.DataFrame() # และ df_stmt_current ว่างเปล่า
+        
+        st.info("กำลังโหลดข้อมูล Statement จาก Google Sheets ครั้งแรก...")
+        loaded_data = load_statement_from_gsheets() # เรียกใช้ฟังก์ชันโหลด
+        
+        st.session_state.all_statement_data = loaded_data # เก็บผลลัพธ์ทั้งหมดใน session_state
+        
+        # ดึงเฉพาะส่วน 'deals' มาใส่ใน df_stmt_current
+        if 'deals' in loaded_data and not loaded_data['deals'].empty:
+            st.session_state.df_stmt_current = loaded_data['deals']
+            st.success("โหลดข้อมูล 'Deals' สำหรับ Dashboard สำเร็จ!")
+        else:
+            st.info("ไม่พบข้อมูล 'Deals' หรือกำลังโหลดครั้งแรก.")
+    
+    # ดึงค่าจาก session_state มาใช้งานในส่วนที่เหลือของแอป
+    # บรรทัดเหล่านี้จะถูกรันทุกครั้งที่แอป reruns เพื่อให้ตัวแปร all_statement_data และ df_stmt_current พร้อมใช้งาน
+    all_statement_data = st.session_state.all_statement_data
+    df_stmt_current = st.session_state.df_stmt_current
+
+    st.markdown("---")
+    st.subheader("📤 อัปโหลด Statement (CSV/XLSX) เพื่อบันทึก")
     uploaded_files = st.file_uploader(
-        "📤 อัปโหลด Statement (.xlsx, .csv)", 
+        "ลากและวางไฟล์ Statement ที่นี่ หรือคลิกเพื่อเลือกไฟล์ (ไฟล์จะถูกประมวลผลและเสนอให้บันทึกลง Google Sheets)",
         type=["xlsx", "csv"], 
         accept_multiple_files=True, 
         key="sec7_upload"
     )
 
+    # ฟังก์ชันช่วยในการแยกส่วนข้อมูลจากไฟล์ที่อัปโหลด (ยังคงอยู่ตรงนี้)
     def extract_sections_from_file(file):
-        import pandas as pd
-
+        # import pandas as pd # <-- ไม่ต้อง import ซ้ำถ้า import ไว้ข้างบนแล้ว
         if file.name.endswith(".xlsx"):
             df_raw = pd.read_excel(file, header=None, engine='openpyxl')
         elif file.name.endswith(".csv"):
@@ -776,21 +803,20 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Auto-Mapping", expande
             return {}
 
         section_starts = {}
-        # เพิ่มคีย์ที่อาจพบใน Statement จริงของคุณ
         section_keys = [
             "Positions", "Orders", "Deals", "Balance", "Drawdown",
             "Total Trades", "Profit Trades", "Largest profit trade", "Average profit trade",
-            "History", # MT4/MT5 export often has a "History" section
-            "Trades"  # Some statements might use "Trades"
+            "History", 
+            "Trades"
         ]
 
         for idx, row in df_raw.iterrows():
-            if pd.isna(row[0]): # Skip empty first column
+            if pd.isna(row[0]): 
                 continue
             for key in section_keys:
                 if str(row[0]).strip().startswith(key):
                     section_starts[key] = idx
-                    break # Found the start, move to next row
+                    break
 
         section_data = {}
 
@@ -798,7 +824,7 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Auto-Mapping", expande
             counts = {}
             result = []
             for c in cols:
-                if pd.isna(c) or str(c).strip() == '': # Handle NaN or empty strings in headers
+                if pd.isna(c) or str(c).strip() == '': 
                     c = 'Unnamed'
                 c_str = str(c)
                 if c_str in counts:
@@ -809,7 +835,6 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Auto-Mapping", expande
                     result.append(c_str)
             return result
 
-        # Priority for sections: Deals, Trades, Positions, History
         target_sections = ["Deals", "Trades", "Positions", "History"]
         found_section_key = None
         for skey in target_sections:
@@ -819,10 +844,8 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Auto-Mapping", expande
 
         if found_section_key:
             header_row = section_starts[found_section_key] + 1
-            # Find the start of the next section to define the end of the current one
-            next_section_start_idx = len(df_raw) # Default to end of file
+            next_section_start_idx = len(df_raw) 
 
-            # Find the next section in the list after the current found_section_key
             current_key_idx = section_keys.index(found_section_key)
             for i in range(current_key_idx + 1, len(section_keys)):
                 next_key = section_keys[i]
@@ -830,10 +853,8 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Auto-Mapping", expande
                     next_section_start_idx = section_starts[next_key]
                     break
 
-            # Extract the relevant rows for the data
             df_section = df_raw.iloc[header_row:next_section_start_idx].dropna(how="all")
 
-            # Use the first row as columns, then slice the DataFrame to remove it
             if not df_section.empty:
                 raw_cols = df_section.iloc[0].tolist()
                 df_section = df_section[1:]
@@ -842,93 +863,62 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Auto-Mapping", expande
             else:
                 st.warning(f"Warning: Section '{found_section_key}' found but no data rows underneath it.")
 
-        # You might want to parse other stats as well, but for now focus on the main data table
         stats = {}
         for key in section_keys:
-            if key not in ["Positions", "Orders", "Deals", "History", "Trades"]: # Skip table headers
+            if key not in ["Positions", "Orders", "Deals", "History", "Trades"]: 
                 for idx, row in df_raw.iterrows():
                     if str(row[0]).strip().startswith(key):
                         stats[key] = " | ".join([str(x) for x in row if pd.notnull(x)])
-                        break # Found stat, move to next stat key
+                        break 
         if stats:
             section_data["Stats"] = stats
 
         return section_data
 
+    # ฟังก์ชันช่วยในการ preprocess ข้อมูลที่ดึงมา
     def preprocess_stmt_data(df):
-        # Rename columns to a consistent format
         rename_map = {
             'Open Time': 'Timestamp',
-            'Close Time': 'Timestamp', # Assuming Close Time is the primary timestamp for closed trades
+            'Close Time': 'Timestamp', 
             'Time': 'Timestamp',
             'Profit': 'Profit',
-            'Risk $': 'Profit', # If statement uses 'Risk $' for profit/loss from closed trades
+            'Risk $': 'Profit',
             'Symbol': 'Asset',
             'Instrument': 'Asset',
             'Lots': 'Lot',
             'Size': 'Lot',
             'Stop Loss': 'SL',
             'Take Profit': 'TP',
-            'R': 'RR', # If RR is provided
-            'Order': 'Trade ID', # For identifying unique trades
+            'R': 'RR', 
+            'Order': 'Trade ID', 
             'Ticket': 'Trade ID'
         }
         df.rename(columns=rename_map, inplace=True)
 
-        # Ensure timestamp column is datetime
         if 'Timestamp' in df.columns:
             df['Timestamp'] = pd.to_datetime(df['Timestamp'], errors='coerce')
 
-        # Ensure numerical columns are numeric
-        numerical_cols = ['Profit', 'Lot', 'Entry', 'SL', 'TP', 'RR'] # Add more if needed
+        numerical_cols = ['Profit', 'Lot', 'Entry', 'SL', 'TP', 'RR'] 
         for col in numerical_cols:
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors='coerce')
 
-        # Filter out rows with NaN in critical columns if they indicate non-trade rows
         if 'Profit' in df.columns:
             df = df.dropna(subset=['Profit'])
 
-        # Drop duplicate columns after renaming if any
         df = df.loc[:,~df.columns.duplicated()]
 
         return df
 
-    # เริ่มต้น df_stmt เป็น DataFrame ว่างเปล่า หรือโหลดจาก Google Sheets ถ้ามี
-    # ใช้ st.session_state เพื่อคงค่า df_stmt ระหว่าง rerun
-# <--- คัดลอกโค้ดนี้ทั้งหมด 14 บรรทัด ไปวางแทนที่ --->
-# ใช้ st.session_state เพื่อคงค่า all_statement_data และ df_stmt_current ระหว่าง rerun
-if 'all_statement_data' not in st.session_state: # ตรวจสอบว่ามี all_statement_data หรือยัง
-    st.session_state.all_statement_data = {} # เริ่มต้นด้วย Dictionary ว่างเปล่า
-    st.session_state.df_stmt_current = pd.DataFrame() # และ df_stmt_current ว่างเปล่า
-
-    st.info("กำลังโหลดข้อมูล Statement จาก Google Sheets ครั้งแรก...")
-    loaded_data = load_statement_from_gsheets() # เรียกใช้ฟังก์ชันโหลด
-
-    st.session_state.all_statement_data = loaded_data # เก็บผลลัพธ์ทั้งหมดใน session_state
-
-    # ดึงเฉพาะส่วน 'deals' มาใส่ใน df_stmt_current
-    if 'deals' in loaded_data and not loaded_data['deals'].empty:
-        st.session_state.df_stmt_current = loaded_data['deals']
-        st.success("โหลดข้อมูล 'Deals' สำหรับ Dashboard สำเร็จ!")
-    else:
-        st.info("ไม่พบข้อมูล 'Deals' หรือกำลังโหลดครั้งแรก.")
-
-# ดึงค่าจาก session_state มาใช้งานในส่วนที่เหลือของแอป
-all_statement_data = st.session_state.all_statement_data
-df_stmt_current = st.session_state.df_stmt_current
-# <--- สิ้นสุดโค้ดที่ต้องคัดลอก --->
-
-    # ถ้ามีการอัปโหลดไฟล์ใหม่ ให้ประมวลผลและนำไปรวม/แทนที่
+    # ส่วนประมวลผลไฟล์ที่อัปโหลด (ถ้ามี) และจัดการการรวม/บันทึก
     if uploaded_files: 
         processed_dfs_from_upload = []
         for file in uploaded_files:
-        st.markdown(f"**กำลังประมวลผลไฟล์: {file.name}**")
-        try:
-        sections = extract_sections_from_file(file)
-        current_df = pd.DataFrame()
+            st.markdown(f"**กำลังประมวลผลไฟล์: {file.name}**")
+            try:
+                sections = extract_sections_from_file(file)
+                current_df = pd.DataFrame()
 
-                # Check for the primary data sections in order of preference
                 if "Deals" in sections:
                     current_df = sections["Deals"]
                 elif "Trades" in sections:
@@ -988,39 +978,37 @@ df_stmt_current = st.session_state.df_stmt_current
         else:
             st.info("ไม่มีข้อมูล Statement ที่ถูกประมวลผลจากไฟล์ที่อัปโหลดใหม่.")
 
-    # แสดงข้อมูล Statement ปัจจุบันที่ใช้ในแอป
-    if not st.session_state.df_stmt_current.empty:
-        st.markdown("---")
-        st.subheader("ข้อมูล Statement ปัจจุบัน (สำหรับ Dashboard)")
-        st.dataframe(st.session_state.df_stmt_current.head(10), use_container_width=True)
+    # แสดงข้อมูล Statement ปัจจุบันที่ใช้ในแอป (df_stmt_current)
+    st.markdown("---")
+    st.subheader("ข้อมูล Statement ปัจจุบัน (สำหรับ Dashboard)")
+    if not df_stmt_current.empty: 
+        st.dataframe(df_stmt_current.head(10), use_container_width=True)
     else:
         st.info("ยังไม่มีข้อมูล Statement สำหรับ Dashboard (โปรดอัปโหลดหรือตรวจสอบการโหลดจาก Google Sheets)")
 
-        # --- เพิ่มโค้ดสำหรับตรวจสอบส่วนอื่นๆ ที่นี่ ---
-
+    # --- โค้ดสำหรับตรวจสอบส่วนอื่นๆ ที่คุณต้องการให้แสดงผล (ตอนนี้ถูกรวมอยู่ใน SEC 7 ใหม่แล้ว) ---
     # ตรวจสอบ df_positions_current
     if 'positions' in all_statement_data and not all_statement_data['positions'].empty:
         st.subheader("ข้อมูล Positions (จาก Statement)")
-        st.dataframe(all_statement_data['positions'].head()) # แสดง 5 แถวแรก
+        st.dataframe(all_statement_data['positions'].head(), use_container_width=True) 
     else:
         st.info("ไม่พบข้อมูล Positions ใน Statement หรือเป็น DataFrame ว่างเปล่า.")
 
     # ตรวจสอบ df_orders_current
     if 'orders' in all_statement_data and not all_statement_data['orders'].empty:
         st.subheader("ข้อมูล Orders (จาก Statement)")
-        st.dataframe(all_statement_data['orders'].head()) # แสดง 5 แถวแรก
+        st.dataframe(all_statement_data['orders'].head(), use_container_width=True) 
     else:
         st.info("ไม่พบข้อมูล Orders ใน Statement หรือเป็น DataFrame ว่างเปล่า.")
 
     # ตรวจสอบ df_balance_summary
     if 'balance_summary' in all_statement_data and not all_statement_data['balance_summary'].empty:
         st.subheader("ข้อมูล Balance Summary (จาก Statement)")
-        st.dataframe(all_statement_data['balance_summary'].head()) # แสดง 5 แถวแรก
+        st.dataframe(all_statement_data['balance_summary'].head(), use_container_width=True) 
     else:
         st.info("ไม่พบข้อมูล Balance Summary ใน Statement หรือเป็น DataFrame ว่างเปล่า.")
 
     # --- สิ้นสุดโค้ดสำหรับตรวจสอบส่วนอื่นๆ ---
-
 # ======================= END: โค้ดที่อัปเดตสำหรับแสดงผลและกรองข้อมูล =======================
 
 # ======================= SEC 9: DASHBOARD + AI ULTIMATE =======================
