@@ -12,36 +12,7 @@ st.set_page_config(page_title="Legendary RR Planner", layout="wide")
 acc_balance = 10000 
 log_file = "trade_log.csv"
 
-#--- Google AI API Key ---  # <-- บรรทัดที่ 16 อาจจะเปลี่ยน comment เป็นแบบนี้
-#--- เชื่อมต่อ Google Sheets Objects API Key และ gspread Client ---
-import gspread # <--- ต้องมีบรรทัดนี้ด้วย ถ้ายังไม่มี
 
-try:
-    # ดึงข้อมูล Service Account จาก secrets
-    creds_dict = {
-        "type": "service_account",
-        "project_id": st.secrets["gcp_service_account"]["project_id"],
-        "private_key": st.secrets["gcp_service_account"]["private_key"],
-        "client_email": st.secrets["gcp_service_account"]["client_email"],
-        "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-        "token_uri": "https://oauth2.googleapis.com/token",
-        "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-        "client_x509_cert_url": st.secrets["gcp_service_account"]["client_x509_cert_url"]
-    }
-    
-    # สร้าง gspread client ด้วย dictionary ที่สมบูรณ์
-    gc = gspread.service_account_from_dict(creds_dict)
-    
-    # เปิด Google Sheet ด้วย ID
-    # แก้ไขบรรทัดนี้:
-    spreadsheet = gc.open_by_id(st.secrets["gcp_service_account"]["spreadsheet_id"]) 
-    
-    worksheet = spreadsheet.sheet1 # หรือชื่อ sheet ของคุณ เช่น spreadsheet.worksheet("Sheet1")
-    st.success("เชื่อมต่อ Google Sheets สำเร็จ!")
-except Exception as e:
-    st.error(f"❌ เกิดข้อผิดพลาดในการเชื่อมต่อ Google Sheets: {e}")
-    st.warning("⚠️ โปรดตั้งค่า 'gcp_service_account' ใน .streamlit/secrets.toml เพื่อเชื่อมต่อ Google Sheets.")
-# โค้ดส่วนอื่นๆ ของแอปคุณจะมาต่อจากนี้# --- การตั้งค่า Google Sheets API Key และ Gspread Client ---
 # กำหนดชื่อ Google Sheet และ Worksheet ที่จะใช้เก็บข้อมูล Statement
 GOOGLE_SHEET_NAME = "TradeLog" # **เปลี่ยนเป็นชื่อ Google Sheet ของคุณ**
 GOOGLE_WORKSHEET_NAME = "Uploaded Statements" # ชื่อ Worksheet ที่จะใช้เก็บ Statement
