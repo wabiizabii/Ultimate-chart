@@ -652,9 +652,9 @@ with st.expander("	🤖 AI Assistant", expanded=True):
         st.info("ยังไม่มีข้อมูล log_file สำหรับ AI Summary")
 # ======================= SEC 7: Ultimate Statement Import & Auto-Mapping =======================
 uploaded_files = st.file_uploader(
-    "📤 อัปโหลด Statement (.xlsx, .csv)", 
-    type=["xlsx", "csv"], 
-    accept_multiple_files=True, 
+    "📤 อัปโหลด Statement (.xlsx, .csv)",
+    type=["xlsx", "csv"],
+    accept_multiple_files=True,
     key="sec7_upload"
 )
 
@@ -751,6 +751,7 @@ def extract_sections_from_file(file):
 def preprocess_stmt_data(df):
     # Rename columns to a consistent format
     rename_map = {
+        'Login': 'Portfolio', # <--- เพิ่มการ map 'Login' ไปยัง 'Portfolio'
         'Open Time': 'Timestamp',
         'Close Time': 'Timestamp', # Assuming Close Time is the primary timestamp for closed trades
         'Time': 'Timestamp',
@@ -805,7 +806,7 @@ if 'df_stmt_current' not in st.session_state:
 df_stmt = st.session_state.df_stmt_current # ดึงข้อมูลปัจจุบันมาใช้
 
 # ถ้ามีการอัปโหลดไฟล์ใหม่ ให้ประมวลผลและนำไปรวม/แทนที่
-if uploaded_files: 
+if uploaded_files:
     processed_dfs_from_upload = []
     for file in uploaded_files:
         st.markdown(f"**กำลังประมวลผลไฟล์: {file.name}**")
@@ -826,7 +827,7 @@ if uploaded_files:
             if not current_df.empty:
                 current_df = preprocess_stmt_data(current_df)
                 processed_dfs_from_upload.append(current_df)
-                st.dataframe(current_df.head(5), use_container_width=True) 
+                st.dataframe(current_df.head(5), use_container_width=True)
             else:
                 st.warning(f"⚠︎ ไม่พบข้อมูล Positions, Deals, Trades หรือ History ในไฟล์: {file.name}")
         except Exception as e:
@@ -882,13 +883,41 @@ if uploaded_files:
     else:
         st.info("ไม่มีข้อมูล Statement ที่ถูกประมวลผลจากไฟล์ที่อัปโหลดใหม่.")
 
+
+# ======================= START: โค้ดที่อัปเดตสำหรับแสดงผลและกรองข้อมูล =======================
+
+# สร้าง DataFrame ที่จะแสดงผลเริ่มต้นเป็นข้อมูลทั้งหมด
+df_display = st.session_state.df_stmt_current
+
 # แสดงข้อมูล Statement ปัจจุบันที่ใช้ในแอป
-if not st.session_state.df_stmt_current.empty:
+if not df_display.empty:
     st.markdown("---")
     st.subheader("ข้อมูล Statement ปัจจุบัน (สำหรับ Dashboard)")
-    st.dataframe(st.session_state.df_stmt_current.head(10), use_container_width=True)
+
+    # --- เพิ่ม Dropdown กรอง Portfolio ---
+    # ตรวจสอบว่ามีคอลัมน์ 'Portfolio' หรือไม่
+    if 'Portfolio' in df_display.columns:
+        # ดึงรายการ portfolio ที่ไม่ซ้ำกันออกมา
+        portfolios = ["ทั้งหมด"] + sorted(df_display['Portfolio'].dropna().unique().tolist())
+        
+        selected_portfolio = st.selectbox(
+            "เลือกพอร์ตโฟลิโอเพื่อแสดงข้อมูล:",
+            options=portfolios,
+            key="portfolio_selector"
+        )
+
+        # กรอง DataFrame ตาม portfolio ที่เลือก
+        if selected_portfolio != "ทั้งหมด":
+            df_display = df_display[df_display['Portfolio'] == selected_portfolio]
+    else:
+        st.info("ไม่พบคอลัมน์ 'Portfolio' (หรือ 'Login') ใน Statement สำหรับการกรอง [cite: 6]")
+
+
+    st.dataframe(df_display.head(10), use_container_width=True)
 else:
     st.info("ยังไม่มีข้อมูล Statement สำหรับ Dashboard (โปรดอัปโหลดหรือตรวจสอบการโหลดจาก Google Sheets)")
+
+# ======================= END: โค้ดที่อัปเดตสำหรับแสดงผลและกรองข้อมูล =======================
 
 # ======================= SEC 9: DASHBOARD + AI ULTIMATE =======================
 # ปรับปรุง load_data_for_dashboard()
