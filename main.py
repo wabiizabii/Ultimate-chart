@@ -13,7 +13,7 @@ acc_balance = 10000
 log_file = "trade_log.csv"
 
 #--- Google AI API Key ---  # <-- บรรทัดที่ 16 อาจจะเปลี่ยน comment เป็นแบบนี้
-    try:
+try:
     if "gemini" in st.secrets and "api_key" in st.secrets["gemini"]: # <--- บรรทัดนี้ต้องเยื้อง 4 ช่องว่าง
         genai.configure(api_key=st.secrets["gemini"]["api_key"])  # <--- บรรทัดนี้ต้องเยื้อง 8 ช่องว่าง
         st.success("Google Gemini API Key ใช้งานได้!")           # <--- บรรทัดนี้ต้องเยื้อง 8 ช่องว่าง
