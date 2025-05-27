@@ -4,4 +4,4 @@ numpy
 plotly
 openpyxl
 google-generativeai 
-gspread
+gspread==6.0.0 
