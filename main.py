@@ -1,6 +1,7 @@
 # ======================= SEC 0: IMPORT & CONFIG =======================
 import streamlit as st
 import pandas as pd
+import openpyxl  
 import numpy as np
 import os
 from datetime import datetime
