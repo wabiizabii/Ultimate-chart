@@ -848,7 +848,7 @@ if uploaded_files:
                 st.warning(f"⚠︎ ไม่พบข้อมูล Positions, Deals, Trades หรือ History ในไฟล์: {file.name}")
         except Exception as e:
             st.error(f"❌ เกิดข้อผิดพลาดในการประมวลผลไฟล์ {file.name}: {e}")
-
+            st.exception(e)
     if processed_dfs_from_upload:
         st.subheader("จัดการข้อมูลที่อัปโหลด")
 
