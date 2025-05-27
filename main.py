@@ -23,7 +23,23 @@ log_file = "trade_log.csv"
 24  except Exception as e:
 25      st.error(f"❌ เกิดข้อผิดพลาดในการเรียกใช้งาน Google AI API: {e}")
 
-# --- การตั้งค่า Google Sheets API Key และ Gspread Client ---
+26  #--- เชื่อมต่อ Google Sheets Objects API Key และ gspread Client ---
+27  try:
+28      # ใช้ st.secrets['gcp_service_account'] เพื่อดึงค่าจาก secrets
+29      creds = st.secrets["gcp_service_account"]
+30      
+31      # สร้าง gspread client
+32      gc = gspread.service_account_from_dict(creds)
+33      
+34      # เปิด Google Sheet ด้วย ID
+35      spreadsheet = gc.open_by_id(st.secrets["gcp_service_account"]["spreadsheet_id"])
+36      worksheet = spreadsheet.sheet1 # หรือชื่อ sheet ของคุณ เช่น spreadsheet.worksheet("Sheet1")
+37      st.success("เชื่อมต่อ Google Sheets สำเร็จ!")
+38  except Exception as e:
+39      st.error(f"❌ เกิดข้อผิดพลาดในการเชื่อมต่อ Google Sheets: {e}")
+40      st.warning("⚠️ โปรดตั้งค่า 'gcp_service_account' ใน .streamlit/secrets.toml เพื่อเชื่อมต่อ Google Sheets.")
+
+# โค้ดส่วนอื่นๆ ของแอปคุณจะมาต่อจากนี้# --- การตั้งค่า Google Sheets API Key และ Gspread Client ---
 # กำหนดชื่อ Google Sheet และ Worksheet ที่จะใช้เก็บข้อมูล Statement
 GOOGLE_SHEET_NAME = "Legendary RR Planner Statement Data" # **เปลี่ยนเป็นชื่อ Google Sheet ของคุณ**
 GOOGLE_WORKSHEET_NAME = "Uploaded Statements" # ชื่อ Worksheet ที่จะใช้เก็บ Statement
