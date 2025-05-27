@@ -761,31 +761,16 @@ with st.expander("	🤖 AI Assistant", expanded=True):
 with st.expander("📂 SEC 7: Ultimate Statement Import & Auto-Mapping", expanded=False):
     st.markdown("### 📊 จัดการ Statement และข้อมูลดิบ")
 
-    # ใช้ st.session_state เพื่อคงค่า all_statement_data และ df_stmt_current ระหว่าง rerun
-    # บล็อกนี้จะถูกรันแค่ครั้งเดียวเมื่อแอปโหลดขึ้นมาครั้งแรก หรือเมื่อข้อมูลถูกล้าง
+    # --- ส่วนจัดการ Session State (เหมือนเดิม) ---
     if 'all_statement_data' not in st.session_state:
-        st.session_state.all_statement_data = {} # เริ่มต้นด้วย Dictionary ว่างเปล่า
-        st.session_state.df_stmt_current = pd.DataFrame() # และ df_stmt_current ว่างเปล่า
-        
-        st.info("กำลังโหลดข้อมูล Statement จาก Google Sheets ครั้งแรก...")
-        # NOTE: load_statement_from_gsheets ควรถูก import หรือประกาศไว้ข้างบน
-        # ถ้ายังไม่มีฟังก์ชันนี้ใน main.py คุณอาจต้องเพิ่มมันใน SEC 0 หรือใกล้เคียง
-        # เช่น:
-        # def load_statement_from_gsheets():
-        #     # โค้ดสำหรับโหลดจาก Google Sheets
-        #     return {} # คืนค่าเป็น dictionary เปล่าถ้ายังไม่มีการใช้งานจริง
-        loaded_data = load_statement_from_gsheets()
-        
-        st.session_state.all_statement_data = loaded_data # เก็บผลลัพธ์ทั้งหมดใน session_state
-        
-        # ดึงเฉพาะส่วน 'deals' มาใส่ใน df_stmt_current
-        if 'deals' in loaded_data and not loaded_data['deals'].empty:
-            st.session_state.df_stmt_current = loaded_data['deals']
-            st.success("โหลดข้อมูล 'Deals' สำหรับ Dashboard สำเร็จ!")
-        else:
-            st.info("ไม่พบข้อมูล 'Deals' จาก Google Sheets หรือกำลังโหลดครั้งแรก.")
-    
-    # ดึงค่าจาก session_state มาใช้งานในส่วนที่เหลือของแอป
+        st.session_state.all_statement_data = {}
+        st.session_state.df_stmt_current = pd.DataFrame()
+        # NOTE: ส่วนโหลดจาก Google Sheets จะทำงานเมื่อแอปเริ่มครั้งแรก
+        # loaded_data = load_statement_from_gsheets() 
+        # st.session_state.all_statement_data = loaded_data
+        # if 'deals' in loaded_data and not loaded_data['deals'].empty:
+        #     st.session_state.df_stmt_current = loaded_data['deals']
+
     all_statement_data = st.session_state.all_statement_data
     df_stmt_current = st.session_state.df_stmt_current
 
@@ -794,322 +779,124 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Auto-Mapping", expande
     st.info("โปรดอัปโหลด 'ไฟล์ Statement ต้นฉบับ' ของคุณจากคอมพิวเตอร์ เพื่อให้แอปแยกส่วนต่างๆ ได้อย่างถูกต้อง")
     uploaded_files = st.file_uploader(
         "ลากและวางไฟล์ Statement ที่นี่ หรือคลิกเพื่อเลือกไฟล์",
-        type=["xlsx", "csv"], 
-        accept_multiple_files=True, 
+        type=["xlsx", "csv"],
+        accept_multiple_files=True,
         key="sec7_upload"
     )
 
-    # --- เพิ่ม Debug Mode Checkbox ตรงนี้ ---
+    # --- Debug Mode Checkbox (เหมือนเดิม) ---
     if 'debug_mode' not in st.session_state:
         st.session_state.debug_mode = False
     
     st.session_state.debug_mode = st.checkbox("⚙️ เปิดโหมด Debug สำหรับ Balance Summary (อาจมีข้อความเยอะ)", value=st.session_state.debug_mode)
     if st.session_state.debug_mode:
         st.warning("⚠️ โหมด Debug ทำงานอยู่: ข้อความแสดงผลลัพธ์จาก Excel อาจเยอะและรกตา")
-    # --- สิ้นสุดการเพิ่ม Debug Mode Checkbox ---
 
-
-    # --- ฟังก์ชันช่วยในการแยกส่วนข้อมูลจากไฟล์ที่อัปโหลด (ปรับปรุงแล้ว) ---
+    # --- ฟังก์ชันที่ปรับปรุงใหม่ทั้งหมด ---
     def extract_sections_from_file(file):
-        if file.name.endswith(".xlsx"):
-            df_raw = pd.read_excel(file, header=None, engine='openpyxl')
-        elif file.name.endswith(".csv"):
-            df_raw = pd.read_csv(file, header=None)
-        else:
-            return {} # คืนค่า dictionary เปล่า ถ้าไม่ใช่ excel หรือ csv
+        df_raw = None
+        # อ่านไฟล์ให้เป็น DataFrame ก่อน
+        try:
+            if file.name.endswith('.csv'):
+                file.seek(0)
+                df_raw = pd.read_csv(file, header=None, low_memory=False)
+            elif file.name.endswith('.xlsx'):
+                file.seek(0)
+                df_raw = pd.read_excel(file, header=None, engine='openpyxl')
+        except Exception as e:
+            st.error(f"เกิดข้อผิดพลาดในการอ่านไฟล์: {e}")
+            return {}
 
+        if df_raw is None or df_raw.empty:
+            st.warning("ไม่สามารถอ่านข้อมูลจากไฟล์ได้ หรือไฟล์ว่างเปล่า")
+            return {}
+
+        # หาตำแหน่งเริ่มต้นของแต่ละ Section
         section_starts = {}
-        current_section = None
-        section_keywords = {
-            "History": "History",
-            "Open Trades": "Open Trades",
-            "Exposure": "Exposure",
-            "Orders": "Orders",
-            "Results": "Results"
-        }
-
-        # Find start rows for main sections
-        for r_idx in range(len(df_raw)):
-            # Check for section headers (e.g., "History", "Open Trades", etc.)
-            for col_idx in range(min(df_raw.shape[1], 15)): # Check more columns up to O (index 14)
-                cell_value = str(df_raw.iloc[r_idx, col_idx]).strip()
-                for key, keyword in section_keywords.items():
-                    if keyword.lower() in cell_value.lower() and key not in section_starts:
-                        section_starts[key] = r_idx
-                        current_section = key
-                        break
-                if current_section:
+        section_keywords = ["Positions", "Orders", "Deals", "Results"]
+        for keyword in section_keywords:
+            for r_idx, row in df_raw.iterrows():
+                if row.astype(str).str.contains(keyword, case=False).any():
+                    section_starts[keyword] = r_idx
                     break
-            current_section = None # Reset for next search
+        
+        # ถ้าไม่เจอ "Deals" ให้ลองหา "History" แทน
+        if "Deals" not in section_starts and "History" in df_raw.astype(str).values:
+             for r_idx, row in df_raw.iterrows():
+                if row.astype(str).str.contains("History", case=False).any():
+                    section_starts["Deals"] = r_idx # ตั้งชื่อเป็น Deals เพื่อให้สอดคล้องกัน
+                    break
 
         section_data = {}
-        tabular_sections = ["History", "Open Trades", "Exposure", "Orders"]
 
+        # ประมวลผล Section ที่เป็นตาราง (Positions, Orders, Deals)
+        tabular_sections = ["Positions", "Orders", "Deals"]
         for section_name in tabular_sections:
             if section_name in section_starts:
                 start_row = section_starts[section_name]
+                # Find header row
+                header_row_idx = start_row + 1
+                while header_row_idx < len(df_raw) and df_raw.iloc[header_row_idx].isnull().all():
+                    header_row_idx += 1
                 
-                # Find the header row (first non-empty row after section start)
-                header_row_idx = -1
-                for r_idx in range(start_row + 1, len(df_raw)):
-                    if not df_raw.iloc[r_idx].isnull().all(): # Check if row is not entirely empty
-                        header_row_idx = r_idx
-                        break
-                
-                if header_row_idx != -1:
-                    headers = [str(col).strip() for col in df_raw.iloc[header_row_idx] if pd.notna(col) and str(col).strip() != '']
-                    
-                    # Determine end row of the section
-                    end_row = len(df_raw)
-                    next_section_start = len(df_raw) # Default to end of file
-                    for other_section_name, other_start_row in section_starts.items():
-                        if other_section_name != section_name and other_start_row > start_row:
-                            if other_start_row < next_section_start:
-                                next_section_start = other_start_row
-                    end_row = next_section_start
-
-                    # Extract data rows for the current section
+                if header_row_idx < len(df_raw):
+                    headers = [str(h).strip() for h in df_raw.iloc[header_row_idx] if pd.notna(h)]
                     data_start_row = header_row_idx + 1
-                    section_df = df_raw.iloc[data_start_row:end_row].copy()
                     
-                    # Check if section_df is not empty before processing
-                    if not section_df.empty:
-                        # Drop rows where all values are NaN
-                        section_df.dropna(how='all', inplace=True)
-                        
-                        if not section_df.empty:
-                            # Re-index to make operations easier
-                            section_df.reset_index(drop=True, inplace=True)
+                    # Find end row
+                    end_row = len(df_raw)
+                    sorted_starts = sorted(section_starts.items(), key=lambda item: item[1])
+                    for i, (key, val) in enumerate(sorted_starts):
+                        if key == section_name and i + 1 < len(sorted_starts):
+                            end_row = sorted_starts[i+1][1]
+                            break
+                    
+                    df_section = df_raw.iloc[data_start_row:end_row].copy()
+                    df_section.dropna(how='all', inplace=True)
+                    df_section.columns = headers[:len(df_section.columns)]
+                    section_data[section_name.lower()] = df_section
 
-                            # Dynamically map headers to column indices
-                            header_to_col_idx = {}
-                            for i, col_name in enumerate(df_raw.iloc[header_row_idx]):
-                                if pd.notna(col_name) and str(col_name).strip() != '':
-                                    header_to_col_idx[str(col_name).strip()] = i
-
-                            # Create a new DataFrame with correctly aligned columns
-                            processed_data = []
-                            for row_idx in range(len(section_df)):
-                                row_values = []
-                                for header in headers:
-                                    original_col_idx = header_to_col_idx.get(header)
-                                    if original_col_idx is not None and original_col_idx < len(df_raw.columns):
-                                        # Use .loc with original DataFrame's column index
-                                        # We need to use df_raw.iloc to get the value from the correct original position
-                                        value = df_raw.iloc[data_start_row + row_idx, original_col_idx]
-                                        row_values.append(value)
-                                    else:
-                                        row_values.append(np.nan) # Append NaN if header not found in original cols
-                                processed_data.append(row_values)
-                            
-                            # Remove leading/trailing spaces from headers
-                            cleaned_headers = [h.strip() for h in headers]
-                            
-                            temp_df = pd.DataFrame(processed_data, columns=cleaned_headers)
-
-                            # Clean up values (remove $, comma, %)
-                            for col in temp_df.columns:
-                                # Apply cleaning only to columns that are likely to contain numbers
-                                if temp_df[col].dtype == 'object': # Check if it's an object/string type
-                                    # Ensure we don't apply regex to non-string types or if not necessary
-                                    temp_df[col] = temp_df[col].astype(str).str.replace('$', '', regex=False).str.replace(',', '', regex=False).str.replace('%', '', regex=False)
-                                    # Handle parentheses for negative numbers: (123.45) -> -123.45
-                                    temp_df[col] = temp_df[col].apply(lambda x: f"-{x.replace('(', '').replace(')', '').strip()}" if isinstance(x, str) and '(' in x and ')' in x else x)
-                                    # Attempt conversion to numeric after cleaning
-                                    temp_df[col] = pd.to_numeric(temp_df[col], errors='coerce')
-                                elif pd.api.types.is_numeric_dtype(temp_df[col]):
-                                    # If already numeric, ensure negative signs from parentheses are handled if any exist (unlikely but safe)
-                                    # This is more for string-like numbers that are already numeric (e.g., loaded as int but had parentheses)
-                                    temp_df[col] = temp_df[col].apply(lambda x: -abs(x) if isinstance(x, (str)) and '(' in str(x) and ')' in str(x) else x)
-
-
-                            section_data[section_name.lower().replace(" ", "_")] = temp_df
-                        else:
-                            st.warning(f"Warning: No valid data rows found for section '{section_name}'.")
-                    else:
-                        st.warning(f"Warning: Section '{section_name}' found but no data could be extracted.")
-                else:
-                    st.warning(f"Warning: Could not find header row for section '{section_name}'.")
-
-        # --- Process "Results" section (Balance Summary) ---
-        results_stats = {}
+        # ประมวลผล "Results" (Balance Summary)
         if "Results" in section_starts:
-            results_start_row = section_starts["Results"]
-            # Start scanning from the row *after* "Results" keyword was found
-            # and limit to a reasonable number of rows.
-            scan_end_row = min(len(df_raw), results_start_row + 1 + 30) # Scan up to 30 rows after "Results" start for stats
+            results_stats = {}
+            start_row = section_starts["Results"]
+            end_row = start_row + 15 # Scan 15 rows for stats
             
-            # Use a dictionary for faster lookup, mapping normalized label to (original_label, expected_label_col_idx, expected_value_col_idx)
-            stat_lookup_map = {}
+            # ใช้ df_raw ที่อ่านมาจากตอนแรกได้เลย
+            results_df = df_raw.iloc[start_row:end_row]
+
+            stat_definitions = {
+                "Total Net Profit": "totalnetprofit", "Gross Profit": "grossprofit", "Gross Loss": "grossloss",
+                "Profit Factor": "profitfactor", "Expected Payoff": "expectedpayoff", "Recovery Factor": "recoveryfactor",
+                "Sharpe Ratio": "sharperatio", "Balance Drawdown Absolute": "balancedrawdownabsolute",
+                "Balance Drawdown Maximal": "balancedrawdownmaximal", "Balance Drawdown Relative": "balancedrawdownrelative",
+                "Total Trades": "totaltrades", "Short Trades (won %)": "shorttradeswon", "Long Trades (won %)": "longtradeswon",
+                "Profit Trades (% of total)": "profittradesoftotal", "Loss Trades (% of total)": "losstradesoftotal",
+                "Largest profit trade": "largestprofittrade", "Largest loss trade": "largestlosstrade",
+                "Average profit trade": "averageprofittrade", "Average loss trade": "averagelosstrade",
+                "Maximum consecutive wins ($)": "maximumconsecutivewins", "Maximal consecutive profit (count)": "maximalconsecutiveprofitcount",
+                "Average consecutive wins": "averageconsecutivewins", "Maximum consecutive losses ($)": "maximumconsecutivelosses",
+                "Maximal consecutive loss (count)": "maximalconsecutivelosscount", "Average consecutive losses": "averageconsecutivelosses"
+            }
             
-            # Based on your screenshots for ReportHistory-300379.xlsx and the new file:
-            # Column mapping (0-indexed Pandas):
-            # C (index 2) is value for B (index 1)
-            # H (index 7) is value for G (index 6)
-            # N (index 13) is value for K (index 10)
-            stat_definitions_for_results = [
-                ("Total Net Profit", 1, 2), # Label in B, Value in C
-                ("Profit Factor", 1, 2),    # Label in B, Value in C
-                ("Recovery Factor", 1, 2),  # Label in B, Value in C
-                ("Balance Drawdown Absolute", 1, 2), # Label in B, Value in C
-                ("Total Trades", 1, 2),     # Label in B, Value in C
-
-                ("Gross Profit", 6, 7),     # Label in G, Value in H
-                ("Expected Payoff", 6, 7),  # Label in G, Value in H
-                ("Sharpe Ratio", 6, 7),     # Label in G, Value in H
-                ("Balance Drawdown Maximal", 6, 7), # Label in G, Value in H
-                ("Short Trades (won %)", 6, 7), # Label in G, Value in H
-                ("Profit Trades (% of total)", 6, 7), # Label in G, Value in H
-                ("Largest profit trade", 6, 7), # Label in G, Value in H
-                ("Average profit trade", 6, 7), # Label in G, Value in H
-                ("Maximum consecutive wins ($)", 6, 7), # Label in G, Value in H
-                ("Maximal consecutive profit (count)", 6, 7), # Label in G, Value in H
-                ("Average consecutive wins", 6, 7), # Label in G, Value in H
-
-                ("Gross Loss", 10, 13),      # Label in K, Value in N
-                ("Balance Drawdown Relative", 10, 13), # Label in K, Value in N
-                ("Long Trades (won %)", 10, 13), # Label in K, Value in N
-                ("Loss Trades (% of total)", 10, 13), # Label in K, Value in N
-                ("Largest loss trade", 10, 13), # Label in K, Value in N
-                ("Average loss trade", 10, 13), # Label in K, Value in N
-                ("Maximum consecutive losses ($)", 10, 13), # Label in K, Value in N
-                ("Maximal consecutive loss (count)", 10, 13), # Label in K, Value in N
-                ("Average consecutive losses", 10, 13) # Label in K, Value in N
-            ]
-
-            for original_label, label_col, value_col in stat_definitions_for_results:
-                normalized_key = "".join(filter(str.isalnum, original_label)).lower()
-                stat_lookup_map[normalized_key] = (original_label, label_col, value_col)
-
-            # ADD THIS DEBUG PRINT: แสดงเนื้อหาของ stat_lookup_map
-            if st.session_state.debug_mode:
-                st.write("DEBUG Balance Summary: stat_lookup_map built:")
-                st.write(stat_lookup_map)
-            
-            # --- NEW: Use openpyxl for reliable cell access in "Results" section ---
-            # Reset file pointer to beginning for openpyxl to read
-            file.seek(0)
-            try:
-                workbook = openpyxl.load_workbook(file)
-                sheet = workbook.active # Assuming data is on the active sheet
-            except Exception as e:
-                st.error(f"Error loading Excel with openpyxl: {e}")
-                if st.session_state.debug_mode:
-                    st.write(f"DEBUG openpyxl Error: {e}")
-                return section_data # Return empty if openpyxl fails
-
-            # Iterate using openpyxl's 1-indexed row/col system
-            # results_start_row is 0-indexed from Pandas, so add 1 to get openpyxl row index for "Results" keyword
-            # Then add another 1 to start scanning from the row *after* "Results"
-            # scan_end_row (Pandas 0-indexed) also needs to be converted to openpyxl 1-indexed for the range
-            for r_idx_openpyxl in range(results_start_row + 2, scan_end_row + 1): 
-                # Convert pandas 0-indexed columns to openpyxl 1-indexed columns for potential label columns
-                potential_label_cols_openpyxl = [col_idx_pandas + 1 for col_idx_pandas in [1, 6, 10]] # B, G, K -> 2, 7, 11 (in openpyxl)
-
-                for current_label_col_openpyxl in potential_label_cols_openpyxl:
-                    # Get cell value directly using openpyxl
-                    raw_cell_content = None
-                    try:
-                        cell_obj = sheet.cell(row=r_idx_openpyxl, column=current_label_col_openpyxl)
-                        raw_cell_content = cell_obj.value
-                    except IndexError: # If column is out of bounds for this row in openpyxl
-                        if st.session_state.debug_mode:
-                            st.write(f"DEBUG Balance Summary (openpyxl): Cell ({r_idx_openpyxl}, {current_label_col_openpyxl}) out of sheet bounds. Skipping.")
-                        continue # Skip to next column
-
-                    # Use pd.isna for robustness with various NaN representations
-                    is_nan_val = pd.isna(raw_cell_content) 
-
-                    if st.session_state.debug_mode:
-                        st.write(f"DEBUG Balance Summary (openpyxl): Checking Label Row {r_idx_openpyxl}, Col {current_label_col_openpyxl}. Raw Cell Content: '{raw_cell_content}', Type: {type(raw_cell_content)}, Is NaN: {is_nan_val}")
-
-                    # Check if the string representation is not empty and not the literal string 'None' (for truly empty cells)
-                    string_representation = str(raw_cell_content).strip()
-                    if string_representation and string_representation.lower() != 'none':
-                        label_text_from_excel_raw = string_representation
-                        normalized_excel_label = "".join(filter(str.isalnum, label_text_from_excel_raw)).lower()
-
-                        if st.session_state.debug_mode:
-                            st.write(f"DEBUG Balance Summary (openpyxl): Scanning (Found Text) Row {r_idx_openpyxl}, Col {current_label_col_openpyxl}: Raw Text='{label_text_from_excel_raw}', Normalized='{normalized_excel_label}'")
-                        
-                        if normalized_excel_label in stat_lookup_map:
-                            original_stat_key, expected_label_col_pandas, expected_value_col_pandas = stat_lookup_map[normalized_excel_label]
-                            
-                            # Convert expected pandas 0-indexed columns to openpyxl 1-indexed columns
-                            expected_label_col_openpyxl = expected_label_col_pandas + 1
-                            expected_value_col_openpyxl = expected_value_col_pandas + 1
-                            
-                            # Double-check if the found label column matches the expected label column for this stat
-                            if current_label_col_openpyxl == expected_label_col_openpyxl:
-                                value_col_to_read_openpyxl = expected_value_col_openpyxl
-                                
-                                raw_value_content = None
-                                try:
-                                    value_cell_obj = sheet.cell(row=r_idx_openpyxl, column=value_col_to_read_openpyxl)
-                                    raw_value_content = value_cell_obj.value
-                                except IndexError: # If value column is out of bounds
-                                     if st.session_state.debug_mode:
-                                        st.write(f"DEBUG Balance Summary (openpyxl): Value Cell ({r_idx_openpyxl}, {value_col_to_read_openpyxl}) out of sheet bounds. Skipping.")
-                                     continue # Skip to next iteration
-
-                                if st.session_state.debug_mode:
-                                    st.write(f"DEBUG Balance Summary (openpyxl): Attempting to read value for '{original_stat_key}' from Row {r_idx_openpyxl}, Value Col {value_col_to_read_openpyxl}. Raw Cell Content: '{raw_value_content}', Is NaN: {pd.isna(raw_value_content)}")
-                                
-                                # Process if value content is not NaN/empty
-                                if pd.notna(raw_value_content) and str(raw_value_content).strip().lower() != 'none': 
-                                    value = str(raw_value_content).strip()
-                                    
-                                    # Handle percentages like "11.46% (1 211.92)" by taking only the first part
-                                    if '%' in value and '(' in value:
-                                        value = value.split('%')[0].strip()
-                                    # Handle negative numbers in parentheses like "(123.45)"
-                                    elif '(' in value and ')' in value:
-                                        value = "-" + value.replace('(', '').replace(')', '').strip()
-                                    
-                                    # Remove common non-numeric characters
-                                    value = value.replace('$', '').replace(',', '').replace('%', '')
-                                    
-                                    try:
-                                        value = float(value)
-                                    except ValueError:
-                                        try:
-                                            value = int(value)
-                                        except ValueError:
-                                            if st.session_state.debug_mode:
-                                                st.warning(f"DEBUG Balance Summary (openpyxl): Could not convert '{value}' for '{original_stat_key}' to numeric. Keeping as string.")
-                                            continue # Skip to next iteration if value is not numeric
-                                    
-                                    results_stats[original_stat_key] = value
-                                    
-                                    if st.session_state.debug_mode:
-                                        st.write(f"DEBUG Balance Summary (openpyxl): --- Found and extracted '{original_stat_key}' --- Value: '{value}' from Row {r_idx_openpyxl}, Label Col {current_label_col_openpyxl}, Value Col {value_col_to_read_openpyxl}")
-                                else: # If value is NaN or empty string
-                                     if st.session_state.debug_mode:
-                                         st.write(f"DEBUG Balance Summary (openpyxl): Skipping '{original_stat_key}' - Value cell is NaN, empty, or 'None'.")
-                            else: # If current_label_col_openpyxl != expected_label_col_openpyxl
-                                if st.session_state.debug_mode:
-                                    st.write(f"DEBUG Balance Summary (openpyxl): Mismatch label column for '{original_stat_key}'. Expected {expected_label_col_openpyxl}, got {current_label_col_openpyxl}.")
-                        else: # If normalized_excel_label not in stat_lookup_map
-                            if st.session_state.debug_mode:
-                                st.write(f"DEBUG Balance Summary (openpyxl): '{normalized_excel_label}' (from Col {current_label_col_openpyxl}) not in stat_lookup_map.")
-                    else: # If string_representation is empty or 'None'
-                        if st.session_state.debug_mode:
-                            st.write(f"DEBUG Balance Summary (openpyxl): Cell at Row {r_idx_openpyxl}, Col {current_label_col_openpyxl} is empty or 'None' after stripping. Skipping label check.")
+            for r_idx, row in results_df.iterrows():
+                for c_idx, cell in enumerate(row):
+                    if pd.notna(cell):
+                        cell_str = str(cell).strip().replace(':', '')
+                        if cell_str in stat_definitions:
+                            # Found a label, look for value in the next few cells
+                            for val_c_idx in range(c_idx + 1, min(c_idx + 4, len(row))):
+                                value = row.iloc[val_c_idx]
+                                if pd.notna(value) and str(value).strip() != "":
+                                    results_stats[cell_str] = str(value).strip()
+                                    break 
 
             if results_stats:
                 section_data["balance_summary"] = pd.DataFrame(list(results_stats.items()), columns=['Metric', 'Value'])
-                if st.session_state.debug_mode:
-                    st.write("DEBUG Balance Summary: Final results_stats collected:")
-                    st.write(results_stats)
-            else:
-                st.warning("Warning: 'Results' section found but no recognizable statistics extracted for Balance Summary.")
-                if st.session_state.debug_mode:
-                    st.write("DEBUG Balance Summary: No stats found using current logic.")
 
-        return section_data # <--- บรรทัดนี้คือบรรทัดสุดท้ายของฟังก์ชัน extract_sections_from_file
+        return section_data
 
-    # โค้ดที่ประมวลผลไฟล์ที่อัปโหลด (ต้องอยู่นอกฟังก์ชัน extract_sections_from_file)
-    # แต่ยังคงอยู่ใน with st.expander("📂 SEC 7: ..."):
+    # --- ส่วนที่เรียกใช้ฟังก์ชันและแสดงผล (ปรับปรุงเล็กน้อย) ---
     if uploaded_files:
         for uploaded_file in uploaded_files:
             file_name = uploaded_file.name
@@ -1121,25 +908,18 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Auto-Mapping", expande
                 if extracted_data:
                     # อัปเดตข้อมูลทั้งหมดใน session_state
                     for key, df in extracted_data.items():
-                        if key not in st.session_state.all_statement_data:
-                            st.session_state.all_statement_data[key] = df
-                        else:
-                            st.session_state.all_statement_data[key] = pd.concat([st.session_state.all_statement_data[key], df], ignore_index=True)
-                            st.session_state.all_statement_data[key].drop_duplicates(inplace=True) # ป้องกันข้อมูลซ้ำซ้อน
-                    
-                    # อัปเดต df_stmt_current ด้วยส่วน 'history' (ซึ่งตอนนี้เปลี่ยนเป็น 'deals')
-                    if 'history' in extracted_data: # ตรวจสอบ 'history' ก่อน
-                        st.session_state.df_stmt_current = extracted_data['history']
-                    elif 'deals' in extracted_data: # ถ้าไม่พบ 'history' ให้ใช้ 'deals'
+                        # ใช้ .copy() เพื่อป้องกัน SettingWithCopyWarning
+                        st.session_state.all_statement_data[key] = df.copy()
+
+                    # อัปเดต df_stmt_current ด้วยส่วน 'deals'
+                    if 'deals' in extracted_data:
                         st.session_state.df_stmt_current = extracted_data['deals']
-                    else:
-                        st.warning(f"ไม่พบส่วน 'History' หรือ 'Deals' ในไฟล์ {file_name} เพื่ออัปเดต Dashboard หลัก")
-                        
+                    
                     st.success(f"ประมวลผล {file_name} สำเร็จ! พบข้อมูลในส่วน: {', '.join(extracted_data.keys())}")
 
-                    # แสดงผล Balance Summary ถ้ามีและ Debug Mode เปิดอยู่
-                    if st.session_state.debug_mode and 'balance_summary' in extracted_data:
-                        st.write("### 📊 Balance Summary (จากไฟล์ที่ประมวลผล)")
+                    # แสดงผล Balance Summary ถ้ามี
+                    if 'balance_summary' in extracted_data:
+                        st.write("### 📊 Balance Summary")
                         st.dataframe(extracted_data['balance_summary'])
                     
                     # แสดงส่วนอื่นๆ ที่แยกได้ (ถ้า Debug Mode เปิดอยู่)
@@ -1150,7 +930,6 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Auto-Mapping", expande
                                 st.dataframe(section_df)
                 else:
                     st.warning(f"ไม่สามารถแยกส่วนข้อมูลใดๆ จากไฟล์ {file_name} ได้ โปรดตรวจสอบรูปแบบไฟล์")
-        # st.experimental_rerun() # บรรทัดนี้ถูกลบออกเพื่อแก้ AttributeError
     else:
         st.info("ยังไม่มีไฟล์ Statement อัปโหลด")
 
@@ -1159,9 +938,9 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Auto-Mapping", expande
     st.info("นี่คือข้อมูล 'Deals' (หรือ History) ที่ถูกดึงมาใช้ใน Dashboard หลัก")
     st.dataframe(df_stmt_current)
 
-    # ปุ่มล้างข้อมูลทั้งหมด
-    if st.button("🗑️ ล้างข้อมูล Statement ที่โหลดทั้งหมด (รวม Google Sheets)", key="clear_all_statements"):
+    # ปุ่มล้างข้อมูลทั้งหมด (เหมือนเดิม)
+    if st.button("🗑️ ล้างข้อมูล Statement ที่โหลดทั้งหมด", key="clear_all_statements"):
         st.session_state.all_statement_data = {}
         st.session_state.df_stmt_current = pd.DataFrame()
         st.success("ล้างข้อมูล Statement ทั้งหมดแล้ว")
-        st.experimental_rerun() # อันนี้ยังคงอยู่
+        st.rerun()
