@@ -43,7 +43,7 @@ except Exception as e:
     st.warning("⚠️ โปรดตั้งค่า 'gcp_service_account' ใน .streamlit/secrets.toml เพื่อเชื่อมต่อ Google Sheets.")
 # โค้ดส่วนอื่นๆ ของแอปคุณจะมาต่อจากนี้# --- การตั้งค่า Google Sheets API Key และ Gspread Client ---
 # กำหนดชื่อ Google Sheet และ Worksheet ที่จะใช้เก็บข้อมูล Statement
-GOOGLE_SHEET_NAME = "Legendary RR Planner Statement Data" # **เปลี่ยนเป็นชื่อ Google Sheet ของคุณ**
+GOOGLE_SHEET_NAME = "TradeLog" # **เปลี่ยนเป็นชื่อ Google Sheet ของคุณ**
 GOOGLE_WORKSHEET_NAME = "Uploaded Statements" # ชื่อ Worksheet ที่จะใช้เก็บ Statement
 
 # ฟังก์ชันสำหรับเชื่อมต่อ gspread
