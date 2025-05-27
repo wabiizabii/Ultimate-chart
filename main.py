@@ -984,7 +984,30 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Auto-Mapping", expande
     else:
         st.info("ยังไม่มีข้อมูล Statement สำหรับ Dashboard (โปรดอัปโหลดหรือตรวจสอบการโหลดจาก Google Sheets)")
 
+        # --- เพิ่มโค้ดสำหรับตรวจสอบส่วนอื่นๆ ที่นี่ ---
 
+    # ตรวจสอบ df_positions_current
+    if 'positions' in all_statement_data and not all_statement_data['positions'].empty:
+        st.subheader("ข้อมูล Positions (จาก Statement)")
+        st.dataframe(all_statement_data['positions'].head()) # แสดง 5 แถวแรก
+    else:
+        st.info("ไม่พบข้อมูล Positions ใน Statement หรือเป็น DataFrame ว่างเปล่า.")
+
+    # ตรวจสอบ df_orders_current
+    if 'orders' in all_statement_data and not all_statement_data['orders'].empty:
+        st.subheader("ข้อมูล Orders (จาก Statement)")
+        st.dataframe(all_statement_data['orders'].head()) # แสดง 5 แถวแรก
+    else:
+        st.info("ไม่พบข้อมูล Orders ใน Statement หรือเป็น DataFrame ว่างเปล่า.")
+
+    # ตรวจสอบ df_balance_summary
+    if 'balance_summary' in all_statement_data and not all_statement_data['balance_summary'].empty:
+        st.subheader("ข้อมูล Balance Summary (จาก Statement)")
+        st.dataframe(all_statement_data['balance_summary'].head()) # แสดง 5 แถวแรก
+    else:
+        st.info("ไม่พบข้อมูล Balance Summary ใน Statement หรือเป็น DataFrame ว่างเปล่า.")
+
+    # --- สิ้นสุดโค้ดสำหรับตรวจสอบส่วนอื่นๆ ---
 
 # ======================= END: โค้ดที่อัปเดตสำหรับแสดงผลและกรองข้อมูล =======================
 
