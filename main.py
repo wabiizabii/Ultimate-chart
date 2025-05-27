@@ -809,12 +809,6 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Auto-Mapping", expande
 
 
     # --- ฟังก์ชันช่วยในการแยกส่วนข้อมูลจากไฟล์ที่อัปโหลด (ปรับปรุงแล้ว) ---
-    # ฟังก์ชันนี้ต้องอยู่นอกส่วนของ `with st.expander(...)` และมีการเยื้องที่ถูกต้อง
-    # แต่เนื่องจากเราต้องการให้มันอยู่ใน SEC 7 เพื่อความง่ายในการจัดการ
-    # เราจะวางมันตรงนี้และให้มันมี indent เพียงพอที่จะอยู่ใต้ `with st.expander`
-    # (โดยทั่วไปฟังก์ชันควรจะอยู่ระดับนอกสุด หรือในคลาส)
-    # แต่เพื่อแก้ปัญหาเฉพาะหน้าเรื่อง IndentationError และ SyntaxError
-    # เราจะวางมันในระดับนี้
     def extract_sections_from_file(file):
         if file.name.endswith(".xlsx"):
             df_raw = pd.read_excel(file, header=None, engine='openpyxl')
@@ -976,6 +970,11 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Auto-Mapping", expande
                 normalized_key = "".join(filter(str.isalnum, original_label)).lower()
                 stat_lookup_map[normalized_key] = (original_label, label_col, value_col)
 
+            # ADD THIS DEBUG PRINT: แสดงเนื้อหาของ stat_lookup_map
+            if st.session_state.debug_mode:
+                st.write("DEBUG Balance Summary: stat_lookup_map built:")
+                st.write(stat_lookup_map)
+            
             # Iterate through rows where results are expected
             for r_idx in range(results_start_row + 1, min(len(df_raw), results_start_row + 1 + scan_rows_for_stats)):
                 row = df_raw.iloc[r_idx]
@@ -1031,6 +1030,7 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Auto-Mapping", expande
         return section_data # <--- บรรทัดนี้คือบรรทัดสุดท้ายของฟังก์ชัน extract_sections_from_file
 
     # โค้ดที่ประมวลผลไฟล์ที่อัปโหลด (ต้องอยู่นอกฟังก์ชัน extract_sections_from_file)
+    # แต่ยังคงอยู่ใน with st.expander("📂 SEC 7: ..."):
     if uploaded_files:
         for uploaded_file in uploaded_files:
             file_name = uploaded_file.name
@@ -1045,8 +1045,8 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Auto-Mapping", expande
                         if key not in st.session_state.all_statement_data:
                             st.session_state.all_statement_data[key] = df
                         else:
-                            st.session_state.all_statement_data[key] = pd.concat([st.session_state.all_statement_data[key], df], ignore_index=True)
-                            st.session_state.all_statement_data[key].drop_duplicates(inplace=True) # ป้องกันข้อมูลซ้ำซ้อน
+                            st.session_session.all_statement_data[key] = pd.concat([st.session_session.all_statement_data[key], df], ignore_index=True)
+                            st.session_session.all_statement_data[key].drop_duplicates(inplace=True) # ป้องกันข้อมูลซ้ำซ้อน
                     
                     # อัปเดต df_stmt_current ด้วยส่วน 'history' (ซึ่งตอนนี้เปลี่ยนเป็น 'deals')
                     if 'history' in extracted_data: # ตรวจสอบ 'history' ก่อน
@@ -1071,7 +1071,7 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Auto-Mapping", expande
                                 st.dataframe(section_df)
                 else:
                     st.warning(f"ไม่สามารถแยกส่วนข้อมูลใดๆ จากไฟล์ {file_name} ได้ โปรดตรวจสอบรูปแบบไฟล์")
-        st.experimental_rerun() # บังคับให้แอป rerun เพื่อแสดงข้อมูลที่อัปเดตทันที
+        # st.experimental_rerun() # บรรทัดนี้ถูกลบออกเพื่อแก้ AttributeError
     else:
         st.info("ยังไม่มีไฟล์ Statement อัปโหลด")
 
@@ -1085,9 +1085,7 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Auto-Mapping", expande
         st.session_state.all_statement_data = {}
         st.session_state.df_stmt_current = pd.DataFrame()
         st.success("ล้างข้อมูล Statement ทั้งหมดแล้ว")
-        st.experimental_rerun()
-
-# --- สิ้นสุดโค้ดสำหรับตรวจสอบส่วนอื่นๆ ---
+        st.experimental_rerun() # อันนี้ยังคงอยู่
 # ======================= SEC 9: DASHBOARD + AI ULTIMATE =======================
 # ปรับปรุง load_data_for_dashboard()
 def load_data_for_dashboard():
