@@ -1045,8 +1045,8 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Auto-Mapping", expande
                         if key not in st.session_state.all_statement_data:
                             st.session_state.all_statement_data[key] = df
                         else:
-                            st.session_session.all_statement_data[key] = pd.concat([st.session_session.all_statement_data[key], df], ignore_index=True)
-                            st.session_session.all_statement_data[key].drop_duplicates(inplace=True) # ป้องกันข้อมูลซ้ำซ้อน
+                            st.session_state.all_statement_data[key] = pd.concat([st.session_state.all_statement_data[key], df], ignore_index=True)
+                            st.session_state.all_statement_data[key].drop_duplicates(inplace=True) # ป้องกันข้อมูลซ้ำซ้อน
                     
                     # อัปเดต df_stmt_current ด้วยส่วน 'history' (ซึ่งตอนนี้เปลี่ยนเป็น 'deals')
                     if 'history' in extracted_data: # ตรวจสอบ 'history' ก่อน
