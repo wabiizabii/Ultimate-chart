@@ -830,7 +830,7 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Auto-Mapping", expande
         # Find start rows for main sections
         for r_idx in range(len(df_raw)):
             # Check for section headers (e.g., "History", "Open Trades", etc.)
-            for col_idx in range(min(df_raw.shape[1], 5)): # Check first few columns
+            for col_idx in range(min(df_raw.shape[1], 15)): # Check more columns up to O (index 14)
                 cell_value = str(df_raw.iloc[r_idx, col_idx]).strip()
                 for key, keyword in section_keywords.items():
                     if keyword.lower() in cell_value.lower() and key not in section_starts:
@@ -910,13 +910,16 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Auto-Mapping", expande
                             for col in temp_df.columns:
                                 # Apply cleaning only to columns that are likely to contain numbers
                                 if temp_df[col].dtype == 'object': # Check if it's an object/string type
-                                    if temp_df[col].astype(str).str.contains(r'[$,%()]', regex=True).any():
-                                        temp_df[col] = temp_df[col].astype(str).str.replace('$', '', regex=False).str.replace(',', '', regex=False).str.replace('%', '', regex=False).str.replace('(', '-', regex=False).str.replace(')', '', regex=False)
-                                        # Attempt conversion to numeric after cleaning
-                                        temp_df[col] = pd.to_numeric(temp_df[col], errors='coerce')
+                                    # Ensure we don't apply regex to non-string types or if not necessary
+                                    temp_df[col] = temp_df[col].astype(str).str.replace('$', '', regex=False).str.replace(',', '', regex=False).str.replace('%', '', regex=False)
+                                    # Handle parentheses for negative numbers: (123.45) -> -123.45
+                                    temp_df[col] = temp_df[col].apply(lambda x: f"-{x.replace('(', '').replace(')', '').strip()}" if isinstance(x, str) and '(' in x and ')' in x else x)
+                                    # Attempt conversion to numeric after cleaning
+                                    temp_df[col] = pd.to_numeric(temp_df[col], errors='coerce')
                                 elif pd.api.types.is_numeric_dtype(temp_df[col]):
                                     # If already numeric, ensure negative signs from parentheses are handled if any exist (unlikely but safe)
-                                    temp_df[col] = temp_df[col].apply(lambda x: -abs(x) if isinstance(x, (str, bytes)) and '(' in str(x) and ')' in str(x) else x)
+                                    # This is more for string-like numbers that are already numeric (e.g., loaded as int but had parentheses)
+                                    temp_df[col] = temp_df[col].apply(lambda x: -abs(x) if isinstance(x, (str)) and '(' in str(x) and ')' in str(x) else x)
 
 
                             section_data[section_name.lower().replace(" ", "_")] = temp_df
@@ -935,35 +938,40 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Auto-Mapping", expande
             
             # Use a dictionary for faster lookup, mapping normalized label to (original_label, expected_label_col_idx, expected_value_col_idx)
             stat_lookup_map = {}
-            # Columns are 0-indexed, so B=1, E=4, I=8
+            
+            # Based on your screenshot for ReportHistory-300379.xlsx:
+            # Column mapping (0-indexed):
+            # C (index 2) is value for B (index 1)
+            # H (index 7) is value for G (index 6)
+            # N (index 13) is value for K (index 10)
             stat_definitions_for_results = [
-                ("Total Net Profit", 1, 2), 
-                ("Profit Factor", 1, 2), 
-                ("Recovery Factor", 1, 2),
-                ("Balance Drawdown Absolute", 1, 2), 
-                ("Total Trades", 1, 2),
+                ("Total Net Profit", 1, 2), # Expecting label in B, value in C (not seen in screenshot, assuming previous structure)
+                ("Profit Factor", 1, 2),    # Expecting label in B, value in C
+                ("Recovery Factor", 1, 2),  # Expecting label in B, value in C
+                ("Balance Drawdown Absolute", 1, 2), # Expecting label in B, value in C
+                ("Total Trades", 1, 2),     # Expecting label in B, value in C
 
-                ("Gross Profit", 4, 5), 
-                ("Expected Payoff", 4, 5), 
-                ("Sharpe Ratio", 4, 5),
-                ("Balance Drawdown Maximal", 4, 5), 
-                ("Short Trades (won %)", 4, 5),
-                ("Profit Trades (% of total)", 4, 5),
-                ("Largest profit trade", 4, 5),
-                ("Average profit trade", 4, 5),
-                ("Maximum consecutive wins ($)", 4, 5),
-                ("Maximal consecutive profit (count)", 4, 5),
-                ("Average consecutive wins", 4, 5),
+                ("Gross Profit", 6, 7),     # Label in G, Value in H
+                ("Expected Payoff", 6, 7),  # Label in G, Value in H
+                ("Sharpe Ratio", 6, 7),     # Label in G, Value in H
+                ("Balance Drawdown Maximal", 6, 7), # Label in G, Value in H
+                ("Short Trades (won %)", 6, 7), # Label in G, Value in H
+                ("Profit Trades (% of total)", 6, 7), # Label in G, Value in H
+                ("Largest profit trade", 6, 7), # Label in G, Value in H
+                ("Average profit trade", 6, 7), # Label in G, Value in H
+                ("Maximum consecutive wins ($)", 6, 7), # Label in G, Value in H
+                ("Maximal consecutive profit (count)", 6, 7), # Label in G, Value in H
+                ("Average consecutive wins", 6, 7), # Label in G, Value in H
 
-                ("Gross Loss", 8, 13), 
-                ("Balance Drawdown Relative", 8, 13), 
-                ("Long Trades (won %)", 8, 13), 
-                ("Loss Trades (% of total)", 8, 13), 
-                ("Largest loss trade", 8, 13), 
-                ("Average loss trade", 8, 13), 
-                ("Maximum consecutive losses ($)", 8, 13), 
-                ("Maximal consecutive loss (count)", 8, 13), 
-                ("Average consecutive losses", 8, 13)
+                ("Gross Loss", 10, 13),      # Label in K, Value in N
+                ("Balance Drawdown Relative", 10, 13), # Label in K, Value in N
+                ("Long Trades (won %)", 10, 13), # Label in K, Value in N
+                ("Loss Trades (% of total)", 10, 13), # Label in K, Value in N
+                ("Largest loss trade", 10, 13), # Label in K, Value in N
+                ("Average loss trade", 10, 13), # Label in K, Value in N
+                ("Maximum consecutive losses ($)", 10, 13), # Label in K, Value in N
+                ("Maximal consecutive loss (count)", 10, 13), # Label in K, Value in N
+                ("Average consecutive losses", 10, 13) # Label in K, Value in N
             ]
 
             for original_label, label_col, value_col in stat_definitions_for_results:
@@ -979,12 +987,12 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Auto-Mapping", expande
             for r_idx in range(results_start_row + 1, min(len(df_raw), results_start_row + 1 + scan_rows_for_stats)):
                 row = df_raw.iloc[r_idx]
                 
-                # Check for labels in the known label columns: B (1), E (4), I (8)
-                potential_label_columns_in_row = [1, 4, 8] 
+                # Update potential_label_columns_in_row to include G (6) and K (10)
+                potential_label_columns_in_row = [1, 6, 10] 
                 
                 for current_label_col_idx in potential_label_columns_in_row:
                     if current_label_col_idx < len(row) and pd.notna(row[current_label_col_idx]):
-                        label_text_from_excel_raw = str(row[current_label_col_idx]).strip()
+                        label_text_from_excel_raw = str(df_raw.iloc[r_idx, current_label_col_idx]).strip() # Use df_raw.iloc directly
                         normalized_excel_label = "".join(filter(str.isalnum, label_text_from_excel_raw)).lower()
 
                         if st.session_state.debug_mode:
@@ -999,18 +1007,20 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Auto-Mapping", expande
                                 # --- START ADDED DEBUG PRINT HERE ---
                                 if st.session_state.debug_mode:
                                     if value_col_to_read < len(row):
-                                        st.write(f"DEBUG Balance Summary: Attempting to read value for '{original_stat_key}' from Row {r_idx}, Value Col {value_col_to_read}. Raw Cell Content: '{row[value_col_to_read]}', Is NaN: {pd.isna(row[value_col_to_read])}")
+                                        st.write(f"DEBUG Balance Summary: Attempting to read value for '{original_stat_key}' from Row {r_idx}, Value Col {value_col_to_read}. Raw Cell Content: '{df_raw.iloc[r_idx, value_col_to_read]}', Is NaN: {pd.isna(df_raw.iloc[r_idx, value_col_to_read])}")
                                     else:
                                         st.write(f"DEBUG Balance Summary: Value column {value_col_to_read} out of bounds for Row {r_idx}. Row length: {len(row)}.")
                                 # --- END ADDED DEBUG PRINT HERE ---
 
-                                if value_col_to_read < len(row) and pd.notna(row[value_col_to_read]):
-                                    value = str(row[value_col_to_read]).strip()
+                                if value_col_to_read < len(row) and pd.notna(df_raw.iloc[r_idx, value_col_to_read]):
+                                    value = str(df_raw.iloc[r_idx, value_col_to_read]).strip() # Use df_raw.iloc directly
                                     
-                                    if '(' in value and ')' in value:
+                                    # Handle percentages like "11.46% (1 211.92)" by taking only the first part
+                                    if '%' in value and '(' in value:
+                                        value = value.split('%')[0].strip()
+                                    elif '(' in value and ')' in value:
                                         value = "-" + value.replace('(', '').replace(')', '').strip()
                                     
-                                    # Use regex for replace only if necessary, otherwise direct string replace is faster
                                     value = value.replace('$', '').replace(',', '').replace('%', '')
                                     
                                     try:
@@ -1020,6 +1030,8 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Auto-Mapping", expande
                                             value = int(value)
                                         except ValueError:
                                             # If still can't convert, keep it as original string for inspection
+                                            if st.session_state.debug_mode:
+                                                st.warning(f"DEBUG Balance Summary: Could not convert '{value}' for '{original_stat_key}' to numeric. Keeping as string.")
                                             pass 
                                     
                                     results_stats[original_stat_key] = value
