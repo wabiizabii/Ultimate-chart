@@ -934,7 +934,9 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Auto-Mapping", expande
         results_stats = {}
         if "Results" in section_starts:
             results_start_row = section_starts["Results"]
-            scan_rows_for_stats = 30 # Scan up to 30 rows after "Results" start for stats
+            # Start scanning from the row *after* "Results" keyword was found
+            # and limit to a reasonable number of rows.
+            scan_end_row = min(len(df_raw), results_start_row + 1 + 30) # Scan up to 30 rows after "Results" start for stats
             
             # Use a dictionary for faster lookup, mapping normalized label to (original_label, expected_label_col_idx, expected_value_col_idx)
             stat_lookup_map = {}
@@ -984,81 +986,84 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Auto-Mapping", expande
                 st.write(stat_lookup_map)
             
             # Iterate through rows where results are expected
-            for r_idx in range(results_start_row + 1, min(len(df_raw), results_start_row + 1 + scan_rows_for_stats)):
-                row = df_raw.iloc[r_idx]
+            for r_idx in range(results_start_row + 1, scan_end_row): # Start from the row after "Results"
+                # Use .values to directly access the underlying numpy array, sometimes handles weird Excel issues better
+                row_data = df_raw.iloc[r_idx].values # Get the row as a numpy array for direct access
                 
                 # Update potential_label_columns_in_row to include B (1), G (6) and K (10)
                 potential_label_columns_in_row = [1, 6, 10] 
                 
                 for current_label_col_idx in potential_label_columns_in_row:
-                    # ADD THIS DEBUG PRINT: Debugging for label text before checking pd.notna
-                    if st.session_state.debug_mode:
-                        if current_label_col_idx < len(row):
-                            st.write(f"DEBUG Balance Summary: Checking Label Row {r_idx}, Col {current_label_col_idx}. Raw Cell Content: '{df_raw.iloc[r_idx, current_label_col_idx]}', Is NaN: {pd.isna(df_raw.iloc[r_idx, current_label_col_idx])}")
-                        else:
-                            st.write(f"DEBUG Balance Summary: Label column {current_label_col_idx} out of bounds for Row {r_idx}. Row length: {len(row)}.")
-
-
-                    if current_label_col_idx < len(row) and pd.notna(df_raw.iloc[r_idx, current_label_col_idx]):
-                        label_text_from_excel_raw = str(df_raw.iloc[r_idx, current_label_col_idx]).strip() # Use df_raw.iloc directly
-                        normalized_excel_label = "".join(filter(str.isalnum, label_text_from_excel_raw)).lower()
-
-                        if st.session_state.debug_mode:
-                            st.write(f"DEBUG Balance Summary: Scanning Row {r_idx}, Col {current_label_col_idx}: Raw Text='{label_text_from_excel_raw}', Normalized='{normalized_excel_label}'")
+                    # Check if column index is within row_data bounds
+                    if current_label_col_idx < len(row_data):
+                        raw_cell_content = row_data[current_label_col_idx]
+                        is_nan_val = pd.isna(raw_cell_content)
                         
-                        if normalized_excel_label in stat_lookup_map:
-                            original_stat_key, expected_label_col_for_this_stat, expected_value_col_for_this_stat = stat_lookup_map[normalized_excel_label]
-                            
-                            # Ensure we are looking at the correct label column for this specific stat
-                            if current_label_col_idx == expected_label_col_for_this_stat:
-                                value_col_to_read = expected_value_col_for_this_stat 
-                                
-                                # --- START ADDED DEBUG PRINT HERE ---
-                                if st.session_state.debug_mode:
-                                    if value_col_to_read < len(row):
-                                        st.write(f"DEBUG Balance Summary: Attempting to read value for '{original_stat_key}' from Row {r_idx}, Value Col {value_col_to_read}. Raw Cell Content: '{df_raw.iloc[r_idx, value_col_to_read]}', Is NaN: {pd.isna(df_raw.iloc[r_idx, value_col_to_read])}")
-                                    else:
-                                        st.write(f"DEBUG Balance Summary: Value column {value_col_to_read} out of bounds for Row {r_idx}. Row length: {len(row)}.")
-                                # --- END ADDED DEBUG PRINT HERE ---
+                        # Debugging for label text before checking pd.notna
+                        if st.session_state.debug_mode:
+                            st.write(f"DEBUG Balance Summary: Checking Label Row {r_idx}, Col {current_label_col_idx}. Raw Cell Content: '{raw_cell_content}', Is NaN: {is_nan_val}")
 
-                                if value_col_to_read < len(row) and pd.notna(df_raw.iloc[r_idx, value_col_to_read]):
-                                    value = str(df_raw.iloc[r_idx, value_col_to_read]).strip() # Use df_raw.iloc directly
-                                    
-                                    # Handle percentages like "11.46% (1 211.92)" by taking only the first part
-                                    if '%' in value and '(' in value:
-                                        value = value.split('%')[0].strip()
-                                    # Handle negative numbers in parentheses like "(123.45)"
-                                    elif '(' in value and ')' in value:
-                                        value = "-" + value.replace('(', '').replace(')', '').strip()
-                                    
-                                    # Remove common non-numeric characters
-                                    value = value.replace('$', '').replace(',', '').replace('%', '')
-                                    
-                                    try:
-                                        value = float(value)
-                                    except ValueError:
-                                        try:
-                                            value = int(value)
-                                        except ValueError:
-                                            # If still can't convert, keep it as original string for inspection
-                                            if st.session_state.debug_mode:
-                                                st.warning(f"DEBUG Balance Summary: Could not convert '{value}' for '{original_stat_key}' to numeric. Keeping as string.")
-                                            # Do not assign value to results_stats if it's not numeric and we can't convert
-                                            continue # Skip to next iteration if value is not numeric
-                                    
-                                    results_stats[original_stat_key] = value
-                                    
-                                    if st.session_state.debug_mode:
-                                        st.write(f"DEBUG Balance Summary: --- Found and extracted '{original_stat_key}' --- Value: '{value}' from Row {r_idx}, Label Col {current_label_col_idx}, Value Col {value_col_to_read}")
-                                else: # If value is NaN or column out of bounds
-                                     if st.session_state.debug_mode:
-                                         st.write(f"DEBUG Balance Summary: Skipping '{original_stat_key}' - Value is NaN or column out of bounds.")
-                            else: # If current_label_col_idx != expected_label_col_for_this_stat
-                                if st.session_state.debug_mode:
-                                    st.write(f"DEBUG Balance Summary: Mismatch label column for '{original_stat_key}'. Expected {expected_label_col_for_this_stat}, got {current_label_col_idx}.")
-                        else: # If normalized_excel_label not in stat_lookup_map
+                        if not is_nan_val: # Only process if not NaN
+                            label_text_from_excel_raw = str(raw_cell_content).strip()
+                            normalized_excel_label = "".join(filter(str.isalnum, label_text_from_excel_raw)).lower()
+
                             if st.session_state.debug_mode:
-                                st.write(f"DEBUG Balance Summary: '{normalized_excel_label}' (from Col {current_label_col_idx}) not in stat_lookup_map.")
+                                st.write(f"DEBUG Balance Summary: Scanning Row {r_idx}, Col {current_label_col_idx}: Raw Text='{label_text_from_excel_raw}', Normalized='{normalized_excel_label}'")
+                            
+                            if normalized_excel_label in stat_lookup_map:
+                                original_stat_key, expected_label_col_for_this_stat, expected_value_col_for_this_stat = stat_lookup_map[normalized_excel_label]
+                                
+                                # Ensure we are looking at the correct label column for this specific stat
+                                if current_label_col_idx == expected_label_col_for_this_stat:
+                                    value_col_to_read = expected_value_col_for_this_stat 
+                                    
+                                    # --- START ADDED DEBUG PRINT HERE ---
+                                    if st.session_state.debug_mode:
+                                        if value_col_to_read < len(row_data):
+                                            st.write(f"DEBUG Balance Summary: Attempting to read value for '{original_stat_key}' from Row {r_idx}, Value Col {value_col_to_read}. Raw Cell Content: '{row_data[value_col_to_read]}', Is NaN: {pd.isna(row_data[value_col_to_read])}")
+                                        else:
+                                            st.write(f"DEBUG Balance Summary: Value column {value_col_to_read} out of bounds for Row {r_idx}. Row length: {len(row_data)}.")
+                                    # --- END ADDED DEBUG PRINT HERE ---
+
+                                    if value_col_to_read < len(row_data) and pd.notna(row_data[value_col_to_read]):
+                                        value = str(row_data[value_col_to_read]).strip() # Use row_data directly
+                                        
+                                        # Handle percentages like "11.46% (1 211.92)" by taking only the first part
+                                        if '%' in value and '(' in value:
+                                            value = value.split('%')[0].strip()
+                                        # Handle negative numbers in parentheses like "(123.45)"
+                                        elif '(' in value and ')' in value:
+                                            value = "-" + value.replace('(', '').replace(')', '').strip()
+                                        
+                                        # Remove common non-numeric characters
+                                        value = value.replace('$', '').replace(',', '').replace('%', '')
+                                        
+                                        try:
+                                            value = float(value)
+                                        except ValueError:
+                                            try:
+                                                value = int(value)
+                                            except ValueError:
+                                                if st.session_state.debug_mode:
+                                                    st.warning(f"DEBUG Balance Summary: Could not convert '{value}' for '{original_stat_key}' to numeric. Keeping as string.")
+                                                continue # Skip to next iteration if value is not numeric
+                                        
+                                        results_stats[original_stat_key] = value
+                                        
+                                        if st.session_state.debug_mode:
+                                            st.write(f"DEBUG Balance Summary: --- Found and extracted '{original_stat_key}' --- Value: '{value}' from Row {r_idx}, Label Col {current_label_col_idx}, Value Col {value_col_to_read}")
+                                    else: # If value is NaN or column out of bounds
+                                         if st.session_state.debug_mode:
+                                             st.write(f"DEBUG Balance Summary: Skipping '{original_stat_key}' - Value is NaN or column out of bounds.")
+                                else: # If current_label_col_idx != expected_label_col_for_this_stat
+                                    if st.session_state.debug_mode:
+                                        st.write(f"DEBUG Balance Summary: Mismatch label column for '{original_stat_key}'. Expected {expected_label_col_for_this_stat}, got {current_label_col_idx}.")
+                            else: # If normalized_excel_label not in stat_lookup_map
+                                if st.session_state.debug_mode:
+                                    st.write(f"DEBUG Balance Summary: '{normalized_excel_label}' (from Col {current_label_col_idx}) not in stat_lookup_map.")
+                        else: # If raw_cell_content is NaN
+                             if st.session_state.debug_mode:
+                                 st.write(f"DEBUG Balance Summary: Cell at Row {r_idx}, Col {current_label_col_idx} is NaN. Skipping label check.")
 
             if results_stats:
                 section_data["balance_summary"] = pd.DataFrame(list(results_stats.items()), columns=['Metric', 'Value'])
