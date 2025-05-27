@@ -804,224 +804,225 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Auto-Mapping", expande
     # --- สิ้นสุดการเพิ่ม Debug Mode Checkbox ---
 
 
+    # --- ฟังก์ชันช่วยในการแยกส่วนข้อมูลจากไฟล์ที่อัปโหลด (ปรับปรุงแล้ว) ---
     def extract_sections_from_file(file):
-    # ไม่ต้อง import pandas ที่นี่แล้ว เพราะเรา import ไว้ด้านบนสุดของไฟล์ main.py แล้ว
-    # import pandas as pd # <-- ลบบรรทัดนี้หรือคอมเมนต์มันไป (ใส่ # หน้าบรรทัด)
+        # ไม่ต้อง import pandas ที่นี่แล้ว เพราะเรา import ไว้ด้านบนสุดของไฟล์ main.py แล้ว
+        # import pandas as pd # <-- ลบบรรทัดนี้หรือคอมเมนต์มันไป (ใส่ # หน้าบรรทัด)
 
-    if file.name.endswith(".xlsx"):
-        df_raw = pd.read_excel(file, header=None, engine='openpyxl')
-    elif file.name.endswith(".csv"):
-        df_raw = pd.read_csv(file, header=None)
-    else:
-        return {}
+        if file.name.endswith(".xlsx"):
+            df_raw = pd.read_excel(file, header=None, engine='openpyxl')
+        elif file.name.endswith(".csv"):
+            df_raw = pd.read_csv(file, header=None)
+        else:
+            return {}
 
-    section_starts = {}
-    current_section = None
-    section_keywords = {
-        "History": "History",
-        "Open Trades": "Open Trades",
-        "Exposure": "Exposure",
-        "Orders": "Orders",
-        "Results": "Results"
-    }
+        section_starts = {}
+        current_section = None
+        section_keywords = {
+            "History": "History",
+            "Open Trades": "Open Trades",
+            "Exposure": "Exposure",
+            "Orders": "Orders",
+            "Results": "Results"
+        }
 
-    # Find start rows for main sections
-    for r_idx in range(len(df_raw)):
-        # Check for section headers (e.g., "History", "Open Trades", etc.)
-        for col_idx in range(min(df_raw.shape[1], 5)): # Check first few columns
-            cell_value = str(df_raw.iloc[r_idx, col_idx]).strip()
-            for key, keyword in section_keywords.items():
-                if keyword.lower() in cell_value.lower() and key not in section_starts:
-                    section_starts[key] = r_idx
-                    current_section = key
+        # Find start rows for main sections
+        for r_idx in range(len(df_raw)):
+            # Check for section headers (e.g., "History", "Open Trades", etc.)
+            for col_idx in range(min(df_raw.shape[1], 5)): # Check first few columns
+                cell_value = str(df_raw.iloc[r_idx, col_idx]).strip()
+                for key, keyword in section_keywords.items():
+                    if keyword.lower() in cell_value.lower() and key not in section_starts:
+                        section_starts[key] = r_idx
+                        current_section = key
+                        break
+                if current_section:
                     break
-            if current_section:
-                break
-        current_section = None # Reset for next search
+            current_section = None # Reset for next search
 
-    section_data = {}
-    tabular_sections = ["History", "Open Trades", "Exposure", "Orders"]
+        section_data = {}
+        tabular_sections = ["History", "Open Trades", "Exposure", "Orders"]
 
-    for section_name in tabular_sections:
-        if section_name in section_starts:
-            start_row = section_starts[section_name]
-            
-            # Find the header row (first non-empty row after section start)
-            header_row_idx = -1
-            for r_idx in range(start_row + 1, len(df_raw)):
-                if not df_raw.iloc[r_idx].isnull().all(): # Check if row is not entirely empty
-                    header_row_idx = r_idx
-                    break
-            
-            if header_row_idx != -1:
-                headers = [str(col).strip() for col in df_raw.iloc[header_row_idx] if pd.notna(col) and str(col).strip() != '']
+        for section_name in tabular_sections:
+            if section_name in section_starts:
+                start_row = section_starts[section_name]
                 
-                # Determine end row of the section
-                end_row = len(df_raw)
-                next_section_start = len(df_raw) # Default to end of file
-                for other_section_name, other_start_row in section_starts.items():
-                    if other_section_name != section_name and other_start_row > start_row:
-                        if other_start_row < next_section_start:
-                            next_section_start = other_start_row
-                end_row = next_section_start
-
-                # Extract data rows for the current section
-                data_start_row = header_row_idx + 1
-                section_df = df_raw.iloc[data_start_row:end_row].copy()
+                # Find the header row (first non-empty row after section start)
+                header_row_idx = -1
+                for r_idx in range(start_row + 1, len(df_raw)):
+                    if not df_raw.iloc[r_idx].isnull().all(): # Check if row is not entirely empty
+                        header_row_idx = r_idx
+                        break
                 
-                # Check if section_df is not empty before processing
-                if not section_df.empty:
-                    # Drop rows where all values are NaN
-                    section_df.dropna(how='all', inplace=True)
+                if header_row_idx != -1:
+                    headers = [str(col).strip() for col in df_raw.iloc[header_row_idx] if pd.notna(col) and str(col).strip() != '']
                     
+                    # Determine end row of the section
+                    end_row = len(df_raw)
+                    next_section_start = len(df_raw) # Default to end of file
+                    for other_section_name, other_start_row in section_starts.items():
+                        if other_section_name != section_name and other_start_row > start_row:
+                            if other_start_row < next_section_start:
+                                next_section_start = other_start_row
+                    end_row = next_section_start
+
+                    # Extract data rows for the current section
+                    data_start_row = header_row_idx + 1
+                    section_df = df_raw.iloc[data_start_row:end_row].copy()
+                    
+                    # Check if section_df is not empty before processing
                     if not section_df.empty:
-                        # Re-index to make operations easier
-                        section_df.reset_index(drop=True, inplace=True)
-
-                        # Dynamically map headers to column indices
-                        header_to_col_idx = {}
-                        for i, col_name in enumerate(df_raw.iloc[header_row_idx]):
-                            if pd.notna(col_name) and str(col_name).strip() != '':
-                                header_to_col_idx[str(col_name).strip()] = i
-
-                        # Create a new DataFrame with correctly aligned columns
-                        processed_data = []
-                        for row_idx in range(len(section_df)):
-                            row_values = []
-                            for header in headers:
-                                original_col_idx = header_to_col_idx.get(header)
-                                if original_col_idx is not None and original_col_idx < len(df_raw.columns):
-                                    # Use .loc with original DataFrame's column index
-                                    # We need to use df_raw.iloc to get the value from the correct original position
-                                    value = df_raw.iloc[data_start_row + row_idx, original_col_idx]
-                                    row_values.append(value)
-                                else:
-                                    row_values.append(np.nan) # Append NaN if header not found in original cols
-                            processed_data.append(row_values)
+                        # Drop rows where all values are NaN
+                        section_df.dropna(how='all', inplace=True)
                         
-                        # Remove leading/trailing spaces from headers
-                        cleaned_headers = [h.strip() for h in headers]
-                        
-                        temp_df = pd.DataFrame(processed_data, columns=cleaned_headers)
+                        if not section_df.empty:
+                            # Re-index to make operations easier
+                            section_df.reset_index(drop=True, inplace=True)
 
-                        # Clean up values (remove $, comma, %)
-                        for col in temp_df.columns:
-                            # Apply cleaning only to columns that are likely to contain numbers
-                            if temp_df[col].dtype == 'object': # Check if it's an object/string type
-                                if temp_df[col].astype(str).str.contains(r'[$,%()]', regex=True).any():
-                                    temp_df[col] = temp_df[col].astype(str).str.replace('$', '', regex=False).str.replace(',', '', regex=False).str.replace('%', '', regex=False).str.replace('(', '-', regex=False).str.replace(')', '', regex=False)
-                                    # Attempt conversion to numeric after cleaning
-                                    temp_df[col] = pd.to_numeric(temp_df[col], errors='coerce')
+                            # Dynamically map headers to column indices
+                            header_to_col_idx = {}
+                            for i, col_name in enumerate(df_raw.iloc[header_row_idx]):
+                                if pd.notna(col_name) and str(col_name).strip() != '':
+                                    header_to_col_idx[str(col_name).strip()] = i
+
+                            # Create a new DataFrame with correctly aligned columns
+                            processed_data = []
+                            for row_idx in range(len(section_df)):
+                                row_values = []
+                                for header in headers:
+                                    original_col_idx = header_to_col_idx.get(header)
+                                    if original_col_idx is not None and original_col_idx < len(df_raw.columns):
+                                        # Use .loc with original DataFrame's column index
+                                        # We need to use df_raw.iloc to get the value from the correct original position
+                                        value = df_raw.iloc[data_start_row + row_idx, original_col_idx]
+                                        row_values.append(value)
+                                    else:
+                                        row_values.append(np.nan) # Append NaN if header not found in original cols
+                                processed_data.append(row_values)
+                            
+                            # Remove leading/trailing spaces from headers
+                            cleaned_headers = [h.strip() for h in headers]
+                            
+                            temp_df = pd.DataFrame(processed_data, columns=cleaned_headers)
+
+                            # Clean up values (remove $, comma, %)
+                            for col in temp_df.columns:
+                                # Apply cleaning only to columns that are likely to contain numbers
+                                if temp_df[col].dtype == 'object': # Check if it's an object/string type
+                                    if temp_df[col].astype(str).str.contains(r'[$,%()]', regex=True).any():
+                                        temp_df[col] = temp_df[col].astype(str).str.replace('$', '', regex=False).str.replace(',', '', regex=False).str.replace('%', '', regex=False).str.replace('(', '-', regex=False).str.replace(')', '', regex=False)
+                                        # Attempt conversion to numeric after cleaning
+                                        temp_df[col] = pd.to_numeric(temp_df[col], errors='coerce')
                                 elif pd.api.types.is_numeric_dtype(temp_df[col]):
                                     # If already numeric, ensure negative signs from parentheses are handled if any exist (unlikely but safe)
                                     temp_df[col] = temp_df[col].apply(lambda x: -abs(x) if isinstance(x, (str, bytes)) and '(' in str(x) and ')' in str(x) else x)
 
 
-                        section_data[section_name.lower().replace(" ", "_")] = temp_df
+                            section_data[section_name.lower().replace(" ", "_")] = temp_df
+                        else:
+                            st.warning(f"Warning: No valid data rows found for section '{section_name}'.")
                     else:
-                        st.warning(f"Warning: No valid data rows found for section '{section_name}'.")
+                        st.warning(f"Warning: Section '{section_name}' found but no data could be extracted.")
                 else:
-                    st.warning(f"Warning: Section '{section_name}' found but no data could be extracted.")
-            else:
-                st.warning(f"Warning: Could not find header row for section '{section_name}'.")
+                    st.warning(f"Warning: Could not find header row for section '{section_name}'.")
 
-    # --- Process "Results" section (Balance Summary) ---
-    results_stats = {}
-    if "Results" in section_starts:
-        results_start_row = section_starts["Results"]
-        scan_rows_for_stats = 30 # Scan up to 30 rows after "Results" start for stats
-        
-        # Use a dictionary for faster lookup, mapping normalized label to (original_label, expected_label_col_idx, expected_value_col_idx)
-        stat_lookup_map = {}
-        # Columns are 0-indexed, so B=1, E=4, I=8
-        stat_definitions_for_results = [
-            ("Total Net Profit", 1, 2), 
-            ("Profit Factor", 1, 2), 
-            ("Recovery Factor", 1, 2),
-            ("Balance Drawdown Absolute", 1, 2), 
-            ("Total Trades", 1, 2),
-
-            ("Gross Profit", 4, 5), 
-            ("Expected Payoff", 4, 5), 
-            ("Sharpe Ratio", 4, 5),
-            ("Balance Drawdown Maximal", 4, 5), 
-            ("Short Trades (won %)", 4, 5),
-            ("Profit Trades (% of total)", 4, 5),
-            ("Largest profit trade", 4, 5),
-            ("Average profit trade", 4, 5),
-            ("Maximum consecutive wins ($)", 4, 5),
-            ("Maximal consecutive profit (count)", 4, 5),
-            ("Average consecutive wins", 4, 5),
-
-            ("Gross Loss", 8, 13), 
-            ("Balance Drawdown Relative", 8, 13), 
-            ("Long Trades (won %)", 8, 13), 
-            ("Loss Trades (% of total)", 8, 13), 
-            ("Largest loss trade", 8, 13), 
-            ("Average loss trade", 8, 13), 
-            ("Maximum consecutive losses ($)", 8, 13), 
-            ("Maximal consecutive loss (count)", 8, 13), 
-            ("Average consecutive losses", 8, 13)
-        ]
-
-        for original_label, label_col, value_col in stat_definitions_for_results:
-            normalized_key = "".join(filter(str.isalnum, original_label)).lower()
-            stat_lookup_map[normalized_key] = (original_label, label_col, value_col)
-
-        # Iterate through rows where results are expected
-        for r_idx in range(results_start_row + 1, min(len(df_raw), results_start_row + 1 + scan_rows_for_stats)):
-            row = df_raw.iloc[r_idx]
+        # --- Process "Results" section (Balance Summary) ---
+        results_stats = {}
+        if "Results" in section_starts:
+            results_start_row = section_starts["Results"]
+            scan_rows_for_stats = 30 # Scan up to 30 rows after "Results" start for stats
             
-            # Check for labels in the known label columns: B (1), E (4), I (8)
-            # These are the *potential* columns where a label might be found in any given row within the Results section
-            potential_label_columns_in_row = [1, 4, 8] 
-            
-            for current_label_col_idx in potential_label_columns_in_row:
-                # Ensure the column exists and the cell is not empty
-                if current_label_col_idx < len(row) and pd.notna(row[current_label_col_idx]):
-                    label_text_from_excel_raw = str(row[current_label_col_idx]).strip()
-                    normalized_excel_label = "".join(filter(str.isalnum, label_text_from_excel_raw)).lower()
+            # Use a dictionary for faster lookup, mapping normalized label to (original_label, expected_label_col_idx, expected_value_col_idx)
+            stat_lookup_map = {}
+            # Columns are 0-indexed, so B=1, E=4, I=8
+            stat_definitions_for_results = [
+                ("Total Net Profit", 1, 2), 
+                ("Profit Factor", 1, 2), 
+                ("Recovery Factor", 1, 2),
+                ("Balance Drawdown Absolute", 1, 2), 
+                ("Total Trades", 1, 2),
 
-                    if st.session_state.debug_mode:
-                        st.write(f"DEBUG Balance Summary: Scanning Row {r_idx}, Col {current_label_col_idx}: Raw Text='{label_text_from_excel_raw}', Normalized='{normalized_excel_label}'")
-                    
-                    # Use the lookup map to find if this normalized Excel label corresponds to a known stat
-                    if normalized_excel_label in stat_lookup_map:
-                        original_stat_key, expected_label_col_for_this_stat, expected_value_col_for_this_stat = stat_lookup_map[normalized_excel_label]
+                ("Gross Profit", 4, 5), 
+                ("Expected Payoff", 4, 5), 
+                ("Sharpe Ratio", 4, 5),
+                ("Balance Drawdown Maximal", 4, 5), 
+                ("Short Trades (won %)", 4, 5),
+                ("Profit Trades (% of total)", 4, 5),
+                ("Largest profit trade", 4, 5),
+                ("Average profit trade", 4, 5),
+                ("Maximum consecutive wins ($)", 4, 5),
+                ("Maximal consecutive profit (count)", 4, 5),
+                ("Average consecutive wins", 4, 5),
+
+                ("Gross Loss", 8, 13), 
+                ("Balance Drawdown Relative", 8, 13), 
+                ("Long Trades (won %)", 8, 13), 
+                ("Loss Trades (% of total)", 8, 13), 
+                ("Largest loss trade", 8, 13), 
+                ("Average loss trade", 8, 13), 
+                ("Maximum consecutive losses ($)", 8, 13), 
+                ("Maximal consecutive loss (count)", 8, 13), 
+                ("Average consecutive losses", 8, 13)
+            ]
+
+            for original_label, label_col, value_col in stat_definitions_for_results:
+                normalized_key = "".join(filter(str.isalnum, original_label)).lower()
+                stat_lookup_map[normalized_key] = (original_label, label_col, value_col)
+
+            # Iterate through rows where results are expected
+            for r_idx in range(results_start_row + 1, min(len(df_raw), results_start_row + 1 + scan_rows_for_stats)):
+                row = df_raw.iloc[r_idx]
+                
+                # Check for labels in the known label columns: B (1), E (4), I (8)
+                # These are the *potential* columns where a label might be found in any given row within the Results section
+                potential_label_columns_in_row = [1, 4, 8] 
+                
+                for current_label_col_idx in potential_label_columns_in_row:
+                    # Ensure the column exists and the cell is not empty
+                    if current_label_col_idx < len(row) and pd.notna(row[current_label_col_idx]):
+                        label_text_from_excel_raw = str(row[current_label_col_idx]).strip()
+                        normalized_excel_label = "".join(filter(str.isalnum, label_text_from_excel_raw)).lower()
+
+                        if st.session_state.debug_mode:
+                            st.write(f"DEBUG Balance Summary: Scanning Row {r_idx}, Col {current_label_col_idx}: Raw Text='{label_text_from_excel_raw}', Normalized='{normalized_excel_label}'")
                         
-                        # Crucial check: Ensure the found label is in the *expected column* for that specific stat
-                        # This prevents misattributing a label if it appears in an unexpected column.
-                        if current_label_col_idx == expected_label_col_for_this_stat:
-                            value_col_to_read = expected_value_col_for_this_stat # Use the value column associated with the stat definition
+                        # Use the lookup map to find if this normalized Excel label corresponds to a known stat
+                        if normalized_excel_label in stat_lookup_map:
+                            original_stat_key, expected_label_col_for_this_stat, expected_value_col_for_this_stat = stat_lookup_map[normalized_excel_label]
                             
-                            if value_col_to_read < len(row) and pd.notna(row[value_col_to_read]):
-                                value = str(row[value_col_to_read]).strip()
+                            # Crucial check: Ensure the found label is in the *expected column* for that specific stat
+                            # This prevents misattributing a label if it appears in an unexpected column.
+                            if current_label_col_idx == expected_label_col_for_this_stat:
+                                value_col_to_read = expected_value_col_for_this_stat # Use the value column associated with the stat definition
                                 
-                                # Handle parentheses for negative numbers (e.g., (123.45) -> -123.45)
-                                if '(' in value and ')' in value:
-                                    value = "-" + value.replace('(', '').replace(')', '').strip()
-                                
-                                # Clean up formatting characters
-                                value = value.replace('$', '', regex=False).replace(',', '', regex=False).replace('%', '', regex=False)
-                                
-                                # Attempt to convert to numeric (float then int)
-                                try:
-                                    value = float(value)
-                                except ValueError:
+                                if value_col_to_read < len(row) and pd.notna(row[value_col_to_read]):
+                                    value = str(row[value_col_to_read]).strip()
+                                    
+                                    # Handle parentheses for negative numbers (e.g., (123.45) -> -123.45)
+                                    if '(' in value and ')' in value:
+                                        value = "-" + value.replace('(', '').replace(')', '').strip()
+                                    
+                                    # Clean up formatting characters
+                                    value = value.replace('$', '', regex=False).replace(',', '', regex=False).replace('%', '', regex=False)
+                                    
+                                    # Attempt to convert to numeric (float then int)
                                     try:
-                                        value = int(value)
+                                        value = float(value)
                                     except ValueError:
-                                        pass # Keep as string if conversion fails
+                                        try:
+                                            value = int(value)
+                                        except ValueError:
+                                            pass # Keep as string if conversion fails
+                                    
+                                    results_stats[original_stat_key] = value
+                                    
+                                    if st.session_state.debug_mode:
+                                        st.write(f"DEBUG Balance Summary: --- Found and extracted '{original_stat_key}' --- Value: '{value}' from Row {r_idx}, Label Col {current_label_col_idx}, Value Col {value_col_to_read}")
                                 
-                                results_stats[original_stat_key] = value
-                                
-                                if st.session_state.debug_mode:
-                                    st.write(f"DEBUG Balance Summary: --- Found and extracted '{original_stat_key}' --- Value: '{value}' from Row {r_idx}, Label Col {current_label_col_idx}, Value Col {value_col_to_read}")
-                                
-                                # Optional: If a stat is found and extracted, you could remove it from stat_lookup_map
-                                # to prevent re-processing, but for Balance Summary, this might not be necessary
-                                # as each stat should appear uniquely in its expected row/column.
-                                # No 'break' here, as we want to check all potential label columns within the *current row*.
+                                    # Optional: If a stat is found and extracted, you could remove it from stat_lookup_map
+                                    # to prevent re-processing, but for Balance Summary, this might not be necessary
+                                    # as each stat should appear uniquely in its expected row/column.
+                                    # No 'break' here, as we want to check all potential label columns within the *current row*.
 
             if results_stats:
                 section_data["balance_summary"] = pd.DataFrame(list(results_stats.items()), columns=['Metric', 'Value'])
@@ -1033,7 +1034,7 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Auto-Mapping", expande
                 if st.session_state.debug_mode:
                     st.write("DEBUG Balance Summary: No stats found using current logic.")
 
-    return section_data
+    return section_data # <--- บรรทัดนี้คือบรรทัดสุดท้ายของฟังก์ชันนี้
 # ======================= SEC 9: DASHBOARD + AI ULTIMATE =======================
 # ปรับปรุง load_data_for_dashboard()
 def load_data_for_dashboard():
