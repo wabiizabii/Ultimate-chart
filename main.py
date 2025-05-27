@@ -651,12 +651,11 @@ with st.expander("	🤖 AI Assistant", expanded=True):
     else:
         st.info("ยังไม่มีข้อมูล log_file สำหรับ AI Summary")
 # ======================= SEC 7: Ultimate Statement Import & Auto-Mapping =======================
-st.subheader("📤 อัปโหลด Statement (.xlsx, .csv)")
-portfolio_list = ["พอร์ตหลัก (Main)", "พอร์ตทอง (Gold)", "พอร์ตทดลอง (Test)", "พอร์ตเทรดสั้น (Scalping)"] # คุณสามารถเพิ่ม/แก้ไขรายชื่อพอร์ตได้ที่นี่
-selected_portfolio = st.selectbox(
-    "ขั้นตอนที่ 1: เลือกพอร์ตที่ต้องการอัปโหลด Statement",
-    portfolio_list,
-    key="portfolio_select"
+uploaded_files = st.file_uploader(
+    "📤 อัปโหลด Statement (.xlsx, .csv)", 
+    type=["xlsx", "csv"], 
+    accept_multiple_files=True, 
+    key="sec7_upload"
 )
 
 def extract_sections_from_file(file):
