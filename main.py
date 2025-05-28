@@ -8,7 +8,7 @@ from datetime import datetime
 import plotly.express as px
 import google.generativeai as genai
 import gspread # <--- เพิ่ม import gspread ที่นี่
-
+import plotly.graph_objects as go
 st.set_page_config(page_title="Ultimate-Chart", layout="wide")
 acc_balance = 10000 
 log_file = "trade_log.csv"
