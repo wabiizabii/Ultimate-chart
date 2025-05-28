@@ -651,3 +651,72 @@ if button_pressed_save_sb:
         st.sidebar.warning(f"กรุณากรอกข้อมูล {current_trade_mode} ให้ครบถ้วนและให้ระบบคำนวณ Summary ก่อนบันทึก")
 
 # ======================= END OF SEC 1 =======================
+
+# ======================= SEC 2: MAIN AREA - CURRENT ENTRY PLAN DETAILS =======================
+st.header("🎯 Entry Plan Details")
+
+if st.session_state.get('active_portfolio_name', None): # ตรวจสอบว่ามีการเลือกพอร์ตหรือยัง
+    # acc_balance ควรจะถูกอัปเดตแล้วจาก SEC 1
+    # ถ้าไม่แน่ใจ อาจจะดึงค่า acc_balance มาใหม่ตรงนี้ก็ได้ แต่ปกติค่าจาก SEC 1 ควรจะถูกต้องแล้ว
+    current_display_balance_sec2 = acc_balance 
+    st.caption(f"สำหรับพอร์ต: **{st.session_state.active_portfolio_name}** (Balance: ${current_display_balance_sec2:,.2f})")
+    
+    # current_trade_mode ถูกกำหนดค่าใน SEC 1
+    if current_trade_mode == "FIBO":
+        # entry_data_fibo_list ถูกคำนวณและอัปเดตใน SEC 1
+        if entry_data_fibo_list: 
+            df_display_fibo_main_sec2 = pd.DataFrame(entry_data_fibo_list)
+            st.dataframe(df_display_fibo_main_sec2, hide_index=True, use_container_width=True)
+            
+            # แสดง TP Zones สำหรับ FIBO
+            try:
+                # ดึงค่า High/Low และ Direction จาก session_state ที่ตั้งค่าไว้ใน Sidebar (SEC 1)
+                high_fibo_val_tp_sec2 = float(st.session_state.get("fibo_high_val_cfg_main", "0")) # ใช้ key จาก SEC 1
+                low_fibo_val_tp_sec2 = float(st.session_state.get("fibo_low_val_cfg_main", "0"))   # ใช้ key จาก SEC 1
+                current_direction_fibo_sec2 = st.session_state.get("fibo_direction_val_cfg_main", "Long") # ใช้ key จาก SEC 1
+
+                if high_fibo_val_tp_sec2 > low_fibo_val_tp_sec2:
+                    tp1_sec2 = low_fibo_val_tp_sec2 + (high_fibo_val_tp_sec2 - low_fibo_val_tp_sec2) * 1.618 if current_direction_fibo_sec2 == "Long" else high_fibo_val_tp_sec2 - (high_fibo_val_tp_sec2 - low_fibo_val_tp_sec2) * 1.618
+                    tp2_sec2 = low_fibo_val_tp_sec2 + (high_fibo_val_tp_sec2 - low_fibo_val_tp_sec2) * 2.618 if current_direction_fibo_sec2 == "Long" else high_fibo_val_tp_sec2 - (high_fibo_val_tp_sec2 - low_fibo_val_tp_sec2) * 2.618
+                    tp3_sec2 = low_fibo_val_tp_sec2 + (high_fibo_val_tp_sec2 - low_fibo_val_tp_sec2) * 4.236 if current_direction_fibo_sec2 == "Long" else high_fibo_val_tp_sec2 - (high_fibo_val_tp_sec2 - low_fibo_val_tp_sec2) * 4.236
+                    
+                    st.markdown("##### Take Profit Zones (FIBO):")
+                    tp_data_sec2 = {
+                        "Zone": ["TP1 (1.618)", "TP2 (2.618)", "TP3 (4.236)"],
+                        "Price": [f"{tp1_sec2:.2f}", f"{tp2_sec2:.2f}", f"{tp3_sec2:.2f}"]
+                    }
+                    st.table(pd.DataFrame(tp_data_sec2)) 
+            except (ValueError, TypeError):
+                st.caption("กรอก High/Low ใน Sidebar ให้ถูกต้องเพื่อคำนวณ TP Zones")
+            except Exception as e_tp_sec2: 
+                st.warning(f"ไม่สามารถคำนวณ TP Zones: {e_tp_sec2}")
+        else:
+            # แสดงโครงตารางเปล่าสำหรับ FIBO ถ้ายังไม่มีข้อมูล
+            df_empty_fibo_main_sec2 = pd.DataFrame(columns=["Fibo Level", "Entry", "SL", "Lot", "Risk $"])
+            st.dataframe(df_empty_fibo_main_sec2, hide_index=True, use_container_width=True)
+            st.info("กรอกข้อมูลใน Sidebar (FIBO) และให้ระบบคำนวณ (ข้อมูลใน Sidebar จะอัปเดตตารางนี้) เพื่อดูรายละเอียดแผน")
+
+    elif current_trade_mode == "CUSTOM":
+        # custom_entries_list ถูกคำนวณและอัปเดตใน SEC 1
+        if custom_entries_list: 
+            df_display_custom_main_sec2 = pd.DataFrame(custom_entries_list)
+            st.dataframe(df_display_custom_main_sec2, hide_index=True, use_container_width=True)
+            
+            # Optional: Display warnings for low RR if any (from previous version)
+            try:
+                df_check_rr_sec2 = pd.to_numeric(df_display_custom_main_sec2["RR"], errors='coerce').dropna()
+                low_rr_trades_sec2 = df_check_rr_sec2[df_check_rr_sec2 < 2.0] # Example threshold for low RR
+                if not low_rr_trades_sec2.empty:
+                    st.warning(f"มี {len(low_rr_trades_sec2)} ไม้ที่มี R:R ต่ำกว่า 2.0 ควรพิจารณาปรับปรุง TP/SL")
+            except Exception:
+                pass 
+        else:
+            # แสดงโครงตารางเปล่าสำหรับ CUSTOM ถ้ายังไม่มีข้อมูล
+            df_empty_custom_main_sec2 = pd.DataFrame(columns=["Entry", "SL", "TP", "Lot", "Risk $", "RR"])
+            st.dataframe(df_empty_custom_main_sec2, hide_index=True, use_container_width=True)
+            st.info("กรอกข้อมูลใน Sidebar (CUSTOM) และให้ระบบคำนวณ (ข้อมูลใน Sidebar จะอัปเดตตารางนี้) เพื่อดูรายละเอียดแผน")
+else:
+    st.warning("กรุณาเลือก Active Portfolio ใน Sidebar เพื่อดูและสร้างรายละเอียดแผน")
+
+st.markdown("---")
+# ======================= END OF SEC 2 =======================
