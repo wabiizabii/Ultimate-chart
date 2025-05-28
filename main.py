@@ -408,15 +408,22 @@ if daily_drawdown_value <= drawdown_limit_amount and daily_drawdown_value !=0 : 
     trade_locked = True
 
 # Save Plan Function
-def save_plan_to_log(data_to_save, trade_mode_arg, asset_arg, risk_pct_arg, direction_arg, active_portfolio_arg):
-    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    df_to_write = pd.DataFrame(data_to_save)
-    df_to_write["Mode"] = trade_mode_arg
-    df_to_write["Asset"] = asset_arg
-    df_to_write["Risk %"] = risk_pct_arg
-    df_to_write["Direction"] = direction_arg
-    df_to_write["Portfolio"] = active_portfolio_arg # <<< Add active portfolio
-    df_to_write["Timestamp"] = now_str
+# --- โค้ดใหม่ที่จะแก้ไข (ตัวอย่าง) ---
+def save_plan(data, mode, asset, risk_pct, direction, active_portfolio_name): # <--- เพิ่ม active_portfolio_name
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    df_save = pd.DataFrame(data)
+    df_save["Mode"] = mode
+    df_save["Asset"] = asset
+    df_save["Risk %"] = risk_pct
+    df_save["Direction"] = direction
+    df_save["Timestamp"] = now
+    df_save["Portfolio"] = active_portfolio_name # <<< บรรทัดที่เพิ่มเข้ามา
+
+    if os.path.exists(log_file):
+        df_old = pd.read_csv(log_file)
+        df_save = pd.concat([df_old, df_save], ignore_index=True)
+    df_save.to_csv(log_file, index=False)
+    st.sidebar.success(f"บันทึกแผนสำหรับพอร์ต '{active_portfolio_name}' สำเร็จ!") # อาจจะเพิ่มการแจ้งเตือน
     
     try:
         if os.path.exists(log_file):
