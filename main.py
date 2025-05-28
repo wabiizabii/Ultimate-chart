@@ -211,7 +211,106 @@ def save_statement_to_gsheets(df_to_save):
         # # st.stop()
 
 # (โค้ดส่วนอื่น ๆ ของคุณอยู่เหมือนเดิม)
+# ======================= SEC 0.8: PORTFOLIO SETUP & MANAGEMENT =======================
+# (วางโค้ดนี้ต่อจาก SEC 0 หรือส่วน Function Definitions ของคุณ)
 
+PORTFOLIO_FILE = 'portfolios.csv'
+
+# 0.8.1. Function to load portfolios
+def load_portfolios():
+    if os.path.exists(PORTFOLIO_FILE):
+        try:
+            df = pd.read_csv(PORTFOLIO_FILE)
+            # ตรวจสอบว่ามีคอลัมน์ที่จำเป็นหรือไม่ ถ้าไม่มีให้สร้าง DataFrame โครงสร้างใหม่
+            if not {'portfolio_id', 'portfolio_name', 'initial_balance', 'creation_date'}.issubset(df.columns):
+                st.warning(f"ไฟล์ {PORTFOLIO_FILE} มีโครงสร้างไม่ถูกต้อง กำลังสร้าง DataFrame ใหม่")
+                return pd.DataFrame(columns=['portfolio_id', 'portfolio_name', 'initial_balance', 'creation_date'])
+            return df
+        except pd.errors.EmptyDataError: # กรณีไฟล์มีอยู่แต่ว่างเปล่า
+             st.info(f"ไฟล์ {PORTFOLIO_FILE} ว่างเปล่า กำลังสร้าง DataFrame ใหม่")
+             return pd.DataFrame(columns=['portfolio_id', 'portfolio_name', 'initial_balance', 'creation_date'])
+        except Exception as e:
+            st.error(f"เกิดข้อผิดพลาดในการโหลด {PORTFOLIO_FILE}: {e}")
+            return pd.DataFrame(columns=['portfolio_id', 'portfolio_name', 'initial_balance', 'creation_date'])
+    else:
+        return pd.DataFrame(columns=['portfolio_id', 'portfolio_name', 'initial_balance', 'creation_date'])
+
+# 0.8.2. Function to save portfolios
+def save_portfolios(df):
+    try:
+        df.to_csv(PORTFOLIO_FILE, index=False)
+    except Exception as e:
+        st.error(f"เกิดข้อผิดพลาดในการบันทึก {PORTFOLIO_FILE}: {e}")
+
+# --- โหลดข้อมูลพอร์ตทั้งหมดที่มี ---
+portfolios_df = load_portfolios()
+
+# --- ส่วน UI สำหรับเลือก Active Portfolio (จะแสดงใน Sidebar) ---
+st.sidebar.markdown("---")
+st.sidebar.subheader("เลือกพอร์ตที่ใช้งาน (Active Portfolio)")
+
+if not portfolios_df.empty:
+    portfolio_names = portfolios_df['portfolio_name'].tolist()
+    
+    # ถ้ายังไม่มี active_portfolio_name ใน session_state หรือพอร์ตที่เคยเลือกไว้ถูกลบไปแล้ว
+    # ให้เลือกพอร์ตแรกเป็น default
+    current_active_portfolio = st.session_state.get('active_portfolio_name', None)
+    if current_active_portfolio not in portfolio_names:
+        st.session_state.active_portfolio_name = portfolio_names[0] if portfolio_names else None
+
+    # สร้าง selectbox
+    st.session_state.active_portfolio_name = st.sidebar.selectbox(
+        "เลือกพอร์ต:",
+        options=portfolio_names,
+        index=portfolio_names.index(st.session_state.active_portfolio_name) if st.session_state.active_portfolio_name in portfolio_names else 0,
+        key='sb_active_portfolio_selector'
+    )
+    st.sidebar.success(f"Active Portfolio: **{st.session_state.active_portfolio_name}**")
+else:
+    st.sidebar.info("ยังไม่มีพอร์ต กรุณาเพิ่มพอร์ตในหน้า 'จัดการพอร์ต'")
+    st.session_state.active_portfolio_name = None # ตั้งเป็น None ถ้าไม่มีพอร์ตให้เลือก
+
+# --- ส่วน UI สำหรับจัดการพอร์ต (แสดงเป็น Expander หรือหน้าแยกก็ได้) ---
+with st.expander("💼 จัดการพอร์ต (เพิ่ม/ดูพอร์ต)"):
+    st.subheader("พอร์ตทั้งหมดของคุณ")
+    if portfolios_df.empty:
+        st.info("ยังไม่มีการสร้างพอร์ต โปรดเพิ่มพอร์ตใหม่ด้านล่าง")
+    else:
+        st.dataframe(portfolios_df, use_container_width=True, hide_index=True)
+
+    st.subheader("➕ เพิ่มพอร์ตใหม่")
+    with st.form("new_portfolio_form", clear_on_submit=True):
+        new_portfolio_name = st.text_input("ชื่อพอร์ต (เช่น My Personal, FTMO Challenge)")
+        new_initial_balance = st.number_input("บาลานซ์เริ่มต้น ($)", min_value=0.0, value=10000.0, step=100.0, format="%.2f")
+        
+        submitted_add_portfolio = st.form_submit_button("💾 บันทึกพอร์ตใหม่")
+        
+        if submitted_add_portfolio:
+            if not new_portfolio_name:
+                st.warning("กรุณาใส่ชื่อพอร์ต")
+            elif new_portfolio_name in portfolios_df['portfolio_name'].values:
+                st.error(f"ชื่อพอร์ต '{new_portfolio_name}' มีอยู่แล้ว กรุณาใช้ชื่ออื่น")
+            else:
+                if portfolios_df.empty or 'portfolio_id' not in portfolios_df.columns or portfolios_df['portfolio_id'].empty:
+                    new_id = 1
+                else:
+                    new_id = portfolios_df['portfolio_id'].max() + 1 if pd.notna(portfolios_df['portfolio_id'].max()) else 1
+
+                
+                new_portfolio_data = pd.DataFrame([{
+                    'portfolio_id': int(new_id),
+                    'portfolio_name': new_portfolio_name,
+                    'initial_balance': new_initial_balance,
+                    'creation_date': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                }])
+                
+                updated_portfolios_df = pd.concat([portfolios_df, new_portfolio_data], ignore_index=True)
+                save_portfolios(updated_portfolios_df)
+                st.success(f"เพิ่มพอร์ต '{new_portfolio_name}' สำเร็จ!")
+                # อัปเดต active_portfolio_name เป็นพอร์ตที่เพิ่งสร้าง ถ้ายังไม่มีพอร์ตอื่น
+                if st.session_state.active_portfolio_name is None:
+                    st.session_state.active_portfolio_name = new_portfolio_name
+                st.rerun()
 
 # ========== Function Utility ==========
 def get_today_drawdown(log_file, acc_balance):
