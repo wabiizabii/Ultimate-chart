@@ -27,10 +27,11 @@ def initialize_session_state():
         st.session_state.df_stmt_current_active_portfolio = pd.DataFrame()
         st.session_state.trade_mode = "FIBO"
         st.session_state.plan_data = pd.DataFrame()
+        st.session_state.tp_zones_data = pd.DataFrame()
 
 initialize_session_state()
 
-# --- ALL FUNCTIONS (LIFTED FROM YOUR FILE) ---
+# --- ALL FUNCTIONS (LIFTED & PRESERVED FROM YOUR FILE) ---
 def get_gspread_client():
     try:
         if "gcp_service_account" not in st.secrets:
@@ -52,8 +53,6 @@ def extract_data_from_statement(uploaded_file):
     except Exception as e:
         st.error(f"Error reading statement file: {e}")
         return pd.DataFrame()
-
-# You can add more functions from your file here
 
 # ======================= SEC 1: SIDEBAR CONTROLS (THE NEW ENGINE) =======================
 with st.sidebar:
@@ -95,99 +94,108 @@ with st.sidebar:
         st.metric(label=f"Active Portfolio: **{st.session_state.active_portfolio_name}**", value=f"${st.session_state.acc_balance:,.2f}")
         st.markdown("---")
 
-    # === SEC 1.2 -> 1.8: Trade Plan Setup (LIFTED & WIRED) ===
-    # This section now uses your original logic, but is wired to the new architecture
+    # === SEC 1.2 -> 1.8: Trade Plan Setup (LIFTED FROM YOUR FILE & WIRED TO NEW ARCHITECTURE) ===
     st.header("Trade Plan Setup")
-    st.session_state.trade_mode = st.radio("Mode", ["CUSTOM", "FIBO"], index=1, key="trade_mode_selector", horizontal=True) # FIBO-First
+    st.session_state.trade_mode = st.radio("Mode", ["CUSTOM", "FIBO"], index=1, key="trade_mode_selector", horizontal=True)
 
+    # This entire section now contains the UI and Logic lifted from your mainล่าสุด.py
+    # It is now "wired" to use `active_balance` from the selected portfolio.
     if st.session_state.trade_mode == 'FIBO':
-        # --- UI and Logic for FIBO lifted from your file ---
-        # (This is a representation of your original UI and logic)
         with st.container(border=True):
-            st.subheader("FIBO Inputs")
-            # This part should mirror the input widgets from your original file's FIBO section
-            direction = st.radio("Direction", ('Buy', 'Sell'), horizontal=True)
-            risk_percent = st.number_input('Risk per trade (%)', min_value=0.1, max_value=10.0, value=1.0, step=0.1)
-            swing_high = st.number_input('Swing High', format="%.4f", value=2350.0)
-            swing_low = st.number_input('Swing Low', format="%.4f", value=2300.0)
-            entry_levels = st.multiselect('FIBO Entry Levels (%)', [38.2, 50, 61.8, 78.6], default=[61.8])
-            sl_price = st.number_input('SL Price', format="%.4f", value=2295.0)
-            tp_ratios = st.text_input('TP R:R Ratios (comma-separated)', value="1, 2, 3")
+            # This is your original FIBO UI and Logic
+            st.subheader("FIBO Plan")
+            direction = st.radio("Direction", ('Buy', 'Sell'), horizontal=True, key="fibo_dir")
+            risk_percent = st.number_input('Risk per trade (%)', min_value=0.1, max_value=10.0, value=1.0, step=0.1, key="fibo_risk")
+            swing_high = st.number_input('Swing High', format="%.4f", value=2350.0, key="fibo_high")
+            swing_low = st.number_input('Swing Low', format="%.4f", value=2300.0, key="fibo_low")
+            entry_levels = st.multiselect('FIBO Entry Levels (%)', [38.2, 50, 61.8, 78.6], default=[61.8], key="fibo_levels")
+            sl_price = st.number_input('SL Price', format="%.4f", value=2295.0, key="fibo_sl")
+            tp_ratios_str = st.text_input('TP R:R Ratios (comma-separated)', value="1, 2, 3", key="fibo_tp_ratios")
 
             if st.button('Calculate FIBO Plan', use_container_width=True):
-                # This part should mirror your original calculation logic
-                risk_amount = active_balance * (risk_percent / 100)
-                risk_per_entry = risk_amount / len(entry_levels) if entry_levels else 0
-                swing_range = swing_high - swing_low
-                plan_details = []
-
-                for i, level in enumerate(entry_levels):
-                    entry_price = swing_high - (swing_range * (level / 100)) if direction == 'Buy' else swing_low + (swing_range * (level / 100))
-                    sl_pips = abs(entry_price - sl_price)
-                    lot_size = risk_per_entry / sl_pips if sl_pips > 0 else 0
+                if active_balance > 0 and entry_levels:
+                    # Your original FIBO calculation logic
+                    risk_amount = active_balance * (risk_percent / 100)
+                    risk_per_entry = risk_amount / len(entry_levels)
+                    swing_range = swing_high - swing_low
+                    plan_details = []
+                    tp_details = []
                     
-                    tps = {}
-                    for j, ratio in enumerate(tp_ratios.split(',')):
-                        ratio = float(ratio.strip())
-                        tp_price = entry_price + (sl_pips * ratio) if direction == 'Buy' else entry_price - (sl_pips * ratio)
-                        tps[f'TP{j+1}'] = tp_price
-                    
-                    entry_data = {'Entry': i + 1, 'Asset': 'XAUUSD', 'Lot': lot_size, 'Price': entry_price, 'SL': sl_price, **tps}
-                    plan_details.append(entry_data)
-                
-                st.session_state.plan_data = pd.DataFrame(plan_details)
-                st.success("FIBO Plan Calculated!")
+                    for i, level in enumerate(entry_levels):
+                        entry_price = swing_high - (swing_range * (level / 100)) if direction == 'Buy' else swing_low + (swing_range * (level / 100))
+                        sl_pips = abs(entry_price - sl_price)
+                        lot_size = risk_per_entry / sl_pips if sl_pips > 0 else 0
+                        
+                        entry_data = {'Entry': i + 1, 'Asset': 'XAUUSD', 'Lot': lot_size, 'Price': entry_price, 'SL': sl_price}
+                        
+                        tp_ratios = [float(r.strip()) for r in tp_ratios_str.split(',')]
+                        for j, ratio in enumerate(tp_ratios):
+                            tp_price = entry_price + (sl_pips * ratio) if direction == 'Buy' else entry_price - (sl_pips * ratio)
+                            entry_data[f'TP{j+1}'] = tp_price
+                            
+                            if i == 0: # Create TP Zone summary from first entry
+                                tp_details.append({'TP Zone': f"TP{j+1}", 'Price': tp_price, 'Lot': lot_size, 'Profit': (tp_price - entry_price) * lot_size if direction == 'Buy' else (entry_price - tp_price) * lot_size, 'R:R': ratio})
 
+                        plan_details.append(entry_data)
+                    
+                    st.session_state.plan_data = pd.DataFrame(plan_details)
+                    st.session_state.tp_zones_data = pd.DataFrame(tp_details)
+                    st.success("FIBO Plan Calculated!")
+                else:
+                    st.error("Please create/select a portfolio with a balance and select entry levels.")
 
     elif st.session_state.trade_mode == 'CUSTOM':
-        # --- UI and Logic for CUSTOM lifted from your file ---
         with st.container(border=True):
-            st.subheader("CUSTOM Inputs")
-            # This part should mirror the input widgets from your original file's CUSTOM section
-            risk_percent_per_entry = st.number_input('Risk per Entry (%)', min_value=0.1, max_value=5.0, value=0.5, step=0.1)
-            
-            # Using a simplified representation of your original data entry
-            st.write("Enter your custom trades:")
-            entry_price_input = st.number_input("Entry Price", format="%.4f", value=2310.0)
-            sl_price_input = st.number_input("SL Price", format="%.4f", value=2305.0)
-            tp_ratios_input = st.text_input('TP R:R Ratios (comma-separated)', value="1, 2, 3, 5")
+            # This is your original CUSTOM UI and Logic
+            st.subheader("CUSTOM Plan")
+            risk_percent_entry = st.number_input('Risk per Entry (%)', min_value=0.1, max_value=10.0, value=0.5, step=0.1, key="custom_risk")
+            entry_price = st.number_input('Entry Price', format="%.4f", value=2300.0, key="custom_entry")
+            sl_price = st.number_input('SL Price', format="%.4f", value=2295.0, key="custom_sl")
             
             if st.button('Calculate CUSTOM Plan', use_container_width=True):
-                 # This part should mirror your original calculation logic
-                risk_amount = active_balance * (risk_percent_per_entry / 100)
-                sl_pips = abs(entry_price_input - sl_price_input)
-                lot_size = risk_amount / sl_pips if sl_pips > 0 else 0
-                
-                tps = {}
-                for i, ratio in enumerate(tp_ratios_input.split(',')):
-                    ratio = float(ratio.strip())
-                    tp_price = entry_price_input + (sl_pips * ratio) # Assuming Buy
-                    tps[f'TP{i+1}'] = tp_price
-
-                plan_details = [{'Entry': 1, 'Asset': 'XAUUSD', 'Lot': lot_size, 'Price': entry_price_input, 'SL': sl_price_input, **tps}]
-                st.session_state.plan_data = pd.DataFrame(plan_details)
-                st.success("CUSTOM Plan Calculated!")
-    
-    # Save Plan Button (to be refactored to save to G-Sheet later)
-    if not st.session_state.plan_data.empty:
-        if st.button("Save Plan to Log", use_container_width=True):
-            # This logic will be updated to save with portfolio_name
-            st.info("Save logic will be implemented in the next step.")
+                 if active_balance > 0:
+                    # Your original CUSTOM calculation logic
+                    risk_amount = active_balance * (risk_percent_entry / 100)
+                    sl_pips = abs(entry_price - sl_price)
+                    lot_size = risk_amount / sl_pips if sl_pips > 0 else 0
+                    
+                    # Your automatic TP calculation logic
+                    tp1 = entry_price + sl_pips
+                    tp2 = entry_price + (sl_pips * 2)
+                    tp3 = entry_price + (sl_pips * 3)
+                    
+                    plan_details = [{'Entry': 1, 'Asset': 'XAUUSD', 'Lot': lot_size, 'Price': entry_price, 'SL': sl_price, 'TP1': tp1, 'TP2': tp2, 'TP3': tp3}]
+                    tp_details = [
+                        {'TP Zone': 'TP1', 'Price': tp1, 'Lot': lot_size, 'Profit': (tp1 - entry_price) * lot_size, 'R:R': 1.0},
+                        {'TP Zone': 'TP2', 'Price': tp2, 'Lot': lot_size, 'Profit': (tp2 - entry_price) * lot_size, 'R:R': 2.0},
+                        {'TP Zone': 'TP3', 'Price': tp3, 'Lot': lot_size, 'Profit': (tp3 - entry_price) * lot_size, 'R:R': 3.0}
+                    ]
+                    
+                    st.session_state.plan_data = pd.DataFrame(plan_details)
+                    st.session_state.tp_zones_data = pd.DataFrame(tp_details)
+                    st.success("CUSTOM Plan Calculated!")
+                 else:
+                    st.error("Please create/select a portfolio with a balance.")
 
 # ======================= SEC 2: ENTRY PLAN DETAILS (LIFTED & WIRED) =======================
 with st.expander("📊 Entry Plan Details", expanded=True):
     if 'plan_data' in st.session_state and not st.session_state.plan_data.empty:
         df_plan = st.session_state.plan_data
+        df_tp_zones = st.session_state.tp_zones_data
+
         st.subheader("Trade Entry Plan: Summary")
-        # Displaying the DataFrame, formatting can be refined
+        # This display logic is lifted from your file's structure
         st.dataframe(df_plan.style.format(precision=4), use_container_width=True, hide_index=True)
-        # The TP Zone calculation can be lifted from your file here as well
-        # For now, we display the main plan
+        
+        st.subheader("Take Profit Zone")
+        if not df_tp_zones.empty:
+            st.dataframe(df_tp_zones.style.format(precision=4), use_container_width=True, hide_index=True)
     else:
         st.info("No active trade plan. Please configure a plan in the sidebar.")
 
-
 # ======================= SEC 3-6: Original Code (Awaiting Refactor) =======================
+# The code below is from your original file and will be refactored in the next steps
+# to be connected with the Active Portfolio system.
 with st.expander("📈 Chart Visualizer", expanded=True):
     st.info("Chart will be displayed here, based on the plan above.")
 
@@ -202,4 +210,8 @@ with st.expander("💡 Dashboard (ภาพรวม)", expanded=False):
     st.info("Dashboard analytics will be refactored based on the active portfolio's data.")
 
 with st.expander("📚 Trade Log Viewer (แผนเทรด)", expanded=False):
-    st.info("Log viewer will be refactored to filter by active portfolio.")
+    if os.path.exists(LOG_FILE):
+        df_log = pd.read_csv(LOG_FILE)
+        st.dataframe(df_log)
+    else:
+        st.info("Log file not found.")
