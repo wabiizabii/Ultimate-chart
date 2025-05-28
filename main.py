@@ -1106,7 +1106,7 @@ with st.expander("📊 Performance Dashboard", expanded=True):
             st.markdown("---") # เพิ่มเส้นคั่นเพื่อความสวยงาม
 
             # --- ส่วนแสดงกราฟ (ใช้ df_data ที่ผ่านการกรองแล้ว) ---
-            st.markdown("### 🥧 Pie Chart: Win/Loss")
+ 
             # ... โค้ดส่วนที่เหลือสำหรับแสดงกราฟ (ไม่ต้องแก้ไข) ...
 
 
@@ -1386,7 +1386,49 @@ with st.expander("📚 Trade Log Viewer (แผนเทรด)", expanded=False
                 # เพิ่ม .astype(str) เพื่อความปลอดภัยในการค้นหา
                 df_show = df_show[df_show["Timestamp"].astype(str).str.contains(date_filter)]
 
-            st.dataframe(df_show, use_container_width=True, hide_index=True)
+            # --- ส่วนแสดงผลแบบใหม่ (แทนที่ st.dataframe) ---
+            # สร้าง Header ของตาราง
+            header_cols = st.columns((2, 1, 1, 1, 1, 2, 1)) # ปรับขนาดคอลัมน์ตามความเหมาะสม
+            fields = ["Timestamp", "Portfolio", "Asset", "Mode", "Direction", "Entry", "Action"]
+            for col, field_name in zip(header_cols, fields):
+                col.markdown(f"**{field_name}**")
+
+            # วนลูปแสดงข้อมูลแต่ละแถวพร้อมปุ่ม Plot
+            for index, row in df_show.iterrows():
+                # แปลงข้อมูลเป็น string เพื่อแสดงผล
+                # ตรวจสอบว่าคอลัมน์มีอยู่จริงก่อนเรียกใช้
+                timestamp = str(row.get("Timestamp", "-"))
+                portfolio = str(row.get("Portfolio", "-"))
+                asset = str(row.get("Asset", "-"))
+                mode = str(row.get("Mode", "-"))
+                direction = str(row.get("Direction", "-"))
+                entry = str(row.get("Entry", "-"))
+
+                col1, col2, col3, col4, col5, col6, col7 = st.columns((2, 1, 1, 1, 1, 2, 1))
+                with col1:
+                    st.write(timestamp)
+                with col2:
+                    st.write(portfolio)
+                with col3:
+                    st.write(asset)
+                with col4:
+                    st.write(mode)
+                with col5:
+                    st.write(direction)
+                with col6:
+                    st.write(entry)
+                with col7:
+                    # ปุ่ม Plot ที่จะเก็บข้อมูลของแถวนั้นๆ
+                    if st.button(f"📈 Plot", key=f"plot_{index}"):
+                        st.session_state['plot_data'] = row.to_dict()
+                        st.success(f"เลือกข้อมูลเทรด {asset} ที่ Entry {entry} เตรียมพร้อม Plot!")
+                        st.rerun() # ทำให้แอป refresh เพื่อให้ส่วนอื่นรับรู้การเปลี่ยนแปลง
+
+            # หาก st.session_state['plot_data'] มีข้อมูลอยู่ ให้แสดงข้อมูลที่เลือก
+            if 'plot_data' in st.session_state and st.session_state['plot_data']:
+                st.info(f"ข้อมูลที่พร้อมสำหรับ Plot: `{st.session_state['plot_data']}`")
+
+
         except Exception as e:
             st.error(f"อ่าน log ไม่ได้: {e}")
     else:
