@@ -1313,20 +1313,43 @@ with st.expander("📚 Trade Log Viewer (แผนเทรด)", expanded=False
     if os.path.exists(log_file):
         try:
             df_log = pd.read_csv(log_file)
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                mode_filter = st.selectbox("Mode", ["ทั้งหมด"] + sorted(df_log["Mode"].unique().tolist()), key="log_mode_filter")
-            with col2:
-                asset_filter = st.selectbox("Asset", ["ทั้งหมด"] + sorted(df_log["Asset"].unique().tolist()), key="log_asset_filter")
-            with col3:
-                date_filter = st.text_input("ค้นหาวันที่ (YYYY-MM-DD)", value="", key="log_date_filter")
-            df_show = df_log.copy()
+            df_show = df_log.copy() # <--- ย้าย copy มาไว้ข้างบน
+
+            # --- ส่วนจัดการ Filter ---
+            # เพิ่มการตรวจสอบว่ามีคอลัมน์ Portfolio หรือไม่ เพื่อรองรับ log เก่า
+            if "Portfolio" in df_log.columns:
+                col1, col2, col3, col4 = st.columns(4) # <--- เปลี่ยนเป็น 4 คอลัมน์
+                with col1:
+                    # Filter สำหรับ Portfolio ที่เพิ่มเข้ามาใหม่
+                    portfolio_list = ["ทั้งหมด"] + sorted(df_log["Portfolio"].dropna().unique().tolist())
+                    portfolio_filter = st.selectbox("Portfolio", portfolio_list, key="log_portfolio_filter")
+                with col2:
+                    mode_filter = st.selectbox("Mode", ["ทั้งหมด"] + sorted(df_log["Mode"].unique().tolist()), key="log_mode_filter")
+                with col3:
+                    asset_filter = st.selectbox("Asset", ["ทั้งหมด"] + sorted(df_log["Asset"].unique().tolist()), key="log_asset_filter")
+                with col4:
+                    date_filter = st.text_input("ค้นหาวันที่ (YYYY-MM-DD)", value="", key="log_date_filter")
+            else:
+                # ถ้าไม่มีคอลัมน์ Portfolio ให้ใช้ layout เดิม
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    mode_filter = st.selectbox("Mode", ["ทั้งหมด"] + sorted(df_log["Mode"].unique().tolist()), key="log_mode_filter")
+                with col2:
+                    asset_filter = st.selectbox("Asset", ["ทั้งหมด"] + sorted(df_log["Asset"].unique().tolist()), key="log_asset_filter")
+                with col3:
+                    date_filter = st.text_input("ค้นหาวันที่ (YYYY-MM-DD)", value="", key="log_date_filter")
+
+            # --- ส่วนประมวลผลการกรอง ---
+            if "Portfolio" in df_log.columns and portfolio_filter != "ทั้งหมด":
+                df_show = df_show[df_show["Portfolio"] == portfolio_filter]
             if mode_filter != "ทั้งหมด":
                 df_show = df_show[df_show["Mode"] == mode_filter]
             if asset_filter != "ทั้งหมด":
                 df_show = df_show[df_show["Asset"] == asset_filter]
             if date_filter:
-                df_show = df_show[df_show["Timestamp"].str.contains(date_filter)]
+                # เพิ่ม .astype(str) เพื่อความปลอดภัยในการค้นหา
+                df_show = df_show[df_show["Timestamp"].astype(str).str.contains(date_filter)]
+
             st.dataframe(df_show, use_container_width=True, hide_index=True)
         except Exception as e:
             st.error(f"อ่าน log ไม่ได้: {e}")
