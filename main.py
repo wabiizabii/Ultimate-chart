@@ -894,7 +894,15 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Auto-Mapping", expande
     st.checkbox("⚙️ เปิดโหมด Debug (แสดงตารางข้อมูลทั้งหมดที่แยกได้)", key="debug_mode_final")
     
     # --- ฟังก์ชันหลัก (ไม่มีการเปลี่ยนแปลง) ---
+   # --- อยู่ใน SEC 7 ---
+    
+    # --- ฟังก์ชันหลัก (แก้ไขเวอร์ชันนี้) ---
     def extract_data_from_report(file_buffer, stat_definitions_arg):
+        # --- เพิ่มส่วนกำหนดค่า Keyword ---
+        # !!! สำคัญ: คุณอาจจะต้องเปลี่ยนคำนี้ให้ตรงกับในไฟล์ Statement ของคุณ !!!
+        # เช่น อาจจะเป็น "Login", "Account", "บัญชี"
+        ACCOUNT_KEYWORD = "Account:" 
+        
         df_raw = None
         try:
             file_buffer.seek(0)
@@ -910,61 +918,63 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Auto-Mapping", expande
             st.warning("ไม่สามารถอ่านข้อมูลจากไฟล์ได้ หรือไฟล์ว่างเปล่า")
             return None
 
+        # --- เพิ่ม Logic การค้นหาเลขบัญชี ---
+        account_number = f"File-{file_buffer.name[:10]}" # fallback name
+        found_account = False
+        # วนลูปหาใน 20 แถวแรกเพื่อประสิทธิภาพ
+        for r_idx, row in df_raw.head(20).iterrows():
+            for c_idx, cell in enumerate(row):
+                cell_str = str(cell)
+                if ACCOUNT_KEYWORD in cell_str:
+                    # ถ้าเจอ Keyword ลองหาค่าในเซลล์เดียวกันก่อน (เช่น "Account: 1234567")
+                    try:
+                        potential_account = cell_str.split(ACCOUNT_KEYWORD)[1].strip()
+                        if potential_account:
+                            account_number = potential_account
+                            found_account = True
+                            break
+                    except:
+                        pass
+                    
+                    # ถ้าไม่เจอในเซลล์เดียวกัน ให้หาในเซลล์ถัดไปทางขวา
+                    if (c_idx + 1) < len(row):
+                        next_cell_val = row.iloc[c_idx + 1]
+                        if pd.notna(next_cell_val) and str(next_cell_val).strip():
+                            account_number = str(next_cell_val).strip()
+                            found_account = True
+                            break
+            if found_account:
+                break
+        
+        st.info(f"🔎 พบเลขบัญชี/พอร์ต: **{account_number}**")
+        # --- จบส่วน Logic ค้นหาเลขบัญชี ---
+
+
         section_starts = {}
         section_keywords = ["Positions", "Orders", "Deals", "History", "Results"]
-        for keyword in section_keywords:
-            if keyword not in section_starts:
-                for r_idx, row in df_raw.iterrows():
-                    if row.astype(str).str.contains(keyword, case=False, regex=False).any():
-                        actual_key = "Deals" if keyword == "History" else keyword
-                        if actual_key not in section_starts:
-                            section_starts[actual_key] = r_idx
-                        break
+        # ... (โค้ดส่วนที่เหลือเหมือนเดิม) ...
+        # ...
         
         extracted_data = {}
         sorted_sections = sorted(section_starts.items(), key=lambda x: x[1])
 
         tabular_keywords = ["Positions", "Orders", "Deals"]
         for i, (section_name, start_row) in enumerate(sorted_sections):
-            if section_name not in tabular_keywords:
-                continue
-            header_row_idx = start_row + 1
-            while header_row_idx < len(df_raw) and df_raw.iloc[header_row_idx].isnull().all():
-                header_row_idx += 1
-            if header_row_idx < len(df_raw):
-                headers = [str(h).strip() for h in df_raw.iloc[header_row_idx] if pd.notna(h) and str(h).strip() != '']
-                data_start_row = header_row_idx + 1
-                end_row = len(df_raw)
-                if i + 1 < len(sorted_sections):
-                    end_row = sorted_sections[i+1][1]
-                df_section = df_raw.iloc[data_start_row:end_row].copy().dropna(how='all')
-                if not df_section.empty:
-                    num_data_cols = df_section.shape[1]
-                    final_headers = headers[:num_data_cols]
-                    if len(final_headers) < num_data_cols:
-                        final_headers.extend([f'Unnamed:{i}' for i in range(len(final_headers), num_data_cols)])
-                    df_section.columns = final_headers
-                    extracted_data[section_name.lower()] = df_section
-
-        if "Results" in section_starts:
-            results_stats = {}
-            start_row = section_starts["Results"]
-            results_df = df_raw.iloc[start_row : start_row + 15]
-            for _, row in results_df.iterrows():
-                for c_idx, cell in enumerate(row):
-                    if pd.notna(cell):
-                        label = str(cell).strip().replace(':', '')
-                        if label in stat_definitions_arg:
-                            for i in range(1, 4):
-                                if (c_idx + i) < len(row):
-                                    value = row.iloc[c_idx + i]
-                                    if pd.notna(value) and str(value).strip() != "":
-                                        clean_value = str(value).split('(')[0].strip()
-                                        results_stats[label] = clean_value
-                                        break
-                            break 
-            if results_stats:
-                extracted_data["balance_summary"] = pd.DataFrame(list(results_stats.items()), columns=['Metric', 'Value'])
+            # ... (โค้ดใน loop เหมือนเดิม) ...
+            # ...
+            if not df_section.empty:
+                num_data_cols = df_section.shape[1]
+                final_headers = headers[:num_data_cols]
+                if len(final_headers) < num_data_cols:
+                    final_headers.extend([f'Unnamed:{i}' for i in range(len(final_headers), num_data_cols)])
+                df_section.columns = final_headers
+                
+                # --- เพิ่มคอลัมน์ Portfolio ที่นี่ ---
+                df_section['Portfolio'] = account_number
+                
+                extracted_data[section_name.lower()] = df_section
+        
+        # ... (โค้ดส่วนที่เหลือของฟังก์ชันเหมือนเดิม) ...
         return extracted_data
 
     # --- ส่วนที่เรียกใช้ฟังก์ชันและแสดงผล ---
