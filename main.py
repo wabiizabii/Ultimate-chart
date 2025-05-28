@@ -582,6 +582,51 @@ if button_pressed:
 
 # ======================= END OF SEC 1 =======================
 
+# ======================= SEC 2: MAIN AREA - CURRENT ENTRY PLAN DETAILS =======================
+st.header("🎯 Entry Plan Details")
 
+if st.session_state.active_portfolio_name:
+    st.caption(f"สำหรับพอร์ต: **{st.session_state.active_portfolio_name}** (Balance: ${acc_balance:,.2f})") # แสดง Balance ด้วย
+    
+    if current_trade_mode == "FIBO":
+        if entry_data_fibo_list: # entry_data_fibo_list ถูกคำนวณและอัปเดตใน SEC 1
+            df_display_fibo = pd.DataFrame(entry_data_fibo_list)
+            st.dataframe(df_display_fibo, hide_index=True, use_container_width=True)
+            
+            # (Optional) เพิ่มการแสดง TP Zones สำหรับ FIBO ที่นี่ได้ ถ้าต้องการ
+            # try:
+            #     high_fibo_val_tp = float(st.session_state.fibo_swing_high)
+            #     low_fibo_val_tp = float(st.session_state.fibo_swing_low)
+            #     if high_fibo_val_tp > low_fibo_val_tp:
+            #         tp1 = low_fibo_val_tp + (high_fibo_val_tp - low_fibo_val_tp) * 1.618 if st.session_state.fibo_direction == "Long" else high_fibo_val_tp - (high_fibo_val_tp - low_fibo_val_tp) * 1.618
+            #         tp2 = low_fibo_val_tp + (high_fibo_val_tp - low_fibo_val_tp) * 2.618 if st.session_state.fibo_direction == "Long" else high_fibo_val_tp - (high_fibo_val_tp - low_fibo_val_tp) * 2.618
+            #         tp3 = low_fibo_val_tp + (high_fibo_val_tp - low_fibo_val_tp) * 4.236 if st.session_state.fibo_direction == "Long" else high_fibo_val_tp - (high_fibo_val_tp - low_fibo_val_tp) * 4.236
+            #         st.write("Take Profit Zones (FIBO):")
+            #         st.write(f"TP1 (1.618): {tp1:.2f}")
+            #         st.write(f"TP2 (2.618): {tp2:.2f}")
+            #         st.write(f"TP3 (4.236): {tp3:.2f}")
+            # except (ValueError, TypeError):
+            #     st.caption("กรอก High/Low เพื่อดู TP Zones")
+
+        else:
+            # แสดงโครงตารางเปล่าสำหรับ FIBO
+            df_empty_fibo = pd.DataFrame(columns=["Fibo Level", "Entry", "SL", "Lot", "Risk $"])
+            st.dataframe(df_empty_fibo, hide_index=True, use_container_width=True)
+            st.info("กรอกข้อมูลใน Sidebar (FIBO) และให้ระบบคำนวณเพื่อดูรายละเอียดแผน")
+
+    elif current_trade_mode == "CUSTOM":
+        if custom_entries_list: # custom_entries_list ถูกคำนวณและอัปเดตใน SEC 1
+            df_display_custom = pd.DataFrame(custom_entries_list)
+            st.dataframe(df_display_custom, hide_index=True, use_container_width=True)
+        else:
+            # แสดงโครงตารางเปล่าสำหรับ CUSTOM
+            df_empty_custom = pd.DataFrame(columns=["Entry", "SL", "TP", "Lot", "Risk $", "RR"])
+            st.dataframe(df_empty_custom, hide_index=True, use_container_width=True)
+            st.info("กรอกข้อมูลใน Sidebar (CUSTOM) และให้ระบบคำนวณเพื่อดูรายละเอียดแผน")
+else:
+    st.warning("กรุณาเลือก Active Portfolio ใน Sidebar เพื่อดูและสร้างรายละเอียดแผน")
+
+st.markdown("---")
+# ======================= END OF SEC 2 =======================
 
 
