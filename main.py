@@ -1055,23 +1055,49 @@ with st.expander("📊 Performance Dashboard", expanded=True):
         if df_data.empty:
             st.info("ยังไม่มีข้อมูลสำหรับ Dashboard")
         else:
-            # ปรับปรุงการใช้คอลัมน์ "Symbol" หรือ "Asset"
-            column_for_asset_filter = None
-            if "Asset" in df_data.columns and df_data["Asset"].notna().any():
-                column_for_asset_filter = "Asset"
-            elif "Symbol" in df_data.columns and df_data["Symbol"].notna().any():
-                column_for_asset_filter = "Symbol"
+            # --- จัดการส่วน Filter ด้านบน ---
+            st.markdown("#### ⚙️ Filters")
+            col1, col2 = st.columns(2)
 
-            if column_for_asset_filter:
-                selected_asset = st.selectbox(
-                    f"🎯 Filter by {column_for_asset_filter}", 
-                    ["ทั้งหมด"] + sorted(df_data[column_for_asset_filter].dropna().unique()), 
-                    key="dashboard_asset_filter"
-                )
-                if selected_asset != "ทั้งหมด":
-                    df_data = df_data[df_data[column_for_asset_filter] == selected_asset]
-            else:
-                st.warning("ไม่พบคอลัมน์ 'Asset' หรือ 'Symbol' สำหรับการกรอง")
+            with col1:
+                # Filter by Portfolio (ทำงานเมื่อมีคอลัมน์ Portfolio)
+                if "Portfolio" in df_data.columns and df_data["Portfolio"].notna().any():
+                    portfolio_list = ["ทั้งหมด"] + sorted(df_data["Portfolio"].dropna().unique().tolist())
+                    selected_portfolio = st.selectbox(
+                        "📂 Filter by Portfolio",
+                        portfolio_list,
+                        key="dashboard_portfolio_filter"
+                    )
+                    if selected_portfolio != "ทั้งหมด":
+                        df_data = df_data[df_data["Portfolio"] == selected_portfolio]
+                else:
+                    st.info("ℹ️ เลือกแหล่งข้อมูล 'Log File' และบันทึกแผนเทรดพร้อมพอร์ตเพื่อเปิดใช้งาน Filter นี้")
+
+
+            with col2:
+                # Filter by Asset/Symbol
+                column_for_asset_filter = None
+                if "Asset" in df_data.columns and df_data["Asset"].notna().any():
+                    column_for_asset_filter = "Asset"
+                elif "Symbol" in df_data.columns and df_data["Symbol"].notna().any():
+                    column_for_asset_filter = "Symbol"
+
+                if column_for_asset_filter:
+                    selected_asset = st.selectbox(
+                        f"🎯 Filter by {column_for_asset_filter}",
+                        ["ทั้งหมด"] + sorted(df_data[column_for_asset_filter].dropna().unique()),
+                        key="dashboard_asset_filter"
+                    )
+                    if selected_asset != "ทั้งหมด":
+                        df_data = df_data[df_data[column_for_asset_filter] == selected_asset]
+                else:
+                    st.selectbox("🎯 Filter by Asset/Symbol", ["-"], disabled=True)
+            
+            st.markdown("---") # เพิ่มเส้นคั่นเพื่อความสวยงาม
+
+            # --- ส่วนแสดงกราฟ (ใช้ df_data ที่ผ่านการกรองแล้ว) ---
+            st.markdown("### 🥧 Pie Chart: Win/Loss")
+            # ... โค้ดส่วนที่เหลือสำหรับแสดงกราฟ (ไม่ต้องแก้ไข) ...
 
 
             st.markdown("### 🥧 Pie Chart: Win/Loss")
