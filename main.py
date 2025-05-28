@@ -713,3 +713,70 @@ if button_pressed_save_sb_flag:
         st.sidebar.warning(f"กรุณากรอกข้อมูล {current_trade_mode} ให้ครบถ้วน เพื่อให้ระบบคำนวณค่าต่างๆ ก่อนบันทึก")
 
 # ======================= END OF SEC 1 =======================
+
+# ======================= SEC 2: MAIN AREA - CURRENT ENTRY PLAN DETAILS =======================
+st.header("🎯 Entry Plan Details")
+
+# Ensure active_portfolio_name exists in session_state, default if not
+active_portfolio_display_name = st.session_state.get('active_portfolio_name', None)
+# acc_balance should be correctly set from SEC 1's portfolio selection logic
+current_display_balance_sec2_val = acc_balance 
+
+if active_portfolio_display_name:
+    st.caption(f"สำหรับพอร์ต: **{active_portfolio_display_name}** (Balance: ${current_display_balance_sec2_val:,.2f})")
+    
+    # current_trade_mode is defined in SEC 1 from st.session_state.sidebar_current_trade_mode_val
+    # Ensure entry_data_fibo_list and custom_entries_list are defined in the global scope of SEC 1
+    # or passed correctly if they are local to SEC 1's main block
+    
+    if current_trade_mode == "FIBO":
+        # entry_data_fibo_list should be populated in SEC 1 every time inputs change and script reruns
+        if entry_data_fibo_list: 
+            df_display_fibo_main_area = pd.DataFrame(entry_data_fibo_list)
+            st.dataframe(df_display_fibo_main_area, hide_index=True, use_container_width=True)
+            
+            # Display TP Zones for FIBO
+            try:
+                high_fibo_tp_area = float(st.session_state.get("fibo_high_val", "0")) # Using keys from SEC 1 FIBO input
+                low_fibo_tp_area = float(st.session_state.get("fibo_low_val", "0"))
+                direction_fibo_tp_area = st.session_state.get("fibo_direction_val", "Long")
+
+                if high_fibo_tp_area > low_fibo_tp_area:
+                    tp1_area = low_fibo_tp_area + (high_fibo_tp_area - low_fibo_tp_area) * 1.618 if direction_fibo_tp_area == "Long" else high_fibo_tp_area - (high_fibo_tp_area - low_fibo_tp_area) * 1.618
+                    tp2_area = low_fibo_tp_area + (high_fibo_tp_area - low_fibo_tp_area) * 2.618 if direction_fibo_tp_area == "Long" else high_fibo_tp_area - (high_fibo_tp_area - low_fibo_tp_area) * 2.618
+                    tp3_area = low_fibo_tp_area + (high_fibo_tp_area - low_fibo_tp_area) * 4.236 if direction_fibo_tp_area == "Long" else high_fibo_tp_area - (high_fibo_tp_area - low_fibo_tp_area) * 4.236
+                    
+                    st.markdown("##### Take Profit Zones (FIBO):")
+                    tp_data_area = {
+                        "Zone": ["TP1 (1.618)", "TP2 (2.618)", "TP3 (4.236)"],
+                        "Price": [f"{tp1_area:.2f}", f"{tp2_area:.2f}", f"{tp3_area:.2f}"]
+                    }
+                    st.table(pd.DataFrame(tp_data_area)) 
+            except (ValueError, TypeError):
+                st.caption("กรอก High/Low ใน Sidebar ให้ถูกต้องเพื่อคำนวณ TP Zones")
+            except Exception as e_tp_area: 
+                st.warning(f"ไม่สามารถคำนวณ TP Zones: {e_tp_area}")
+        else:
+            df_empty_fibo_area = pd.DataFrame(columns=["Fibo Level", "Entry", "SL", "Lot", "Risk $"])
+            st.dataframe(df_empty_fibo_area, hide_index=True, use_container_width=True)
+            st.info("กรอกข้อมูลใน Sidebar (FIBO) เพื่อให้ระบบคำนวณและแสดงรายละเอียดแผน")
+
+    elif current_trade_mode == "CUSTOM":
+        if custom_entries_list: 
+            df_display_custom_area = pd.DataFrame(custom_entries_list)
+            st.dataframe(df_display_custom_area, hide_index=True, use_container_width=True)
+            try: # Optional: Low RR warning
+                df_check_rr_area = pd.to_numeric(df_display_custom_area["RR"], errors='coerce').dropna()
+                low_rr_trades_area = df_check_rr_area[df_check_rr_area < 2.0]
+                if not low_rr_trades_area.empty:
+                    st.warning(f"มี {len(low_rr_trades_area)} ไม้ที่มี R:R ต่ำกว่า 2.0 ควรพิจารณาปรับปรุง TP/SL")
+            except Exception: pass 
+        else:
+            df_empty_custom_area = pd.DataFrame(columns=["Entry", "SL", "TP", "Lot", "Risk $", "RR"])
+            st.dataframe(df_empty_custom_area, hide_index=True, use_container_width=True)
+            st.info("กรอกข้อมูลใน Sidebar (CUSTOM) เพื่อให้ระบบคำนวณและแสดงรายละเอียดแผน")
+else:
+    st.warning("กรุณาเลือก Active Portfolio ใน Sidebar เพื่อดูและสร้างรายละเอียดแผน")
+
+st.markdown("---")
+# ======================= END OF SEC 2 =======================
