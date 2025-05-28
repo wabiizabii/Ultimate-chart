@@ -698,18 +698,22 @@ if drawdown_today < 0:
 else:
     st.sidebar.markdown(f"**ขาดทุนรวมวันนี้:** {drawdown_today:,.2f} USD")
 
-def save_plan(data, mode, asset, risk_pct, direction):
+# --- แก้ไขตรงนี้ ---
+def save_plan(data, mode, asset, risk_pct, direction, active_portfolio_name): # <--- เพิ่ม active_portfolio_name
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     df_save = pd.DataFrame(data)
     df_save["Mode"] = mode
     df_save["Asset"] = asset
     df_save["Risk %"] = risk_pct
-    df_save["Direction"] = direction # ensure direction is always passed
+    df_save["Direction"] = direction
     df_save["Timestamp"] = now
+    df_save["Portfolio"] = active_portfolio_name # <<< บรรทัดที่เพิ่มเข้ามา
+
     if os.path.exists(log_file):
         df_old = pd.read_csv(log_file)
         df_save = pd.concat([df_old, df_save], ignore_index=True)
     df_save.to_csv(log_file, index=False)
+    # เราจะย้ายข้อความ success ไปไว้ตรงที่เรียกใช้ฟังก์ชันแทน
 
 
 current_direction = None
@@ -720,27 +724,39 @@ elif mode == "CUSTOM":
     current_direction = "N/A" 
 
 
+# --- แก้ไขส่วน FIBO ---
 if mode == "FIBO" and 'entry_data' in locals() and save_fibo and entry_data and current_direction is not None:
     if drawdown_today <= drawdown_limit:
         st.sidebar.error(
             f"หยุดเทรด! ขาดทุนรวมวันนี้ {abs(drawdown_today):,.2f} เกินลิมิต {abs(drawdown_limit):,.2f} ({drawdown_limit_pct:.1f}%)"
         )
+    # <<< เพิ่มเงื่อนไขตรวจสอบการเลือกพอร์ต >>>
+    elif 'active_portfolio_name' not in st.session_state or not st.session_state.active_portfolio_name:
+        st.sidebar.error("กรุณาเลือกหรือสร้างพอร์ตก่อนบันทึกแผน")
     else:
         try:
-            save_plan(entry_data, "FIBO", asset, risk_pct, current_direction)
-            st.sidebar.success("บันทึกแผน (FIBO) สำเร็จ!")
+            # <<< ส่งชื่อพอร์ตเข้าไปในฟังก์ชัน >>>
+            active_port_name = st.session_state.active_portfolio_name
+            save_plan(entry_data, "FIBO", asset, risk_pct, current_direction, active_port_name)
+            st.sidebar.success(f"บันทึกแผน (FIBO) สำหรับพอร์ต '{active_port_name}' สำเร็จ!") # <--- อัปเดตข้อความ
         except Exception as e:
             st.sidebar.error(f"Save ไม่สำเร็จ: {e}")
 
+# --- แก้ไขส่วน CUSTOM (ทำเหมือนกัน) ---
 elif mode == "CUSTOM" and 'custom_entries' in locals() and save_custom and custom_entries and current_direction is not None:
     if drawdown_today <= drawdown_limit:
         st.sidebar.error(
             f"หยุดเทรด! ขาดทุนรวมวันนี้ {abs(drawdown_today):,.2f} เกินลิมิต {abs(drawdown_limit):,.2f} ({drawdown_limit_pct:.1f}%)"
         )
+    # <<< เพิ่มเงื่อนไขตรวจสอบการเลือกพอร์ต >>>
+    elif 'active_portfolio_name' not in st.session_state or not st.session_state.active_portfolio_name:
+        st.sidebar.error("กรุณาเลือกหรือสร้างพอร์ตก่อนบันทึกแผน")
     else:
         try:
-            save_plan(custom_entries, "CUSTOM", asset, risk_pct, current_direction)
-            st.sidebar.success("บันทึกแผน (CUSTOM) สำเร็จ!")
+            # <<< ส่งชื่อพอร์ตเข้าไปในฟังก์ชัน >>>
+            active_port_name = st.session_state.active_portfolio_name
+            save_plan(custom_entries, "CUSTOM", asset, risk_pct, current_direction, active_port_name)
+            st.sidebar.success(f"บันทึกแผน (CUSTOM) สำหรับพอร์ต '{active_port_name}' สำเร็จ!") # <--- อัปเดตข้อความ
         except Exception as e:
             st.sidebar.error(f"Save ไม่สำเร็จ: {e}")
 
