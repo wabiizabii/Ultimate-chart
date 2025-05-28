@@ -339,365 +339,314 @@ def load_data_for_dashboard(active_portfolio_arg, current_portfolio_initial_bala
 
 # --- 1.1. Portfolio Selection & Management (UI in Sidebar) ---
 # (ฟังก์ชัน load_portfolios และ save_portfolios ถูกประกาศไว้ใน SEC 0.4.1 แล้ว)
-portfolios_df = load_portfolios()
+portfolios_df = load_portfolios() # โหลดข้อมูลพอร์ต (ทำซ้ำเพื่อให้แน่ใจว่า acc_balance ถูกต้อง)
 acc_balance = 10000.0 # Default balance, will be updated by selected portfolio
 
 st.sidebar.markdown("---")
-st.sidebar.subheader("1.1. เลือกพอร์ตที่ใช้งาน (Active Portfolio)")
+st.sidebar.subheader("เลือกพอร์ตที่ใช้งาน (Active Portfolio)")
 
 if not portfolios_df.empty:
-    portfolio_names_list = portfolios_df['portfolio_name'].tolist()
+    portfolio_names_list_sec1 = portfolios_df['portfolio_name'].tolist() # ใช้ชื่อตัวแปรใหม่
     
-    current_active_portfolio_name_sb = st.session_state.get('active_portfolio_name', None)
-    if current_active_portfolio_name_sb not in portfolio_names_list:
-        st.session_state.active_portfolio_name = portfolio_names_list[0] if portfolio_names_list else None
+    current_active_portfolio_name_sb_sec1 = st.session_state.get('active_portfolio_name', None)
+    if current_active_portfolio_name_sb_sec1 not in portfolio_names_list_sec1:
+        st.session_state.active_portfolio_name = portfolio_names_list_sec1[0] if portfolio_names_list_sec1 else None
     
     try:
-        # Ensure current_active_portfolio_name is valid before finding index
-        if st.session_state.active_portfolio_name and st.session_state.active_portfolio_name in portfolio_names_list:
-            current_index_sb = portfolio_names_list.index(st.session_state.active_portfolio_name)
-        elif portfolio_names_list: # Default to first item if current is invalid or not set but list exists
-            current_index_sb = 0
-            st.session_state.active_portfolio_name = portfolio_names_list[0]
-        else: # No portfolios, no index
-            current_index_sb = 0 
+        if st.session_state.active_portfolio_name and st.session_state.active_portfolio_name in portfolio_names_list_sec1:
+            current_index_sb_sec1 = portfolio_names_list_sec1.index(st.session_state.active_portfolio_name)
+        elif portfolio_names_list_sec1: 
+            current_index_sb_sec1 = 0
+            st.session_state.active_portfolio_name = portfolio_names_list_sec1[0]
+        else: 
+            current_index_sb_sec1 = 0 
     except ValueError:
-        current_index_sb = 0 # Default to first item if something unexpected happens
-        if portfolio_names_list:
-             st.session_state.active_portfolio_name = portfolio_names_list[0]
+        current_index_sb_sec1 = 0 
+        if portfolio_names_list_sec1:
+             st.session_state.active_portfolio_name = portfolio_names_list_sec1[0]
 
-
-    selected_portfolio_name_sb = st.sidebar.selectbox(
+    selected_portfolio_name_sb_sec1 = st.sidebar.selectbox(
         "เลือกพอร์ต:",
-        options=portfolio_names_list,
-        index=current_index_sb,
-        key='sidebar_portfolio_selector_widget' 
+        options=portfolio_names_list_sec1,
+        index=current_index_sb_sec1,
+        key='sidebar_portfolio_selector_widget_sec1' 
     )
     
-    # Update session state if selection changed
-    if selected_portfolio_name_sb != st.session_state.get('active_portfolio_name'):
-        st.session_state.active_portfolio_name = selected_portfolio_name_sb
-        # Rerun to reflect the change of portfolio immediately, especially for acc_balance
+    if selected_portfolio_name_sb_sec1 != st.session_state.get('active_portfolio_name'):
+        st.session_state.active_portfolio_name = selected_portfolio_name_sb_sec1
         st.rerun() 
 
     if st.session_state.active_portfolio_name:
-        active_portfolio_details_sb = portfolios_df[portfolios_df['portfolio_name'] == st.session_state.active_portfolio_name]
-        if not active_portfolio_details_sb.empty:
-            acc_balance = float(active_portfolio_details_sb['initial_balance'].iloc[0])
+        active_portfolio_details_sb_sec1 = portfolios_df[portfolios_df['portfolio_name'] == st.session_state.active_portfolio_name]
+        if not active_portfolio_details_sb_sec1.empty:
+            acc_balance = float(active_portfolio_details_sb_sec1['initial_balance'].iloc[0])
             st.sidebar.success(f"Active: **{st.session_state.active_portfolio_name}** (Bal: ${acc_balance:,.2f})")
         else:
-            # This case should ideally not be reached if selectbox is populated and default is handled
             st.sidebar.error("ไม่พบรายละเอียดพอร์ตที่เลือก, กำลังใช้ค่าเริ่มต้น")
             st.session_state.active_portfolio_name = None 
             acc_balance = 10000.0 
 else:
-    st.sidebar.info("ยังไม่มีพอร์ต กรุณาเพิ่มพอร์ตใน 'จัดการพอร์ต' (ส่วนท้ายสุดของ Sidebar หรือ Main Area)")
+    st.sidebar.info("ยังไม่มีพอร์ต กรุณาเพิ่มพอร์ตใน 'จัดการพอร์ต'")
     st.session_state.active_portfolio_name = None
     acc_balance = 10000.0
 
-# Expander for managing portfolios, can be placed here or in Main Area later
 with st.sidebar.expander("💼 จัดการพอร์ต (เพิ่ม/ดูพอร์ต)", expanded=False):
     st.subheader("พอร์ตทั้งหมดของคุณ")
-    # Reload portfolios_df here in case it was updated by add form in a previous run
-    # However, st.rerun() after adding should handle this. For safety, can reload.
-    # portfolios_df_display = load_portfolios() # Optional reload
-    st.dataframe(portfolios_df, use_container_width=True, hide_index=True)
+    portfolios_df_display_sec1 = load_portfolios() # โหลดล่าสุดเพื่อแสดงผล
+    st.dataframe(portfolios_df_display_sec1, use_container_width=True, hide_index=True)
 
     st.subheader("➕ เพิ่มพอร์ตใหม่")
-    with st.form("sidebar_new_portfolio_form", clear_on_submit=True): # Unique key
-        new_p_name_sidebar = st.text_input("ชื่อพอร์ต")
-        new_p_bal_sidebar = st.number_input("บาลานซ์เริ่มต้น ($)", min_value=0.0, value=10000.0, step=100.0, format="%.2f")
+    with st.form("sidebar_new_portfolio_form_sec1", clear_on_submit=True): 
+        new_p_name_sidebar_sec1 = st.text_input("ชื่อพอร์ต")
+        new_p_bal_sidebar_sec1 = st.number_input("บาลานซ์เริ่มต้น ($)", min_value=0.0, value=10000.0, step=100.0, format="%.2f")
         
         if st.form_submit_button("💾 บันทึกพอร์ตใหม่"):
-            if not new_p_name_sidebar:
-                st.warning("กรุณาใส่ชื่อพอร์ต")
-            elif new_p_name_sidebar in portfolios_df['portfolio_name'].values:
-                st.error(f"ชื่อพอร์ต '{new_p_name_sidebar}' มีอยู่แล้ว")
+            if not new_p_name_sidebar_sec1: st.warning("กรุณาใส่ชื่อพอร์ต")
+            elif new_p_name_sidebar_sec1 in portfolios_df_display_sec1['portfolio_name'].values: st.error(f"ชื่อพอร์ต '{new_p_name_sidebar_sec1}' มีอยู่แล้ว")
             else:
-                # Recalculate portfolios_df inside the form submission to get the latest state before adding
-                current_portfolios_df_before_add = load_portfolios()
-                if current_portfolios_df_before_add.empty or 'portfolio_id' not in current_portfolios_df_before_add.columns or current_portfolios_df_before_add['portfolio_id'].isnull().all():
-                    new_id_sidebar = 1
+                current_portfolios_df_before_add_sec1 = load_portfolios()
+                if current_portfolios_df_before_add_sec1.empty or 'portfolio_id' not in current_portfolios_df_before_add_sec1.columns or current_portfolios_df_before_add_sec1['portfolio_id'].isnull().all():
+                    new_id_sidebar_sec1 = 1
                 else:
-                    new_id_sidebar = current_portfolios_df_before_add['portfolio_id'].max() + 1 if pd.notna(current_portfolios_df_before_add['portfolio_id'].max()) else 1
+                    new_id_sidebar_sec1 = current_portfolios_df_before_add_sec1['portfolio_id'].max() + 1 if pd.notna(current_portfolios_df_before_add_sec1['portfolio_id'].max()) else 1
                 
-                new_p_data_sidebar = pd.DataFrame([{'portfolio_id': int(new_id_sidebar), 
-                                                  'portfolio_name': new_p_name_sidebar, 
-                                                  'initial_balance': new_p_bal_sidebar, 
-                                                  'creation_date': datetime.now().strftime("%Y-%m-%d %H:%M:%S")}])
-                
-                updated_portfolios_df_sidebar = pd.concat([current_portfolios_df_before_add, new_p_data_sidebar], ignore_index=True)
-                save_portfolios(updated_portfolios_df_sidebar)
-                st.success(f"เพิ่มพอร์ต '{new_p_name_sidebar}' สำเร็จ!")
-                # Update active_portfolio_name to the new one if no port was active or if it's the first one
-                if st.session_state.active_portfolio_name is None and not updated_portfolios_df_sidebar.empty:
-                    st.session_state.active_portfolio_name = new_p_name_sidebar
+                new_p_data_sidebar_sec1 = pd.DataFrame([{'portfolio_id': int(new_id_sidebar_sec1), 'portfolio_name': new_p_name_sidebar_sec1, 'initial_balance': new_p_bal_sidebar_sec1, 'creation_date': datetime.now().strftime("%Y-%m-%d %H:%M:%S")}])
+                updated_portfolios_df_sidebar_sec1 = pd.concat([current_portfolios_df_before_add_sec1, new_p_data_sidebar_sec1], ignore_index=True)
+                save_portfolios(updated_portfolios_df_sidebar_sec1)
+                st.success(f"เพิ่มพอร์ต '{new_p_name_sidebar_sec1}' สำเร็จ!")
+                if st.session_state.active_portfolio_name is None and not updated_portfolios_df_sidebar_sec1.empty:
+                    st.session_state.active_portfolio_name = new_p_name_sidebar_sec1
                 st.rerun()
-
 st.sidebar.markdown("---")
-# --- 1.2. Main Trade Setup ---
-st.sidebar.header("1.2. 🎛️ Trade Setup & Controls")
-# Use session state for drawdown limit to persist its value
-if 'sidebar_dd_limit_pct_val_config' not in st.session_state:
-    st.session_state.sidebar_dd_limit_pct_val_config = 2.0
+
+# --- Main Trade Setup ---
+st.sidebar.header("Trade Setup & Controls") # ไม่มีหมายเลข
+if 'sidebar_dd_limit_pct_val_config_mainsetup' not in st.session_state: st.session_state.sidebar_dd_limit_pct_val_config_mainsetup = 2.0
 drawdown_limit_pct_input = st.sidebar.number_input(
     "Drawdown Limit ต่อวัน (%)", 
     min_value=0.1, max_value=20.0, 
-    value=st.session_state.sidebar_dd_limit_pct_val_config, 
+    value=st.session_state.sidebar_dd_limit_pct_val_config_mainsetup, 
     step=0.1, format="%.1f", 
-    key="sidebar_dd_limit_pct_val_widget" 
+    key="sidebar_dd_limit_widget_mainsetup" 
 )
-st.session_state.sidebar_dd_limit_pct_val_config = drawdown_limit_pct_input # Update session state
+st.session_state.sidebar_dd_limit_pct_val_config_mainsetup = drawdown_limit_pct_input
 
-# Use session state for trade mode
-if 'sidebar_current_trade_mode_config' not in st.session_state:
-    st.session_state.sidebar_current_trade_mode_config = "FIBO"
+if 'sidebar_current_trade_mode_config_mainsetup' not in st.session_state: st.session_state.sidebar_current_trade_mode_config_mainsetup = "FIBO"
 current_trade_mode = st.sidebar.radio(
-    "Trade Mode", 
-    ["FIBO", "CUSTOM"], 
-    index=["FIBO", "CUSTOM"].index(st.session_state.sidebar_current_trade_mode_config),
-    horizontal=True, 
-    key="sidebar_current_trade_mode_widget"
+    "Trade Mode", ["FIBO", "CUSTOM"], 
+    index=["FIBO", "CUSTOM"].index(st.session_state.sidebar_current_trade_mode_config_mainsetup),
+    horizontal=True, key="sidebar_trade_mode_widget_mainsetup"
 )
-st.session_state.sidebar_current_trade_mode_config = current_trade_mode # Update session state
+st.session_state.sidebar_current_trade_mode_config_mainsetup = current_trade_mode
 
-
-if st.sidebar.button("🔄 Reset Form", key="sidebar_btn_reset_form_main"):
-    keys_to_preserve_on_reset = {
-        'active_portfolio_name', 'sidebar_portfolio_selector_widget', 
-        'sidebar_dd_limit_pct_val_config', 'sidebar_dd_limit_pct_val_widget',
-        'sidebar_current_trade_mode_config', 'sidebar_current_trade_mode_widget'
+if st.sidebar.button("🔄 Reset Form", key="sidebar_btn_reset_form_overall"):
+    keys_to_preserve_on_reset_overall = {
+        'active_portfolio_name', 'sidebar_portfolio_selector_widget_sec1', 
+        'sidebar_dd_limit_pct_val_config_mainsetup', 'sidebar_dd_limit_widget_mainsetup',
+        'sidebar_current_trade_mode_config_mainsetup', 'sidebar_trade_mode_widget_mainsetup'
     }
-    # Also preserve scaling config if they exist
-    for k_scale in ['scaling_step_cfg_val', 'scaling_min_risk_cfg_val', 'scaling_max_risk_cfg_val', 'scaling_mode_cfg_radio']:
-        if k_scale in st.session_state: keys_to_preserve_on_reset.add(k_scale)
-
-    for key_in_state in list(st.session_state.keys()):
-        if key_in_state not in keys_to_preserve_on_reset:
-            if key_in_state.startswith('fibo_') or \
-               key_in_state.startswith('custom_') or \
-               key_in_state.startswith('sidebar_portfolio_selector_widget_idx_'): # Old selectbox keys
-                del st.session_state[key_in_state]
-    
-    if "fibo_flags_inputs_list_config" in st.session_state: 
-        st.session_state.fibo_flags_inputs_list_config = [True] * 5
+    for k_scale_cfg_overall in ['scaling_step_cfg_val_main', 'scaling_min_risk_cfg_val_main', 'scaling_max_risk_cfg_val_main', 'scaling_mode_cfg_radio_main']:
+        if k_scale_cfg_overall in st.session_state: keys_to_preserve_on_reset_overall.add(k_scale_cfg_overall)
+    for key_in_state_overall in list(st.session_state.keys()):
+        if key_in_state_overall not in keys_to_preserve_on_reset_overall:
+            if key_in_state_overall.startswith('fibo_') or key_in_state_overall.startswith('custom_'):
+                del st.session_state[key_in_state_overall]
+    if "fibo_flags_inputs_list_config_main" in st.session_state: st.session_state.fibo_flags_inputs_list_config_main = [True] * 5
     st.rerun()
 
-# --- 1.3. FIBO Input Zone ---
+# --- FIBO Input Zone ---
 entry_data_fibo_list = [] 
 if current_trade_mode == "FIBO":
-    st.sidebar.subheader("1.3.1. FIBO Mode Inputs")
-    # Initialize session state for FIBO inputs if they don't exist
-    if 'fibo_asset_val_config' not in st.session_state: st.session_state.fibo_asset_val_config = "XAUUSD"
-    if 'fibo_risk_val_config' not in st.session_state: st.session_state.fibo_risk_val_config = 1.0
-    if 'fibo_direction_val_config' not in st.session_state: st.session_state.fibo_direction_val_config = "Long"
-    if 'fibo_high_val_config' not in st.session_state: st.session_state.fibo_high_val_config = ""
-    if 'fibo_low_val_config' not in st.session_state: st.session_state.fibo_low_val_config = ""
+    st.sidebar.subheader("FIBO Mode Inputs") # ไม่มีหมายเลข
+    
+    # Asset & Risk % in one row
+    col1_fibo, col2_fibo = st.sidebar.columns(2)
+    with col1_fibo:
+        if 'fibo_asset_val_cfg_main' not in st.session_state: st.session_state.fibo_asset_val_cfg_main = "XAUUSD"
+        st.session_state.fibo_asset_val_cfg_main = st.text_input("Asset", value=st.session_state.fibo_asset_val_cfg_main, key="fibo_asset_widget_main")
+    with col2_fibo:
+        if 'fibo_risk_val_cfg_main' not in st.session_state: st.session_state.fibo_risk_val_cfg_main = 1.0
+        st.session_state.fibo_risk_val_cfg_main = st.number_input("Risk %", min_value=0.01, value=st.session_state.fibo_risk_val_cfg_main, step=0.01, key="fibo_risk_widget_main")
 
-    st.session_state.fibo_asset_val_config = st.sidebar.text_input("Asset", value=st.session_state.fibo_asset_val_config, key="fibo_asset_widget")
-    st.session_state.fibo_risk_val_config = st.sidebar.number_input("Risk %", min_value=0.01, value=st.session_state.fibo_risk_val_config, step=0.01, key="fibo_risk_widget")
-    st.session_state.fibo_direction_val_config = st.sidebar.radio("Direction", ["Long", "Short"], index=["Long", "Short"].index(st.session_state.fibo_direction_val_config), horizontal=True, key="fibo_direction_widget")
-    st.session_state.fibo_high_val_config = st.sidebar.text_input("High", value=st.session_state.fibo_high_val_config, key="fibo_high_widget")
-    st.session_state.fibo_low_val_config = st.sidebar.text_input("Low", value=st.session_state.fibo_low_val_config, key="fibo_low_widget")
+    # Direction
+    if 'fibo_direction_val_cfg_main' not in st.session_state: st.session_state.fibo_direction_val_cfg_main = "Long"
+    st.session_state.fibo_direction_val_cfg_main = st.sidebar.radio("Direction", ["Long", "Short"], index=["Long", "Short"].index(st.session_state.fibo_direction_val_cfg_main), horizontal=True, key="fibo_direction_widget_main")
+
+    # High & Low in one row
+    col_h_fibo, col_l_fibo = st.sidebar.columns(2)
+    with col_h_fibo:
+        if 'fibo_high_val_cfg_main' not in st.session_state: st.session_state.fibo_high_val_cfg_main = ""
+        st.session_state.fibo_high_val_cfg_main = st.text_input("High", value=st.session_state.fibo_high_val_cfg_main, key="fibo_high_widget_main")
+    with col_l_fibo:
+        if 'fibo_low_val_cfg_main' not in st.session_state: st.session_state.fibo_low_val_cfg_main = ""
+        st.session_state.fibo_low_val_cfg_main = st.text_input("Low", value=st.session_state.fibo_low_val_cfg_main, key="fibo_low_widget_main")
     
     st.sidebar.markdown("**📐 Entry Fibo Levels**")
-    fibo_levels_const_list_val = [0.114, 0.25, 0.382, 0.5, 0.618] 
-    if "fibo_flags_inputs_list_config" not in st.session_state: 
-        st.session_state.fibo_flags_inputs_list_config = [True] * len(fibo_levels_const_list_val)
+    fibo_levels_const_list_val_main = [0.114, 0.25, 0.382, 0.5, 0.618] 
+    if "fibo_flags_inputs_list_config_main" not in st.session_state: st.session_state.fibo_flags_inputs_list_config_main = [True] * len(fibo_levels_const_list_val_main)
     
-    cols_fibo_cb_list_val = st.sidebar.columns(len(fibo_levels_const_list_val))
-    temp_fibo_flags = st.session_state.fibo_flags_inputs_list_config[:] # Work with a copy
-    for i, col_cb_fibo_item_val in enumerate(cols_fibo_cb_list_val): 
-        temp_fibo_flags[i] = col_cb_fibo_item_val.checkbox(
-            f"{fibo_levels_const_list_val[i]:.3f}", 
-            value=temp_fibo_flags[i], 
-            key=f"fibo_level_cb_widget_{i}"
-        )
-    st.session_state.fibo_flags_inputs_list_config = temp_fibo_flags
+    cols_fibo_cb_list_val_main = st.sidebar.columns(len(fibo_levels_const_list_val_main))
+    temp_fibo_flags_main = st.session_state.fibo_flags_inputs_list_config_main[:] 
+    for i, col_cb_fibo_item_val_main in enumerate(cols_fibo_cb_list_val_main): 
+        temp_fibo_flags_main[i] = col_cb_fibo_item_val_main.checkbox(f"{fibo_levels_const_list_val_main[i]:.3f}", value=temp_fibo_flags_main[i], key=f"fibo_level_cb_widget_main_{i}")
+    st.session_state.fibo_flags_inputs_list_config_main = temp_fibo_flags_main
     
     try:
-        high_fibo_calc_val = float(st.session_state.fibo_high_val_config)
-        low_fibo_calc_val = float(st.session_state.fibo_low_val_config)
-        current_risk_pct_fibo = st.session_state.fibo_risk_val_config
-        current_direction_fibo = st.session_state.fibo_direction_val_config
-        
-        if high_fibo_calc_val > low_fibo_calc_val and acc_balance > 0:
-            selected_fibs_calc_val = [fibo_levels_const_list_val[i] for i, sel in enumerate(st.session_state.fibo_flags_inputs_list_config) if sel]
-            n_selected_fibs_calc_val = len(selected_fibs_calc_val)
-            risk_dollar_total_calc_val = acc_balance * (current_risk_pct_fibo / 100)
-            risk_dollar_per_entry_calc_val = risk_dollar_total_calc_val / n_selected_fibs_calc_val if n_selected_fibs_calc_val > 0 else 0
-            
-            for fib_level_item_calc_val in selected_fibs_calc_val:
-                entry_p_calc_val = low_fibo_calc_val + (high_fibo_calc_val - low_fibo_calc_val) * fib_level_item_calc_val if current_direction_fibo == "Long" else high_fibo_calc_val - (high_fibo_calc_val - low_fibo_calc_val) * fib_level_item_calc_val
-                sl_p_calc_val = low_fibo_calc_val if current_direction_fibo == "Long" else high_fibo_calc_val
-                stop_p_calc_val = abs(entry_p_calc_val - sl_p_calc_val)
-                lot_calc_val = (risk_dollar_per_entry_calc_val / stop_p_calc_val) if stop_p_calc_val > 0 else 0.0
-                entry_data_fibo_list.append({
-                    "Fibo Level": f"{fib_level_item_calc_val:.3f}", "Entry": f"{entry_p_calc_val:.2f}", "SL": f"{sl_p_calc_val:.2f}",
-                    "Lot": f"{lot_calc_val:.2f}", "Risk $": f"{lot_calc_val * stop_p_calc_val:.2f}"
-                })
+        high_fibo_calc_val_main = float(st.session_state.fibo_high_val_cfg_main)
+        low_fibo_calc_val_main = float(st.session_state.fibo_low_val_cfg_main)
+        current_risk_pct_fibo_main = st.session_state.fibo_risk_val_cfg_main
+        current_direction_fibo_main = st.session_state.fibo_direction_val_cfg_main
+        if high_fibo_calc_val_main > low_fibo_calc_val_main and acc_balance > 0:
+            selected_fibs_calc_val_main = [fibo_levels_const_list_val_main[i] for i, sel_main in enumerate(st.session_state.fibo_flags_inputs_list_config_main) if sel_main]
+            n_selected_fibs_calc_val_main = len(selected_fibs_calc_val_main)
+            risk_dollar_total_calc_val_main = acc_balance * (current_risk_pct_fibo_main / 100)
+            risk_dollar_per_entry_calc_val_main = risk_dollar_total_calc_val_main / n_selected_fibs_calc_val_main if n_selected_fibs_calc_val_main > 0 else 0
+            for fib_level_item_calc_val_main in selected_fibs_calc_val_main:
+                entry_p_calc_val_main = low_fibo_calc_val_main + (high_fibo_calc_val_main - low_fibo_calc_val_main) * fib_level_item_calc_val_main if current_direction_fibo_main == "Long" else high_fibo_calc_val_main - (high_fibo_calc_val_main - low_fibo_calc_val_main) * fib_level_item_calc_val_main
+                sl_p_calc_val_main = low_fibo_calc_val_main if current_direction_fibo_main == "Long" else high_fibo_calc_val_main
+                stop_p_calc_val_main = abs(entry_p_calc_val_main - sl_p_calc_val_main)
+                lot_calc_val_main = (risk_dollar_per_entry_calc_val_main / stop_p_calc_val_main) if stop_p_calc_val_main > 0 else 0.0
+                entry_data_fibo_list.append({"Fibo Level": f"{fib_level_item_calc_val_main:.3f}", "Entry": f"{entry_p_calc_val_main:.2f}", "SL": f"{sl_p_calc_val_main:.2f}", "Lot": f"{lot_calc_val_main:.2f}", "Risk $": f"{lot_calc_val_main * stop_p_calc_val_main:.2f}"})
     except (ValueError, TypeError, ZeroDivisionError): pass 
-    
-    save_fibo_button = st.sidebar.button("💾 Save Plan (FIBO)", key="sidebar_btn_save_fibo_main")
+    save_fibo_button = st.sidebar.button("💾 Save Plan (FIBO)", key="sidebar_btn_save_fibo_final")
 
-# --- 1.4. CUSTOM Input Zone ---
+# --- CUSTOM Input Zone ---
 custom_entries_list = [] 
 if current_trade_mode == "CUSTOM":
-    st.sidebar.subheader("1.4.1. CUSTOM Mode Inputs")
-    if 'custom_asset_val_config' not in st.session_state: st.session_state.custom_asset_val_config = "XAUUSD"
-    if 'custom_risk_val_config' not in st.session_state: st.session_state.custom_risk_val_config = 1.0
-    if 'custom_n_entry_val_config' not in st.session_state: st.session_state.custom_n_entry_val_config = 1
-
-    st.session_state.custom_asset_val_config = st.sidebar.text_input("Asset", value=st.session_state.custom_asset_val_config, key="custom_asset_widget")
-    st.session_state.custom_risk_val_config = st.sidebar.number_input("Risk %", min_value=0.01, value=st.session_state.custom_risk_val_config, step=0.01, key="custom_risk_widget")
-    st.session_state.custom_n_entry_val_config = st.sidebar.number_input("จำนวนไม้", min_value=1, value=st.session_state.custom_n_entry_val_config, step=1, key="custom_n_entry_widget")
+    st.sidebar.subheader("CUSTOM Mode Inputs") # ไม่มีหมายเลข
+    col1_custom, col2_custom = st.sidebar.columns(2)
+    with col1_custom:
+        if 'custom_asset_val_cfg_main' not in st.session_state: st.session_state.custom_asset_val_cfg_main = "XAUUSD"
+        st.session_state.custom_asset_val_cfg_main = st.text_input("Asset", value=st.session_state.custom_asset_val_cfg_main, key="custom_asset_widget_main")
+    with col2_custom:
+        if 'custom_risk_val_cfg_main' not in st.session_state: st.session_state.custom_risk_val_cfg_main = 1.0
+        st.session_state.custom_risk_val_cfg_main = st.number_input("Risk %", min_value=0.01, value=st.session_state.custom_risk_val_cfg_main, step=0.01, key="custom_risk_widget_main")
     
-    current_risk_pct_custom = st.session_state.custom_risk_val_config
-    num_entries_custom_val = int(st.session_state.custom_n_entry_val_config)
+    if 'custom_n_entry_val_cfg_main' not in st.session_state: st.session_state.custom_n_entry_val_cfg_main = 1
+    st.session_state.custom_n_entry_val_cfg_main = st.sidebar.number_input("จำนวนไม้", min_value=1, value=st.session_state.custom_n_entry_val_cfg_main, step=1, key="custom_n_entry_widget_main")
+    current_risk_pct_custom_main = st.session_state.custom_risk_val_cfg_main
+    num_entries_custom_val_main = int(st.session_state.custom_n_entry_val_cfg_main)
 
-    for i_cust in range(num_entries_custom_val):
-        st.sidebar.markdown(f"--- ไม้ที่ {i_cust+1} ---")
-        # Initialize session state for each custom entry field if not exists
-        if f"custom_entry_val_widget_{i_cust}" not in st.session_state: st.session_state[f"custom_entry_val_widget_{i_cust}"] = "0.0"
-        if f"custom_sl_val_widget_{i_cust}" not in st.session_state: st.session_state[f"custom_sl_val_widget_{i_cust}"] = "0.0"
-        if f"custom_tp_val_widget_{i_cust}" not in st.session_state: st.session_state[f"custom_tp_val_widget_{i_cust}"] = "0.0"
+    for i_cust_main in range(num_entries_custom_val_main):
+        st.sidebar.markdown(f"--- ไม้ที่ {i_cust_main+1} ---")
+        if f"custom_entry_val_widget_main_{i_cust_main}" not in st.session_state: st.session_state[f"custom_entry_val_widget_main_{i_cust_main}"] = "0.0"
+        if f"custom_sl_val_widget_main_{i_cust_main}" not in st.session_state: st.session_state[f"custom_sl_val_widget_main_{i_cust_main}"] = "0.0"
+        if f"custom_tp_val_widget_main_{i_cust_main}" not in st.session_state: st.session_state[f"custom_tp_val_widget_main_{i_cust_main}"] = "0.0"
 
-        e_cust_val = st.sidebar.text_input(f"Entry {i_cust+1}", value=st.session_state[f"custom_entry_val_widget_{i_cust}"], key=f"custom_entry_val_widget_{i_cust}")
-        s_cust_val = st.sidebar.text_input(f"SL {i_cust+1}", value=st.session_state[f"custom_sl_val_widget_{i_cust}"], key=f"custom_sl_val_widget_{i_cust}")
-        t_cust_val = st.sidebar.text_input(f"TP {i_cust+1}", value=st.session_state[f"custom_tp_val_widget_{i_cust}"], key=f"custom_tp_val_widget_{i_cust}")
-        
-        # Update session state with current input
-        st.session_state[f"custom_entry_val_widget_{i_cust}"] = e_cust_val
-        st.session_state[f"custom_sl_val_widget_{i_cust}"] = s_cust_val
-        st.session_state[f"custom_tp_val_widget_{i_cust}"] = t_cust_val
+        e_cust_val_main = st.sidebar.text_input(f"Entry {i_cust_main+1}", value=st.session_state[f"custom_entry_val_widget_main_{i_cust_main}"], key=f"custom_entry_val_widget_main_{i_cust_main}")
+        s_cust_val_main = st.sidebar.text_input(f"SL {i_cust_main+1}", value=st.session_state[f"custom_sl_val_widget_main_{i_cust_main}"], key=f"custom_sl_val_widget_main_{i_cust_main}")
+        t_cust_val_main = st.sidebar.text_input(f"TP {i_cust_main+1}", value=st.session_state[f"custom_tp_val_widget_main_{i_cust_main}"], key=f"custom_tp_val_widget_main_{i_cust_main}")
+        st.session_state[f"custom_entry_val_widget_main_{i_cust_main}"] = e_cust_val_main
+        st.session_state[f"custom_sl_val_widget_main_{i_cust_main}"] = s_cust_val_main
+        st.session_state[f"custom_tp_val_widget_main_{i_cust_main}"] = t_cust_val_main
         
         try:
-            if acc_balance > 0 and num_entries_custom_val > 0 :
-                risk_dollar_total_cust_calc_val = acc_balance * (current_risk_pct_custom / 100)
-                risk_dollar_per_entry_cust_calc_val = risk_dollar_total_cust_calc_val / num_entries_custom_val
-                entry_p_cust_calc_val, sl_p_cust_calc_val, tp_p_cust_calc_val = float(e_cust_val), float(s_cust_val), float(t_cust_val)
-                stop_p_cust_calc_val = abs(entry_p_cust_calc_val - sl_p_cust_calc_val)
-                lot_cust_calc_val = (risk_dollar_per_entry_cust_calc_val / stop_p_cust_calc_val) if stop_p_cust_calc_val > 0 else 0.0
-                rr_cust_calc_val = abs(tp_p_cust_calc_val - entry_p_cust_calc_val) / stop_p_cust_calc_val if stop_p_cust_calc_val > 0 else 0.0
-                custom_entries_list.append({
-                    "Entry": f"{entry_p_cust_calc_val:.2f}", "SL": f"{sl_p_cust_calc_val:.2f}", "TP": f"{tp_p_cust_calc_val:.2f}",
-                    "Lot": f"{lot_cust_calc_val:.2f}", "Risk $": f"{lot_cust_calc_val * stop_p_cust_calc_val:.2f}", "RR": f"{rr_cust_calc_val:.2f}"
-                })
+            if acc_balance > 0 and num_entries_custom_val_main > 0 :
+                risk_dollar_total_cust_calc_val_main = acc_balance * (current_risk_pct_custom_main / 100)
+                risk_dollar_per_entry_cust_calc_val_main = risk_dollar_total_cust_calc_val_main / num_entries_custom_val_main
+                entry_p_cust_calc_val_main, sl_p_cust_calc_val_main, tp_p_cust_calc_val_main = float(e_cust_val_main), float(s_cust_val_main), float(t_cust_val_main)
+                stop_p_cust_calc_val_main = abs(entry_p_cust_calc_val_main - sl_p_cust_calc_val_main)
+                lot_cust_calc_val_main = (risk_dollar_per_entry_cust_calc_val_main / stop_p_cust_calc_val_main) if stop_p_cust_calc_val_main > 0 else 0.0
+                rr_cust_calc_val_main = abs(tp_p_cust_calc_val_main - entry_p_cust_calc_val_main) / stop_p_cust_calc_val_main if stop_p_cust_calc_val_main > 0 else 0.0
+                custom_entries_list.append({"Entry": f"{entry_p_cust_calc_val_main:.2f}", "SL": f"{sl_p_cust_calc_val_main:.2f}", "TP": f"{tp_p_cust_calc_val_main:.2f}", "Lot": f"{lot_cust_calc_val_main:.2f}", "Risk $": f"{lot_cust_calc_val_main * stop_p_cust_calc_val_main:.2f}", "RR": f"{rr_cust_calc_val_main:.2f}"})
         except (ValueError, TypeError, ZeroDivisionError): pass
-    save_custom_button = st.sidebar.button("💾 Save Plan (CUSTOM)", key="sidebar_btn_save_custom_main")
+    save_custom_button = st.sidebar.button("💾 Save Plan (CUSTOM)", key="sidebar_btn_save_custom_final")
 
-# --- 1.5. Strategy Summary (Sidebar) ---
+# --- Strategy Summary (Sidebar) ---
 st.sidebar.markdown("---")
-st.sidebar.subheader("1.5. 🧾 Strategy Summary")
-# This section uses entry_data_fibo_list and custom_entries_list calculated above
+st.sidebar.subheader("Strategy Summary") # ไม่มีหมายเลข
 if current_trade_mode == "FIBO":
     if entry_data_fibo_list:
-        df_fibo_summary_display_val = pd.DataFrame(entry_data_fibo_list)
-        st.sidebar.write(f"Total Lots: {pd.to_numeric(df_fibo_summary_display_val['Lot'], errors='coerce').sum():.2f}")
-        st.sidebar.write(f"Total Risk $: {pd.to_numeric(df_fibo_summary_display_val['Risk $'], errors='coerce').sum():.2f}")
-    else:
-        st.sidebar.caption("กรอกข้อมูล FIBO และคำนวณเพื่อดู Summary")
+        df_fibo_summary_display_val_main = pd.DataFrame(entry_data_fibo_list)
+        st.sidebar.write(f"Total Lots: {pd.to_numeric(df_fibo_summary_display_val_main['Lot'], errors='coerce').sum():.2f}")
+        st.sidebar.write(f"Total Risk $: {pd.to_numeric(df_fibo_summary_display_val_main['Risk $'], errors='coerce').sum():.2f}")
+    else: st.sidebar.caption("กรอกข้อมูล FIBO และคำนวณเพื่อดู Summary")
 elif current_trade_mode == "CUSTOM":
     if custom_entries_list:
-        df_custom_summary_display_val = pd.DataFrame(custom_entries_list)
-        st.sidebar.write(f"Total Lots: {pd.to_numeric(df_custom_summary_display_val['Lot'], errors='coerce').sum():.2f}")
-        st.sidebar.write(f"Total Risk $: {pd.to_numeric(df_custom_summary_display_val['Risk $'], errors='coerce').sum():.2f}")
-        avg_rr_val = pd.to_numeric(df_custom_summary_display_val['RR'], errors='coerce').mean()
-        if pd.notna(avg_rr_val):
-            st.sidebar.write(f"Average RR: {avg_rr_val:.2f}")
-    else:
-        st.sidebar.caption("กรอกข้อมูล CUSTOM และคำนวณเพื่อดู Summary")
+        df_custom_summary_display_val_main = pd.DataFrame(custom_entries_list)
+        st.sidebar.write(f"Total Lots: {pd.to_numeric(df_custom_summary_display_val_main['Lot'], errors='coerce').sum():.2f}")
+        st.sidebar.write(f"Total Risk $: {pd.to_numeric(df_custom_summary_display_val_main['Risk $'], errors='coerce').sum():.2f}")
+        avg_rr_val_main = pd.to_numeric(df_custom_summary_display_val_main['RR'], errors='coerce').mean()
+        if pd.notna(avg_rr_val_main): st.sidebar.write(f"Average RR: {avg_rr_val_main:.2f}")
+    else: st.sidebar.caption("กรอกข้อมูล CUSTOM และคำนวณเพื่อดู Summary")
 
-# --- 1.6. Scaling Manager (Sidebar) ---
+# --- Scaling Manager (Sidebar) ---
 st.sidebar.markdown("---")
-st.sidebar.subheader("1.6. ⚙️ Scaling Manager")
-# Use session state for scaling settings
-default_scaling_values = {
-    "scaling_step_val_cfg": 0.25, "scaling_min_risk_val_cfg": 0.5,
-    "scaling_max_risk_val_cfg": 5.0, "scaling_mode_val_cfg": "Manual"
-}
-for k_scale_cfg, v_scale_cfg in default_scaling_values.items():
-    if k_scale_cfg not in st.session_state: st.session_state[k_scale_cfg] = v_scale_cfg
-
+st.sidebar.subheader("Scaling Manager") # ไม่มีหมายเลข
+default_scaling_values_main = {"scaling_step_val_cfg_main": 0.25, "scaling_min_risk_val_cfg_main": 0.5, "scaling_max_risk_val_cfg_main": 5.0, "scaling_mode_val_cfg_main": "Manual"}
+for k_scale_cfg_main, v_scale_cfg_main in default_scaling_values_main.items():
+    if k_scale_cfg_main not in st.session_state: st.session_state[k_scale_cfg_main] = v_scale_cfg_main
 with st.sidebar.expander("Scaling Settings", expanded=False):
-    st.session_state.scaling_step_val_cfg = st.number_input("Scaling Step (%)", min_value=0.01, max_value=1.0, value=st.session_state.scaling_step_val_cfg, step=0.01, format="%.2f", key="scaling_step_widget")
-    st.session_state.scaling_min_risk_val_cfg = st.number_input("Minimum Risk %", min_value=0.01, max_value=100.0, value=st.session_state.scaling_min_risk_val_cfg, step=0.01, format="%.2f", key="scaling_min_risk_widget")
-    st.session_state.scaling_max_risk_val_cfg = st.number_input("Maximum Risk %", min_value=0.01, max_value=100.0, value=st.session_state.scaling_max_risk_val_cfg, step=0.01, format="%.2f", key="scaling_max_risk_widget")
-    st.session_state.scaling_mode_val_cfg = st.radio("Scaling Mode", ["Manual", "Auto"], index=["Manual", "Auto"].index(st.session_state.scaling_mode_val_cfg), horizontal=True, key="scaling_mode_widget")
+    st.session_state.scaling_step_val_cfg_main = st.number_input("Scaling Step (%)", min_value=0.01, max_value=1.0, value=st.session_state.scaling_step_val_cfg_main, step=0.01, format="%.2f", key="scaling_step_widget_main")
+    st.session_state.scaling_min_risk_val_cfg_main = st.number_input("Minimum Risk %", min_value=0.01, max_value=100.0, value=st.session_state.scaling_min_risk_val_cfg_main, step=0.01, format="%.2f", key="scaling_min_risk_widget_main")
+    st.session_state.scaling_max_risk_val_cfg_main = st.number_input("Maximum Risk %", min_value=0.01, max_value=100.0, value=st.session_state.scaling_max_risk_val_cfg_main, step=0.01, format="%.2f", key="scaling_max_risk_widget_main")
+    st.session_state.scaling_mode_val_cfg_main = st.radio("Scaling Mode", ["Manual", "Auto"], index=["Manual", "Auto"].index(st.session_state.scaling_mode_val_cfg_main), horizontal=True, key="scaling_mode_widget_main")
 
 if st.session_state.active_portfolio_name:
-    winrate_scale_val, gain_scale_val, _ = get_performance_for_active_portfolio(log_file, st.session_state.active_portfolio_name, acc_balance) # Pass acc_balance
-    
-    current_risk_for_scaling_val = st.session_state.fibo_risk_val_config if current_trade_mode == "FIBO" else st.session_state.custom_risk_val_config
-    
-    suggest_risk_display_val = current_risk_for_scaling_val
-    msg_scale_display_val = f"Risk% ({st.session_state.active_portfolio_name}) คงที่: {current_risk_for_scaling_val:.2f}%"
-
+    winrate_scale_val_main, gain_scale_val_main, _ = get_performance_for_active_portfolio(log_file, st.session_state.active_portfolio_name, acc_balance)
+    current_risk_for_scaling_val_main = st.session_state.fibo_risk_val_cfg_main if current_trade_mode == "FIBO" else st.session_state.custom_risk_val_cfg_main
+    suggest_risk_display_val_main = current_risk_for_scaling_val_main
+    msg_scale_display_val_main = f"Risk% ({st.session_state.active_portfolio_name}) คงที่: {current_risk_for_scaling_val_main:.2f}%"
     if acc_balance > 0:
-        if winrate_scale_val > 55 and gain_scale_val > 0.02 * acc_balance: # gain_scale_val is actual P/L
-            suggest_risk_display_val = min(current_risk_for_scaling_val + st.session_state.scaling_step_val_cfg, st.session_state.scaling_max_risk_val_cfg)
-            msg_scale_display_val = f"🎉 ผลงานดี! ({st.session_state.active_portfolio_name}) Winrate {winrate_scale_val:.1f}%, Gain {gain_scale_val:.2f}. แนะนำเพิ่ม Risk เป็น {suggest_risk_display_val:.2f}%"
-        elif winrate_scale_val < 45 or gain_scale_val < 0:
-            suggest_risk_display_val = max(current_risk_for_scaling_val - st.session_state.scaling_step_val_cfg, st.session_state.scaling_min_risk_val_cfg)
-            msg_scale_display_val = f"⚠️ ควรลด Risk! ({st.session_state.active_portfolio_name}) Winrate {winrate_scale_val:.1f}%, P/L {gain_scale_val:.2f}. แนะนำลด Risk เป็น {suggest_risk_display_val:.2f}%"
-    
-    st.sidebar.info(msg_scale_display_val)
-    if st.session_state.scaling_mode_val_cfg == "Manual" and suggest_risk_display_val != current_risk_for_scaling_val:
-        if st.sidebar.button(f"ปรับ Risk เป็น {suggest_risk_display_val:.2f}", key="sidebar_btn_scaling_adjust_main"):
-            if current_trade_mode == "FIBO": st.session_state.fibo_risk_val_config = suggest_risk_display_val
-            else: st.session_state.custom_risk_val_config = suggest_risk_display_val
+        if winrate_scale_val_main > 55 and gain_scale_val_main > 0.02 * acc_balance:
+            suggest_risk_display_val_main = min(current_risk_for_scaling_val_main + st.session_state.scaling_step_val_cfg_main, st.session_state.scaling_max_risk_val_cfg_main)
+            msg_scale_display_val_main = f"🎉 ผลงานดี! ({st.session_state.active_portfolio_name}) Winrate {winrate_scale_val_main:.1f}%, Gain {gain_scale_val_main:.2f}. แนะนำเพิ่ม Risk เป็น {suggest_risk_display_val_main:.2f}%"
+        elif winrate_scale_val_main < 45 or gain_scale_val_main < 0:
+            suggest_risk_display_val_main = max(current_risk_for_scaling_val_main - st.session_state.scaling_step_val_cfg_main, st.session_state.scaling_min_risk_val_cfg_main)
+            msg_scale_display_val_main = f"⚠️ ควรลด Risk! ({st.session_state.active_portfolio_name}) Winrate {winrate_scale_val_main:.1f}%, P/L {gain_scale_val_main:.2f}. แนะนำลด Risk เป็น {suggest_risk_display_val_main:.2f}%"
+    st.sidebar.info(msg_scale_display_val_main)
+    if st.session_state.scaling_mode_val_cfg_main == "Manual" and suggest_risk_display_val_main != current_risk_for_scaling_val_main:
+        if st.sidebar.button(f"ปรับ Risk เป็น {suggest_risk_display_val_main:.2f}", key="sidebar_btn_scaling_adjust_final"):
+            if current_trade_mode == "FIBO": st.session_state.fibo_risk_val_cfg_main = suggest_risk_display_val_main
+            else: st.session_state.custom_risk_val_cfg_main = suggest_risk_display_val_main
             st.rerun()
-    elif st.session_state.scaling_mode_val_cfg == "Auto" and suggest_risk_display_val != current_risk_for_scaling_val:
-        if current_trade_mode == "FIBO": st.session_state.fibo_risk_val_config = suggest_risk_display_val
-        else: st.session_state.custom_risk_val_config = suggest_risk_display_val
-        # Consider adding a st.sidebar.caption or st.toast to indicate auto-adjustment
-        # For now, it will adjust silently and reflect in the next input field read. A rerun might be desired by some.
-else:
-    st.sidebar.caption("เลือก Active Portfolio เพื่อดูคำแนะนำ Scaling")
+    elif st.session_state.scaling_mode_val_cfg_main == "Auto" and suggest_risk_display_val_main != current_risk_for_scaling_val_main:
+        if current_trade_mode == "FIBO": st.session_state.fibo_risk_val_cfg_main = suggest_risk_display_val_main
+        else: st.session_state.custom_risk_val_cfg_main = suggest_risk_display_val_main
+else: st.sidebar.caption("เลือก Active Portfolio เพื่อดูคำแนะนำ Scaling")
 
-# --- 1.7. Drawdown Display & Lock Logic (Sidebar) ---
+# --- Drawdown Display & Lock Logic (Sidebar) ---
 st.sidebar.markdown("---")
-st.sidebar.subheader(f"1.7. 🛡️ การควบคุมความเสี่ยง ({st.session_state.active_portfolio_name or 'N/A'})")
-drawdown_today_val_display = 0.0
+st.sidebar.subheader(f"การควบคุมความเสี่ยง ({st.session_state.active_portfolio_name or 'N/A'})") # ไม่มีหมายเลข
+drawdown_today_val_display_main = 0.0
 if st.session_state.active_portfolio_name:
-    drawdown_today_val_display = get_today_drawdown_for_active_portfolio(log_file, st.session_state.active_portfolio_name)
-
-drawdown_limit_abs_display_val = -acc_balance * (drawdown_limit_pct_input / 100) if acc_balance > 0 else 0.0
-st.sidebar.metric(label="ขาดทุนรวมวันนี้ (Today's P/L)", value=f"{drawdown_today_val_display:,.2f} USD", delta_color="inverse")
-st.sidebar.caption(f"ลิมิตขาดทุนต่อวัน: {drawdown_limit_abs_display_val:,.2f} USD ({drawdown_limit_pct_input:.1f}%)")
-
-trade_locked = False # Initialize trade_locked
-if acc_balance > 0 and drawdown_today_val_display != 0 and drawdown_today_val_display <= drawdown_limit_abs_display_val :
+    drawdown_today_val_display_main = get_today_drawdown_for_active_portfolio(log_file, st.session_state.active_portfolio_name)
+drawdown_limit_abs_display_val_main = -acc_balance * (drawdown_limit_pct_input / 100) if acc_balance > 0 else 0.0
+st.sidebar.metric(label="ขาดทุนรวมวันนี้ (Today's P/L)", value=f"{drawdown_today_val_display_main:,.2f} USD", delta_color="inverse")
+st.sidebar.caption(f"ลิมิตขาดทุนต่อวัน: {drawdown_limit_abs_display_val_main:,.2f} USD ({drawdown_limit_pct_input:.1f}%)")
+trade_locked = False 
+if acc_balance > 0 and drawdown_today_val_display_main != 0 and drawdown_today_val_display_main <= drawdown_limit_abs_display_val_main :
     st.sidebar.error(f"🔴 หยุดเทรด! เกินลิมิตขาดทุนสำหรับพอร์ต {st.session_state.active_portfolio_name}")
     trade_locked = True
 
-# --- 1.8. Save Plan Button Click Logic (Moved here to be after all inputs and trade_locked defined) ---
-asset_to_save_final_val, risk_pct_to_save_final_val, direction_to_save_final_val = "", 0.0, "N/A"
-data_list_to_save_final = []
-button_pressed_save = False
+# --- Save Plan Button Click Logic (Sidebar) ---
+# This logic uses variables populated by FIBO/CUSTOM input sections
+asset_to_save_final_sb, risk_pct_to_save_final_sb, direction_to_save_final_sb = "", 0.0, "N/A"
+data_list_to_save_final_sb = []
+button_pressed_save_sb = False
 
 if current_trade_mode == "FIBO":
-    asset_to_save_final_val = st.session_state.get("fibo_asset_val_config", "N/A")
-    risk_pct_to_save_final_val = st.session_state.get("fibo_risk_val_config", 0.0)
-    direction_to_save_final_val = st.session_state.get("fibo_direction_val_config", "N/A")
-    data_list_to_save_final = entry_data_fibo_list 
-    if 'sidebar_btn_save_fibo' in st.session_state and st.session_state.sidebar_btn_save_fibo:
-        button_pressed_save = True
+    asset_to_save_final_sb = st.session_state.get("fibo_asset_val_cfg_main", "N/A")
+    risk_pct_to_save_final_sb = st.session_state.get("fibo_risk_val_cfg_main", 0.0)
+    direction_to_save_final_sb = st.session_state.get("fibo_direction_val_cfg_main", "N/A")
+    data_list_to_save_final_sb = entry_data_fibo_list 
+    if 'sidebar_btn_save_fibo_final' in st.session_state and st.session_state.sidebar_btn_save_fibo_final:
+        button_pressed_save_sb = True
 elif current_trade_mode == "CUSTOM":
-    asset_to_save_final_val = st.session_state.get("custom_asset_val_config", "N/A")
-    risk_pct_to_save_final_val = st.session_state.get("custom_risk_val_config", 0.0)
-    direction_to_save_final_val = "N/A" 
-    data_list_to_save_final = custom_entries_list
-    if 'sidebar_btn_save_custom_main' in st.session_state and st.session_state.sidebar_btn_save_custom_main: # Check the correct button key
-        button_pressed_save = True
+    asset_to_save_final_sb = st.session_state.get("custom_asset_val_cfg_main", "N/A")
+    risk_pct_to_save_final_sb = st.session_state.get("custom_risk_val_cfg_main", 0.0)
+    direction_to_save_final_sb = "N/A" 
+    data_list_to_save_final_sb = custom_entries_list
+    if 'sidebar_btn_save_custom_final' in st.session_state and st.session_state.sidebar_btn_save_custom_final:
+        button_pressed_save_sb = True
 
-if button_pressed_save:
+if button_pressed_save_sb:
     if not st.session_state.active_portfolio_name:
         st.sidebar.error("กรุณาเลือกหรือสร้างพอร์ตก่อนบันทึกแผน")
     elif trade_locked:
         st.sidebar.error(f"ไม่สามารถบันทึกแผนสำหรับพอร์ต {st.session_state.active_portfolio_name} เนื่องจากเกินลิมิตขาดทุนรายวัน")
-    elif data_list_to_save_final: 
-        save_plan_to_log(data_list_to_save_final, current_trade_mode, asset_to_save_final_val, risk_pct_to_save_final_val, direction_to_save_final_val, st.session_state.active_portfolio_name)
+    elif data_list_to_save_final_sb: 
+        save_plan_to_log(data_list_to_save_final_sb, current_trade_mode, asset_to_save_final_sb, risk_pct_to_save_final_sb, direction_to_save_final_sb, st.session_state.active_portfolio_name)
     else:
         st.sidebar.warning(f"กรุณากรอกข้อมูล {current_trade_mode} ให้ครบถ้วนและให้ระบบคำนวณ Summary ก่อนบันทึก")
 
