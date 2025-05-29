@@ -81,7 +81,12 @@ st.sidebar.subheader("เลือกพอร์ตที่ใช้งาน 
 
 if not df_portfolios_gs.empty and 'PortfolioName' in df_portfolios_gs.columns:
     portfolio_names_list_gs = [""] + sorted(df_portfolios_gs['PortfolioName'].dropna().unique().tolist())
-    
+
+    # --- เพิ่มการตรวจสอบและกำหนดค่าเริ่มต้นตรงนี้ ---
+    if 'active_portfolio_name_gs' not in st.session_state:
+        st.session_state.active_portfolio_name_gs = portfolio_names_list_gs[0] # กำหนดค่าเริ่มต้นเป็น "" (ตัวเลือกแรก)
+    # --- สิ้นสุดส่วนที่เพิ่ม ---
+
     current_active_portfolio_gs = st.session_state.get('active_portfolio_name_gs', portfolio_names_list_gs[0])
     if current_active_portfolio_gs not in portfolio_names_list_gs:
         st.session_state.active_portfolio_name_gs = portfolio_names_list_gs[0]
@@ -89,43 +94,18 @@ if not df_portfolios_gs.empty and 'PortfolioName' in df_portfolios_gs.columns:
     selected_portfolio_name_gs = st.sidebar.selectbox(
         "เลือกพอร์ต:",
         options=portfolio_names_list_gs,
+        # บรรทัดที่ 92 (หรือใกล้เคียง) ที่เกิด Error
         index=portfolio_names_list_gs.index(st.session_state.active_portfolio_name_gs),
         key='sb_active_portfolio_selector_gs'
     )
-    
-    if selected_portfolio_name_gs != st.session_state.active_portfolio_name_gs:
-        st.session_state.active_portfolio_name_gs = selected_portfolio_name_gs
-        # st.rerun() # Consider if rerun is needed immediately
 
-    if st.session_state.active_portfolio_name_gs and st.session_state.active_portfolio_name_gs != "":
-        selected_portfolio_data_gs = df_portfolios_gs[df_portfolios_gs['PortfolioName'] == st.session_state.active_portfolio_name_gs].iloc[0]
-        
-        st.sidebar.caption(f"Type: {selected_portfolio_data_gs.get('PortfolioType', '-')}")
-        st.sidebar.caption(f"Program: {selected_portfolio_data_gs.get('ProgramType', '-')}")
-        st.sidebar.caption(f"Step: {selected_portfolio_data_gs.get('EvaluationStep', '-')}")
-        
-        initial_balance_val = selected_portfolio_data_gs.get('InitialBalance', 0)
-        try:
-            initial_balance_formatted = f"{float(initial_balance_val):,.2f}"
-        except ValueError:
-            initial_balance_formatted = "N/A"
-        st.sidebar.caption(f"Initial Balance: {initial_balance_formatted}")
-
-        st.session_state.active_portfolio_id_gs = selected_portfolio_data_gs.get('PortfolioID', None)
-        st.sidebar.success(f"Active Portfolio: **{st.session_state.active_portfolio_name_gs}** (ID: {st.session_state.active_portfolio_id_gs})")
-
-
-    elif st.session_state.active_portfolio_name_gs == "":
-        st.sidebar.info("กรุณาเลือกพอร์ตที่ใช้งาน")
-        st.session_state.active_portfolio_id_gs = None
-    
+    # ... (โค้ดส่วนที่เหลือ) ...
 else:
     st.sidebar.warning("ไม่พบข้อมูล Portfolio ใน Google Sheets หรือเกิดข้อผิดพลาดในการโหลด.")
     st.sidebar.info("กรุณาเพิ่มข้อมูลในชีต 'Portfolios' และตรวจสอบการตั้งค่า Google Sheets.")
-    if 'active_portfolio_name_gs' in st.session_state:
-        del st.session_state.active_portfolio_name_gs
-    if 'active_portfolio_id_gs' in st.session_state:
-        del st.session_state.active_portfolio_id_gs
+    # หากไม่มีข้อมูล portfolio ก็ควรตั้งค่าเริ่มต้นให้ session_state ด้วย
+    st.session_state.active_portfolio_name_gs = "" # หรือ None ตามความเหมาะสม
+    st.session_state.active_portfolio_id_gs = None
 
 # --- UI for managing portfolios (can be enhanced later per Phase 4.1) ---
 # with st.expander("💼 จัดการพอร์ต (เพิ่ม/ดูพอร์ต)"):
