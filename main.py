@@ -1,4 +1,7 @@
 # ======================= SEC 0: IMPORT & CONFIG =======================
+# 0.1 Standard Library Imports
+# 0.2 Third-Party Imports
+# 0.3 Streamlit Page Config & Globals
 import streamlit as st
 import pandas as pd
 import openpyxl  
@@ -429,6 +432,10 @@ def get_performance(log_file, mode="week"):
     return winrate, gain, total
 
 # ======================= SEC 1: SIDEBAR / INPUT ZONE =======================
+# 1.1 Local Portfolio File Constants
+# 1.2 Portfolio CSV Load/Save Functions
+# 1.3 Google Sheets Constants & Globals
+# 1.4 GSpread Client Function
 
 st.sidebar.header("🎛️ Trade Setup")
 
@@ -463,6 +470,10 @@ if st.sidebar.button("🔄 Reset Form"):
 
 # -- Input Zone (แยก FIBO/CUSTOM) --
 # ======================= SEC 1: SIDEBAR / INPUT ZONE (FIBO) =======================
+# 1.1 Local Portfolio File Constants
+# 1.2 Portfolio CSV Load/Save Functions
+# 1.3 Google Sheets Constants & Globals
+# 1.4 GSpread Client Function
 if mode == "FIBO":
     col1, col2, col3 = st.sidebar.columns([2, 2, 2])
     with col1:
@@ -533,6 +544,10 @@ if mode == "FIBO":
 
 
 # ======================= SEC 1: SIDEBAR / INPUT ZONE (CUSTOM) =======================
+# 1.1 Local Portfolio File Constants
+# 1.2 Portfolio CSV Load/Save Functions
+# 1.3 Google Sheets Constants & Globals
+# 1.4 GSpread Client Function
 elif mode == "CUSTOM":
     col1, col2, col3 = st.sidebar.columns([2, 2, 2])
     with col1:
@@ -598,6 +613,10 @@ elif mode == "CUSTOM":
     save_custom = st.sidebar.button("Save Plan", key="save_custom")
 
 # ======================= SEC 4: SUMMARY (ย้ายไป Sidebar) =======================
+# 4.1 FIBO Input Fields: Asset, Risk, Direction, High/Low
+# 4.2 FIBO Level Selection
+# 4.3 Entry Preview & Validation
+# 4.4 Save FIBO Plan Button
 st.sidebar.markdown("---")
 st.sidebar.markdown("### 🧾 Strategy Summary")
 
@@ -780,6 +799,9 @@ with st.expander("📋 Entry Table (FIBO/CUSTOM)", expanded=True):
 
 
 # ======================= SEC 5: เชื่อมปุ่ม Save Plan กับ save_plan + Drawdown Lock =======================
+# 5.1 CUSTOM Input Fields: Asset, Risk, Number of Entries
+# 5.2 Entry/SL/TP Input & Calculation per Trade
+# 5.3 Save CUSTOM Plan Button
 drawdown_today = get_today_drawdown(log_file, acc_balance)
 drawdown_limit = -acc_balance * (drawdown_limit_pct / 100)
 
@@ -852,6 +874,7 @@ elif mode == "CUSTOM" and 'custom_entries' in locals() and save_custom and custo
             st.sidebar.error(f"Save ไม่สำเร็จ: {e}")
 
 # ======================= SEC 7: VISUALIZER (TradingView Widget เดิม) =======================
+# 7.1 Scaling Manager Settings Inputs
 
 with st.expander("📈 Chart Visualizer", expanded=True):
     # เราจะเก็บ asset จาก plot_data ถ้ามี, หรือจาก sidebar ถ้าไม่มี plot_data
@@ -911,6 +934,8 @@ with st.expander("📈 Chart Visualizer", expanded=True):
     st.components.v1.html(tradingview_html, height=620)
 
 # ======================= SEC 8: AI SUMMARY & INSIGHT =======================
+# 8.1 Scaling Suggestion Logic
+# 8.2 Manual & Auto Scaling Adjustment
 with st.expander("	🤖 AI Assistant", expanded=True):
     if os.path.exists(log_file):
         try:
@@ -987,6 +1012,7 @@ with st.expander("	🤖 AI Assistant", expanded=True):
     else:
         st.info("ยังไม่มีข้อมูล log_file สำหรับ AI Summary")
 # ======================= SEC 7: Ultimate Statement Import & Auto-Mapping (Final Version) =======================
+# 7.1 Scaling Manager Settings Inputs
 with st.expander("📂 SEC 7: Ultimate Statement Import & Auto-Mapping", expanded=True):
     st.markdown("### 📊 จัดการ Statement และข้อมูลดิบ")
 
@@ -1145,6 +1171,8 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Auto-Mapping", expande
         st.success("ล้างข้อมูล Statement ทั้งหมดแล้ว")
         st.rerun()
 # ======================= SEC 9: DASHBOARD + AI ULTIMATE =======================
+# 9.1 Entry Table UI
+# 9.2 TP Table UI
 # ปรับปรุง load_data_for_dashboard()
 def load_data_for_dashboard():
     source_option = st.selectbox(
@@ -1459,6 +1487,9 @@ with st.expander("📊 Performance Dashboard", expanded=True):
 
 
 # ======================= SEC 6: LOG VIEWER (ล่างสุด + EXPANDER เดียว) =======================
+# 6.1 Summary Header
+# 6.2 FIBO Summary Calculation
+# 6.3 CUSTOM Summary Calculation
 with st.expander("📚 Trade Log Viewer (แผนเทรด)", expanded=False):
     if os.path.exists(log_file):
         try:
