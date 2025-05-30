@@ -19,9 +19,11 @@ acc_balance = 10000
 GOOGLE_SHEET_NAME = "TradeLog"
 WORKSHEET_PORTFOLIOS = "Portfolios"
 WORKSHEET_PLANNED_LOGS = "PlannedTradeLogs"
-WORKSHEET_UPLOADED_STATEMENTS = "Uploaded Statements"
+#WORKSHEET_UPLOADED_STATEMENTS = "Uploaded Statements"
 WORKSHEET_ACTUAL_TRADES = "ActualTrades"
-
+WORKSHEET_ACTUAL_ORDERS = "ActualOrders"
+WORKSHEET_ACTUAL_POSITIONS = "ActualPositions"
+WORKSHEET_STATEMENT_SUMMARIES = "StatementSummaries" 
 
 # ฟังก์ชันสำหรับเชื่อมต่อ gspread (ยังคงเดิม)
 def get_gspread_client():
@@ -959,205 +961,401 @@ with st.expander("🤖 AI Assistant", expanded=True):
 with st.expander("📂 SEC 7: Ultimate Statement Import & Processing", expanded=True):
     st.markdown("### 📊 จัดการ Statement และข้อมูลดิบ")
 
-    # ฟังก์ชันสำหรับอ่านข้อมูลจากชีท Uploaded Statements
-    @st.cache_data(ttl=300) # Cache for 5 minutes
-    def load_uploaded_statements_from_gsheets():
+    # --- ฟังก์ชันสำหรับแยกข้อมูลจากเนื้อหาไฟล์ Statement (CSV) ---
+    # ฟังก์ชันนี้ถูกปรับปรุงให้รับเนื้อหาไฟล์ทั้งหมด (string) และแยกส่วนต่างๆ
+    def extract_data_from_report_content(file_content):
+        extracted_data = {}
+        
+        # Define keywords for each section's header in the CSV report
+        section_headers = {
+            "Positions": "Time,Position,Symbol,Type,Volume,Price,S / L,T / P,Time,Price,Commission,Swap,Profit,",
+            "Orders": "Open Time,Order,Symbol,Type,Volume,Price,S / L,T / P,Time,State,,Comment,,",
+            "Deals": "Time,Deal,Symbol,Type,Direction,Volume,Price,Order,Commission,Fee,Swap,Profit,Balance,Comment",
+            "Results_Summary_Start": "Total Net Profit:", # Keyword to find the start of Results section
+            "Balance_Summary_Start": "Balance:,,," # Keyword to find the start of Balance Summary section
+        }
+
+        lines = file_content.strip().split('\n')
+        
+        current_section_name = None
+        current_section_lines = []
+        
+        # --- Pass 1: Identify and collect lines for each major table section (Positions, Orders, Deals) ---
+        for i, line in enumerate(lines):
+            line_stripped = line.strip()
+            
+            # Check for main table headers
+            found_table_header = False
+            for section_key, header_template in section_headers.items():
+                if section_key in ["Positions", "Orders", "Deals"]: # Only process table headers here
+                    # Check if the line matches the start of a known table header
+                    # A more robust check might be needed for variations in actual reports
+                    if line_stripped.startswith(header_template.split(',')[0]) and \
+                       len(line_stripped.split(',')) >= (len(header_template.split(',')) - 2): # Allow slight variations
+                        if current_section_name and current_section_name in ["Positions", "Orders", "Deals"]:
+                            extracted_data[current_section_name] = "\n".join(current_section_lines)
+                        
+                        current_section_name = section_key
+                        current_section_lines = [line_stripped] # Include the header line
+                        found_table_header = True
+                        break
+            
+            if not found_table_header and current_section_name and current_section_name in ["Positions", "Orders", "Deals"]:
+                # Collect lines belonging to the current table section
+                # Stop if we hit another main table header, or a blank line followed by non-header
+                if not line_stripped and (i + 1 < len(lines) and not lines[i+1].strip().startswith(tuple(h.split(',')[0] for h in [section_headers["Positions"], section_headers["Orders"], section_headers["Deals"]]))):
+                    # This heuristic tries to stop collecting lines if a blank line is followed by non-table data,
+                    # which signals end of table before the next explicit header.
+                    # This might need fine-tuning. For now, it's basic.
+                    pass # Keep collecting for now, assume next header will stop it.
+                current_section_lines.append(line_stripped)
+        
+        # Add the last collected table section
+        if current_section_name and current_section_name in ["Positions", "Orders", "Deals"]:
+            extracted_data[current_section_name] = "\n".join(current_section_lines)
+
+        # --- Pass 2: Parse collected table sections into DataFrames ---
+        dfs_output = {}
+        for section_key in ["Positions", "Orders", "Deals"]:
+            if section_key in extracted_data:
+                try:
+                    # Use the specific header template for each section to ensure correct parsing
+                    header_line = section_headers[section_key]
+                    csv_string_data = extracted_data[section_key]
+                    
+                    # Read CSV data, skipping initial spaces and ensuring column headers are clean
+                    df = pd.read_csv(io.StringIO(csv_string_data), skipinitialspace=True)
+                    df.columns = df.columns.str.strip().str.replace(' / ', '_', regex=False).str.replace(' ', '_', regex=False)
+                    dfs_output[section_key.lower()] = df
+                except Exception as e:
+                    st.error(f"❌ Error parsing {section_key} section into DataFrame: {e}")
+                    dfs_output[section_key.lower()] = pd.DataFrame()
+            else:
+                dfs_output[section_key.lower()] = pd.DataFrame() # Return empty if section not found
+
+        # --- Pass 3: Extract Balance Summary and Results Summary (non-table sections) ---
+        balance_summary_dict = {}
+        results_summary_dict = {}
+        
+        in_balance_section = False
+        in_results_section = False
+        
+        # Find start of balance summary
+        balance_start_line_idx = -1
+        for i, line in enumerate(lines):
+            if line.strip().startswith("Balance:"):
+                balance_start_line_idx = i
+                break
+
+        if balance_start_line_idx != -1:
+            for i in range(balance_start_line_idx, len(lines)):
+                line_stripped = lines[i].strip()
+                if not line_stripped: # Stop at first blank line
+                    break
+                
+                # Check for "Results" keyword, if found, it's end of balance summary
+                if line_stripped.startswith("Results"):
+                    break # Stop parsing balance if results section starts
+
+                parts = [p.strip() for p in line_stripped.split(',')]
+                
+                # Parse Balance, Free Margin, Credit Facility, Margin, Floating P/L, Margin Level, Equity
+                if parts[0].replace(":", "").strip() == "Balance" and len(parts) >= 2:
+                    balance_summary_dict["Balance"] = float(parts[1].replace(" ", ""))
+                    if len(parts) >= 6 and parts[4].replace(":", "").strip() == "Free Margin":
+                        balance_summary_dict["Free_Margin"] = float(parts[5].replace(" ", ""))
+                elif parts[0].replace(":", "").strip() == "Credit Facility" and len(parts) >= 2:
+                    balance_summary_dict["Credit_Facility"] = float(parts[1].replace(" ", ""))
+                    if len(parts) >= 6 and parts[4].replace(":", "").strip() == "Margin":
+                        balance_summary_dict["Margin"] = float(parts[5].replace(" ", ""))
+                elif parts[0].replace(":", "").strip() == "Floating P/L" and len(parts) >= 2:
+                    balance_summary_dict["Floating_P_L"] = float(parts[1].replace(" ", ""))
+                    if len(parts) >= 6 and parts[4].replace(":", "").strip() == "Margin Level":
+                        balance_summary_dict["Margin_Level"] = float(parts[5].replace("%", "").replace(" ", ""))
+                elif parts[0].replace(":", "").strip() == "Equity" and len(parts) >= 2:
+                    balance_summary_dict["Equity"] = float(parts[1].replace(" ", ""))
+        
+        # Find start of results summary
+        results_start_line_idx = -1
+        for i, line in enumerate(lines):
+            if line.strip().startswith("Results"):
+                results_start_line_idx = i
+                break
+        
+        if results_start_line_idx != -1:
+            for i in range(results_start_line_idx + 1, len(lines)): # Start after "Results" line
+                line_stripped = lines[i].strip()
+                if not line_stripped: # Stop at first blank line
+                    break
+                
+                # Assume results are key-value pairs separated by commas
+                parts = [p.strip() for p in line_stripped.split(',')]
+                for k_idx in range(0, len(parts), 2):
+                    if k_idx + 1 < len(parts):
+                        key = parts[k_idx].replace(":", "").replace(" ", "_").replace(".", "").strip() # Clean key
+                        value_str = parts[k_idx + 1].strip() # Get value string
+                        
+                        if key:
+                            try:
+                                # Attempt to convert to float. Handle percentages and values in parentheses.
+                                if '%' in value_str:
+                                    results_summary_dict[key] = float(value_str.replace('%', ''))
+                                elif '(' in value_str and ')' in value_str: # e.g., "1211.92 (11.46%)"
+                                    num_part = value_str.split('(')[0].strip()
+                                    results_summary_dict[key] = float(num_part)
+                                else:
+                                    results_summary_dict[key] = float(value_str)
+                            except ValueError:
+                                results_summary_dict[key] = value_str # Keep as string if conversion fails
+                
+                # Stop parsing results after "Average consecutive losses"
+                if "Average consecutive losses" in line_stripped:
+                    break
+
+        dfs_output['balance_summary'] = balance_summary_dict
+        dfs_output['results_summary'] = results_summary_dict
+
+        return dfs_output
+
+    # --- ฟังก์ชันสำหรับบันทึก Positions ลงในชีท ActualPositions ---
+    def save_positions_to_gsheets(df_positions, portfolio_id, portfolio_name, source_file_name="N/A"):
         gc = get_gspread_client()
-        if gc is None:
-            return pd.DataFrame()
+        if not gc: return False
         try:
             sh = gc.open(GOOGLE_SHEET_NAME)
-            worksheet = sh.worksheet(WORKSHEET_UPLOADED_STATEMENTS)
-            records = worksheet.get_all_records()
-            if not records:
-                st.info(f"Worksheet '{WORKSHEET_UPLOADED_STATEMENTS}' ว่างเปล่า. กรุณาอัปโหลด Statement เข้าไปก่อน.")
-                return pd.DataFrame()
-
-            df_uploaded_stmt = pd.DataFrame(records)
-            # Ensure Timestamp is datetime
-            if 'Timestamp' in df_uploaded_stmt.columns:
-                df_uploaded_stmt['Timestamp'] = pd.to_datetime(df_uploaded_stmt['Timestamp'], errors='coerce')
-            return df_uploaded_stmt
-        except gspread.exceptions.WorksheetNotFound:
-            st.error(f"❌ ไม่พบ Worksheet ชื่อ '{WORKSHEET_UPLOADED_STATEMENTS}'.")
-            st.info(f"กรุณาสร้าง Worksheet ชื่อ '{WORKSHEET_UPLOADED_STATEMENTS}' ใน Google Sheet ของคุณ")
-            return pd.DataFrame()
-        except Exception as e:
-            st.error(f"❌ เกิดข้อผิดพลาดในการโหลดข้อมูลจาก '{WORKSHEET_UPLOADED_STATEMENTS}': {e}")
-            return pd.DataFrame()
-
-   # --- ฟังก์ชันสำหรับแยกข้อมูล Deals, Orders, Positions จาก DataFrame ของ Statement (ที่โหลดมาจาก Google Sheets) ---
-    # ฟังก์ชันนี้ถูกปรับปรุงให้รับ DataFrame ที่โหลดมาจาก Google Sheets โดยตรง
-    def extract_data_from_statement_df(statement_df): # บรรทัดนี้คือจุดเริ่มต้นของฟังก์ชัน (เยื้อง 4 ช่องว่างจาก with st.expander...)
-        extracted_data = {} # บรรทัดนี้ต้องเยื้อง 4 ช่องว่างจาก def (รวมเป็น 8 ช่องว่างจากซ้ายสุด)
-
-        # --- DEBUGGING: เพิ่มโค้ด 2 บรรทัดนี้เพื่อดู DataFrame ที่เข้ามา ---
-        st.write("DEBUG: DataFrame received by extract_data_from_statement_df:") # เยื้อง 8 ช่องว่าง
-        st.dataframe(statement_df) # เยื้อง 8 ช่องว่าง
-        # --- END DEBUGGING ---
-
-        # Heuristic: ตรวจสอบว่า DataFrame มีคอลัมน์ที่คาดว่าจะเป็นของ Deals ครบถ้วนหรือไม่
-        # จาก Screenshot ของคุณ ชีท 'Uploaded Statements' ดูเหมือนมีข้อมูล Deals อยู่แล้ว
-        expected_deals_cols = ['Timestamp', 'Deal', 'Symbol', 'Type', 'Volume', 'Price', 'Profit', 'Balance'] # เยื้อง 8 ช่องว่าง
-
-        # ตรวจสอบว่าคอลัมน์ที่คาดหวังมีอยู่ใน DataFrame
-        if all(col in statement_df.columns for col in expected_deals_cols): # เยื้อง 8 ช่องว่าง
-            # ถ้ามีครบ ถือว่า DataFrame ทั้งหมดคือ Deals (ตามโครงสร้างใน screenshot ของคุณ)
-            extracted_data['deals'] = statement_df.copy() # เยื้อง 12 ช่องว่าง
-            # ทำความสะอาดชื่อคอลัมน์ (ตัดช่องว่าง, แทนที่ / ด้วย _) เพื่อความสอดคล้อง
-            extracted_data['deals'].columns = extracted_data['deals'].columns.str.strip().str.replace(' / ', '_', regex=False).str.replace(' ', '_', regex=False) # เยื้อง 12 ช่องว่าง
-            st.success(" detected 'Deals' section directly from `Uploaded Statements` worksheet.") # เยื้อง 12 ช่องว่าง
-        else: # เยื้อง 8 ช่องว่าง
-            st.warning("Could not automatically identify 'Deals' section from `Uploaded Statements` columns. Please ensure correct headers." \
-                       " Expected columns like 'Timestamp', 'Deal', 'Symbol', 'Type', 'Volume', 'Price', 'Profit', 'Balance'.") # เยื้อง 12 ช่องว่าง
-            extracted_data['deals'] = pd.DataFrame() # ส่งคืน DataFrame ว่างเปล่าหากไม่พบ
-
-        # ส่วนสำหรับ Orders และ Positions:
-        # ถ้า Statement ของคุณมีส่วน Orders และ Positions แยกต่างหากในชีท 'Uploaded Statements'
-        # (เช่น โดยมีบรรทัดคั่น หรืออยู่คนละช่วงของชีท) คุณจะต้องเพิ่ม Logic การแยกส่วนตรงนี้
-        # สำหรับตอนนี้ เราจะส่งคืนเป็น DataFrame ว่างเปล่าไปก่อน
-        extracted_data['orders'] = pd.DataFrame() # เยื้อง 8 ช่องว่าง
-        extracted_data['positions'] = pd.DataFrame() # เยื้อง 8 ช่องว่าง
-        extracted_data['balance_summary'] = {} # หาก Balance Summary เป็นตารางแยก ต้องมี logic เพิ่มเติม (เยื้อง 8 ช่องว่าง)
-        extracted_data['results_summary'] = {} # เพิ่มบรรทัดนี้เพื่อ ensure ว่า results_summary มีค่าเริ่มต้น (เยื้อง 8 ช่องว่าง)
-
-        return extracted_data # เยื้อง 8 ช่องว่าง
-
-        # ส่วนสำหรับ Orders และ Positions:
-        # ถ้า Statement ของคุณมีส่วน Orders และ Positions แยกต่างหากในชีท 'Uploaded Statements'
-        # (เช่น โดยมีบรรทัดคั่น หรืออยู่คนละช่วงของชีท) คุณจะต้องเพิ่ม Logic การแยกส่วนตรงนี้
-        # สำหรับตอนนี้ เราจะส่งคืนเป็น DataFrame ว่างเปล่าไปก่อน
-        extracted_data['orders'] = pd.DataFrame()
-        extracted_data['positions'] = pd.DataFrame()
-        extracted_data['balance_summary'] = {} # หาก Balance Summary เป็นตารางแยก ต้องมี logic เพิ่มเติม
-
-        return extracted_data
-
-    # --- ฟังก์ชันสำหรับบันทึก Deals ลงในชีท ActualTrades ---
-    def save_deals_to_actual_trades(df_deals, portfolio_id, portfolio_name, source_file_name="N/A"):
-        gc = get_gspread_client()
-        if not gc:
-            st.error("ไม่สามารถเชื่อมต่อ Google Sheets Client เพื่อบันทึก Deals ได้")
-            return False
-        try:
-            sh = gc.open(GOOGLE_SHEET_NAME)
-            ws_actual = sh.worksheet(WORKSHEET_ACTUAL_TRADES)
-
-            # กำหนดหัวคอลัมน์ที่คาดหวังสำหรับ ActualTrades worksheet
-            # ต้องตรงกับที่คุณตั้งใน Google Sheet เป๊ะๆ
-            expected_actual_headers = [
-                "Timestamp", "Deal", "Symbol", "Type", "Direction", "Volume", "Price",
-                "Commission", "Fee", "Swap", "Profit", "Balance", "Comment",
+            ws = sh.worksheet(WORKSHEET_ACTUAL_POSITIONS)
+            expected_headers = [
+                "Time", "Position", "Symbol", "Type", "Volume", "Price", "S_L", "T_P",
+                "Time_1", "Price_1", "Commission", "Swap", "Profit",
                 "PortfolioID", "PortfolioName", "SourceFile"
             ]
-
-            # ตรวจสอบและเพิ่ม Headers หาก Worksheet ว่างเปล่า
-            current_headers_actual = []
-            if ws_actual.row_count > 0:
-                try:
-                    current_headers_actual = ws_actual.row_values(1)
-                except Exception:
-                    current_headers_actual = []
-
-            if not current_headers_actual or all(h == "" for h in current_headers_actual):
-                ws_actual.append_row(expected_actual_headers, value_input_option='USER_ENTERED')
-            elif set(current_headers_actual) != set(expected_actual_headers) and any(h!="" for h in current_headers_actual):
-                st.warning(f"Worksheet '{WORKSHEET_ACTUAL_TRADES}' มีหัวคอลัมน์ไม่ถูกต้อง. โปรดตรวจสอบให้ตรงกับ: {', '.join(expected_actual_headers)}")
-                # คุณอาจเลือกที่จะ return False ตรงนี้ได้หากต้องการให้ผู้ใช้แก้ไข Header ก่อน
-                # return False
+            
+            current_headers = []
+            if ws.row_count > 0: current_headers = ws.row_values(1)
+            if not current_headers or all(h == "" for h in current_headers): ws.append_row(expected_headers)
 
             rows_to_append = []
-            # ตรวจสอบว่า df_deals มีคอลัมน์ที่จำเป็นทั้งหมดหรือไม่ก่อนที่จะ append
-            for header in expected_actual_headers:
-                if header not in df_deals.columns and header not in ["PortfolioID", "PortfolioName", "SourceFile"]:
-                    st.warning(f"คอลัมน์ '{header}' ที่คาดหวังใน 'ActualTrades' ไม่พบในข้อมูล Deals ที่กำลังจะบันทึก อาจทำให้เกิดช่องว่างในชีต.")
-
-            for index, row in df_deals.iterrows():
-                row_data = {}
-                for h in expected_actual_headers:
-                    if h == "PortfolioID":
-                        row_data[h] = portfolio_id
-                    elif h == "PortfolioName":
-                        row_data[h] = portfolio_name
-                    elif h == "SourceFile":
-                        row_data[h] = source_file_name
-                    else:
-                        row_data[h] = row.get(h, "") # ดึงค่าจาก DataFrame หรือเป็นค่าว่างหากไม่มีคอลัมน์นั้น
-
-                # แปลงค่าทั้งหมดเป็น String เพื่อป้องกันปัญหาเรื่องประเภทข้อมูลเมื่อบันทึกด้วย gspread
-                rows_to_append.append([str(row_data.get(h, "")) for h in expected_actual_headers])
-
-            if rows_to_append:
-                ws_actual.append_rows(rows_to_append, value_input_option='USER_ENTERED')
-                return True
+            for index, row in df_positions.iterrows():
+                row_data = {
+                    "Time": row.get("Time", ""),
+                    "Position": row.get("Position", ""),
+                    "Symbol": row.get("Symbol", ""),
+                    "Type": row.get("Type", ""),
+                    "Volume": row.get("Volume", ""),
+                    "Price": row.get("Price", ""),
+                    "S_L": row.get("S_L", ""), # Note: S / L becomes S_L
+                    "T_P": row.get("T_P", ""), # Note: T / P becomes T_P
+                    "Time_1": row.get("Time_1", ""), # Close Time column (from original header "Time")
+                    "Price_1": row.get("Price_1", ""), # Close Price column (from original header "Price")
+                    "Commission": row.get("Commission", ""),
+                    "Swap": row.get("Swap", ""),
+                    "Profit": row.get("Profit", ""),
+                    "PortfolioID": portfolio_id,
+                    "PortfolioName": portfolio_name,
+                    "SourceFile": source_file_name
+                }
+                rows_to_append.append([str(row_data.get(h, "")) for h in expected_headers])
+            if rows_to_append: ws.append_rows(rows_to_append, value_input_option='USER_ENTERED'); return True
             return False
         except gspread.exceptions.WorksheetNotFound:
-            st.error(f"❌ ไม่พบ Worksheet ชื่อ '{WORKSHEET_ACTUAL_TRADES}'. กรุณาสร้างและใส่ Headers: {', '.join(expected_actual_headers)}")
+            st.error(f"❌ ไม่พบ Worksheet '{WORKSHEET_ACTUAL_POSITIONS}'. กรุณาสร้างและใส่ Headers: {', '.join(expected_headers)}")
             return False
-        except Exception as e:
-            st.error(f"❌ เกิดข้อผิดพลาดในการบันทึก Deals ไปยัง Google Sheets: {e}")
+        except Exception as e: st.error(f"❌ เกิดข้อผิดพลาดในการบันทึก Positions: {e}"); return False
+
+    # --- ฟังก์ชันสำหรับบันทึก Orders ลงในชีท ActualOrders ---
+    def save_orders_to_gsheets(df_orders, portfolio_id, portfolio_name, source_file_name="N/A"):
+        gc = get_gspread_client()
+        if not gc: return False
+        try:
+            sh = gc.open(GOOGLE_SHEET_NAME)
+            ws = sh.worksheet(WORKSHEET_ACTUAL_ORDERS)
+            expected_headers = [
+                "Open_Time", "Order", "Symbol", "Type", "Volume", "Price", "S_L", "T_P",
+                "Time", "State", "Comment",
+                "PortfolioID", "PortfolioName", "SourceFile"
+            ]
+            
+            current_headers = []
+            if ws.row_count > 0: current_headers = ws.row_values(1)
+            if not current_headers or all(h == "" for h in current_headers): ws.append_row(expected_headers)
+
+            rows_to_append = []
+            for index, row in df_orders.iterrows():
+                row_data = {
+                    "Open_Time": row.get("Open_Time", ""), # Note: Open Time becomes Open_Time
+                    "Order": row.get("Order", ""),
+                    "Symbol": row.get("Symbol", ""),
+                    "Type": row.get("Type", ""),
+                    "Volume": row.get("Volume", ""),
+                    "Price": row.get("Price", ""),
+                    "S_L": row.get("S_L", ""),
+                    "T_P": row.get("T_P", ""),
+                    "Time": row.get("Time", ""), # This is Close Time in the original report's Orders section
+                    "State": row.get("State", ""),
+                    "Comment": row.get("Comment", ""),
+                    "PortfolioID": portfolio_id,
+                    "PortfolioName": portfolio_name,
+                    "SourceFile": source_file_name
+                }
+                rows_to_append.append([str(row_data.get(h, "")) for h in expected_headers])
+            if rows_to_append: ws.append_rows(rows_to_append, value_input_option='USER_ENTERED'); return True
             return False
+        except gspread.exceptions.WorksheetNotFound:
+            st.error(f"❌ ไม่พบ Worksheet '{WORKSHEET_ACTUAL_ORDERS}'. กรุณาสร้างและใส่ Headers: {', '.join(expected_headers)}")
+            return False
+        except Exception as e: st.error(f"❌ เกิดข้อผิดพลาดในการบันทึก Orders: {e}"); return False
+
+    # --- ฟังก์ชันสำหรับบันทึก Results Summary ลงในชีท StatementSummaries ---
+    def save_results_summary_to_gsheets(summary_dict, portfolio_id, portfolio_name, source_file_name="N/A"):
+        gc = get_gspread_client()
+        if not gc: return False
+        try:
+            sh = gc.open(GOOGLE_SHEET_NAME)
+            ws = sh.worksheet(WORKSHEET_STATEMENT_SUMMARIES)
+            
+            # Define expected headers for StatementSummaries worksheet (must match your GSheet exactly)
+            expected_headers = [
+                "Timestamp", "PortfolioID", "PortfolioName", "SourceFile", 
+                "Total_Net_Profit", "Gross_Profit", "Gross_Loss", "Profit_Factor", 
+                "Expected_Payoff", "Recovery_Factor", "Sharpe_Ratio", 
+                "Balance_Drawdown_Absolute", "Balance_Drawdown_Maximal", 
+                "Balance_Drawdown_Maximal_Percent", "Balance_Drawdown_Relative", 
+                "Balance_Drawdown_Relative_Percent", "Total_Trades", 
+                "Short_Trades", "Short_Trades_won_%", "Long_Trades", 
+                "Long_Trades_won_%", "Profit_Trades", "Profit_Trades_Percent_of_total", 
+                "Loss_Trades", "Loss_Trades_Percent_of_total", "Largest_profit_trade", 
+                "Largest_loss_trade", "Average_profit_trade", "Average_loss_trade", 
+                "Maximum_consecutive_wins_Count", "Maximum_consecutive_wins_Profit", 
+                "Maximum_consecutive_losses_Count", "Maximum_consecutive_losses_Profit",
+                "Maximal_consecutive_profit_Count", "Maximal_consecutive_profit_Amount",
+                "Maximal_consecutive_loss_Count", "Maximal_consecutive_loss_Amount",
+                "Average_consecutive_wins", "Average_consecutive_losses"
+            ]
+            
+            current_headers = []
+            if ws.row_count > 0: current_headers = ws.row_values(1)
+            if not current_headers or all(h == "" for h in current_headers): ws.append_row(expected_headers)
+
+            rows_to_append = []
+            row_data = {
+                "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "PortfolioID": portfolio_id,
+                "PortfolioName": portfolio_name,
+                "SourceFile": source_file_name
+            }
+            # Add all summary items from the dictionary
+            for key, value in summary_dict.items():
+                # Clean up key names to match expected_headers (replace spaces, etc.)
+                cleaned_key = key.replace(" ", "_").replace("%", "Percent").replace("(won_%)", "won_%").replace("__", "_")
+                if cleaned_key in expected_headers:
+                    row_data[cleaned_key] = value
+            
+            rows_to_append.append([str(row_data.get(h, "")) for h in expected_headers])
+            
+            if rows_to_append: ws.append_rows(rows_to_append, value_input_option='USER_ENTERED'); return True
+            return False
+        except gspread.exceptions.WorksheetNotFound:
+            st.error(f"❌ ไม่พบ Worksheet '{WORKSHEET_STATEMENT_SUMMARIES}'. กรุณาสร้างและใส่ Headers: {', '.join(expected_headers)}")
+            return False
+        except Exception as e: st.error(f"❌ เกิดข้อผิดพลาดในการบันทึก Statement Summaries: {e}"); return False
+
 
     st.markdown("---")
-    st.subheader("📥 โหลด Statement จาก Google Sheet เพื่อประมวลผล")
+    st.subheader("📤 อัปโหลด Statement Report (CSV) เพื่อประมวลผลและบันทึก")
+    
+    # ใช้ st.file_uploader แทนการโหลดจาก Google Sheet โดยตรงในตอนนี้
+    uploaded_file_statement = st.file_uploader( 
+        "ลากและวางไฟล์ Statement Report (CSV) ที่นี่ หรือคลิกเพื่อเลือกไฟล์",
+        type=["csv"], # จำกัดให้รับเฉพาะ CSV เพื่อการประมวลผลที่แม่นยำ
+        key="full_stmt_uploader"
+    )
 
-    # โหลดข้อมูลจาก Uploaded Statements worksheet
-    df_gs_uploaded_stmt = load_uploaded_statements_from_gsheets()
-
-    st.checkbox("⚙️ เปิดโหมด Debug (แสดงตารางข้อมูลทั้งหมดที่แยกได้)", key="debug_statement_import")
-
+    st.checkbox("⚙️ เปิดโหมด Debug (แสดงข้อมูลที่แยกได้)", key="debug_statement_processing")
+    
     active_portfolio_id_for_actual = st.session_state.get('active_portfolio_id_gs', None)
     active_portfolio_name_for_actual = st.session_state.get('active_portfolio_name_gs', None)
 
-    # UI เพื่อให้ผู้ใช้กดประมวลผล
-    if st.button("🚀 ประมวลผลและบันทึก Deals ไปยัง 'ActualTrades'"):
-        if df_gs_uploaded_stmt.empty:
-            st.warning("ไม่พบข้อมูลในชีต 'Uploaded Statements' โปรดตรวจสอบหรืออัปโหลด Statement เข้าไปก่อน.")
-        elif not active_portfolio_id_for_actual:
-            st.error("กรุณาเลือกพอร์ตที่ใช้งาน (Active Portfolio) ก่อนประมวลผล Statement.")
-        else:
-            with st.spinner("กำลังประมวลผลข้อมูล Statement..."):
-                # ใช้ฟังก์ชัน extract_data_from_statement_df ที่เพิ่งสร้าง
-                extracted_sections_from_gs = extract_data_from_statement_df(df_gs_uploaded_stmt.copy()) # ใช้ .copy() ป้องกันการแก้ไข df ต้นฉบับใน cache
+    if uploaded_file_statement:
+        file_name_for_saving = uploaded_file_statement.name # Get original file name
+        
+        # Read the file content as string
+        file_content_str = uploaded_file_statement.getvalue().decode("utf-8") # Decode bytes to string
+        
+        st.info(f"กำลังประมวลผลไฟล์: {uploaded_file_statement.name}")
+        with st.spinner(f"กำลังแยกส่วนข้อมูลจาก {uploaded_file_statement.name}..."):
+            # ใช้ฟังก์ชัน extract_data_from_report_content ใหม่
+            extracted_sections = extract_data_from_report_content(file_content_str)
+            
+            if st.session_state.get("debug_statement_processing", False):
+                st.subheader("📄 ข้อมูลที่แยกได้ (Debug)")
+                for section_name, data_item in extracted_sections.items():
+                    st.write(f"#### {section_name.replace('_',' ').title()}")
+                    if isinstance(data_item, pd.DataFrame):
+                        st.dataframe(data_item)
+                    else: # For balance_summary and results_summary (dictionaries)
+                        st.json(data_item)
 
-                if extracted_sections_from_gs and not extracted_sections_from_gs.get('deals', pd.DataFrame()).empty:
-                    df_deals_to_save = extracted_sections_from_gs['deals']
+            if not active_portfolio_id_for_actual:
+                st.error("กรุณาเลือกพอร์ตที่ใช้งาน (Active Portfolio) ใน Sidebar ก่อนประมวลผล Statement.")
+            else:
+                # --- บันทึกข้อมูลแต่ละส่วนไปยัง Google Sheets ---
+                st.markdown("---")
+                st.subheader("💾 กำลังบันทึกข้อมูลไปยัง Google Sheets...")
+                
+                # Deals
+                if not extracted_sections.get('deals', pd.DataFrame()).empty:
+                    if save_deals_to_actual_trades(extracted_sections['deals'], active_portfolio_id_for_actual, active_portfolio_name_for_actual, file_name_for_saving):
+                        st.success(f"บันทึก Deals จำนวน {len(extracted_sections['deals'])} รายการ ไปยังชีต 'ActualTrades' สำเร็จ!")
+                        st.session_state.df_stmt_deals = extracted_sections['deals'].copy() # Update for Dashboard
+                    else: st.error("บันทึก Deals ไม่สำเร็จ.")
+                else: st.warning("ไม่พบข้อมูล Deals ใน Statement.")
 
-                    # สำหรับ source_file_name: ถ้าข้อมูล Statement มาจาก Google Sheet โดยตรง
-                    # คุณอาจจะต้องเพิ่มคอลัมน์ "Source File" ในชีท "Uploaded Statements" ด้วย
-                    # หรือใช้ชื่อชีท / วันที่อัปโหลด แทน
-                    source_file_info = f"From_GS_Uploaded_Stmt_{datetime.now().strftime('%Y%m%d%H%M%S')}"
+                # Orders
+                if not extracted_sections.get('orders', pd.DataFrame()).empty:
+                    if save_orders_to_gsheets(extracted_sections['orders'], active_portfolio_id_for_actual, active_portfolio_name_for_actual, file_name_for_saving):
+                        st.success(f"บันทึก Orders จำนวน {len(extracted_sections['orders'])} รายการ ไปยังชีต 'ActualOrders' สำเร็จ!")
+                    else: st.error("บันทึก Orders ไม่สำเร็จ.")
+                else: st.warning("ไม่พบข้อมูล Orders ใน Statement.")
+                
+                # Positions
+                if not extracted_sections.get('positions', pd.DataFrame()).empty:
+                    if save_positions_to_gsheets(extracted_sections['positions'], active_portfolio_id_for_actual, active_portfolio_name_for_actual, file_name_for_saving):
+                        st.success(f"บันทึก Positions จำนวน {len(extracted_sections['positions'])} รายการ ไปยังชีต 'ActualPositions' สำเร็จ!")
+                    else: st.error("บันทึก Positions ไม่สำเร็จ.")
+                else: st.warning("ไม่พบข้อมูล Positions ใน Statement.")
 
-                    if save_deals_to_actual_trades(df_deals_to_save, active_portfolio_id_for_actual, active_portfolio_name_for_actual, source_file_info):
-                        st.success(f"ประมวลผลและบันทึก Deals จำนวน {len(df_deals_to_save)} รายการ ไปยังชีต 'ActualTrades' สำเร็จ!")
-                        st.balloons()
-                        st.session_state.df_stmt_deals = df_deals_to_save.copy() # อัปเดต session state สำหรับ Dashboard
-                    else:
-                        st.error("บันทึก Deals ไปยังชีต 'ActualTrades' ไม่สำเร็จ.")
-                else:
-                    st.warning("ไม่สามารถแยกส่วน 'Deals' ที่ต้องการจากข้อมูลในชีต 'Uploaded Statements' ได้. โปรดตรวจสอบรูปแบบข้อมูล.")
+                # Results Summary
+                if extracted_sections.get('results_summary'):
+                    if save_results_summary_to_gsheets(extracted_sections['results_summary'], active_portfolio_id_for_actual, active_portfolio_name_for_actual, file_name_for_saving):
+                        st.success("บันทึก Results Summary ไปยังชีต 'StatementSummaries' สำเร็จ!")
+                    else: st.error("บันทึก Results Summary ไม่สำเร็จ.")
+                else: st.warning("ไม่พบข้อมูล Results Summary ใน Statement.")
 
-    # แสดงข้อมูลที่โหลดจาก Uploaded Statements สำหรับการตรวจสอบ
-    st.markdown("---")
-    st.subheader("📁 ข้อมูล Statement ที่โหลดจาก 'Uploaded Statements' (สำหรับตรวจสอบ)")
-    if not df_gs_uploaded_stmt.empty:
-        st.dataframe(df_gs_uploaded_stmt, use_container_width=True)
     else:
-        st.info("ไม่พบข้อมูลในชีต 'Uploaded Statements'.")
+        st.info("โปรดอัปโหลดไฟล์ Statement Report (CSV) เพื่อเริ่มต้นประมวลผล.")
 
-    if st.button("🗑️ ล้างข้อมูลในชีต 'Uploaded Statements'", key="clear_uploaded_gs_data"):
-        gc = get_gspread_client()
-        if gc:
-            try:
-                sh = gc.open(GOOGLE_SHEET_NAME)
-                ws = sh.worksheet(WORKSHEET_UPLOADED_STATEMENTS)
-                ws.clear() # ล้างข้อมูลทั้งหมดในชีท
-                # คุณอาจจะต้องการเพิ่ม Headers กลับเข้าไปใหม่หลังจาก clear() ถ้ามันหายไป
-                st.success("ล้างข้อมูลในชีต 'Uploaded Statements' ทั้งหมดแล้ว")
-                st.cache_data.clear() # ล้าง cache ของ Streamlit สำหรับฟังก์ชันที่เกี่ยวข้อง
-                st.rerun()
-            except Exception as e:
-                st.error(f"❌ เกิดข้อผิดพลาดในการล้างชีต: {e}")
+    st.markdown("---")
+    # ไม่แสดงข้อมูลจาก Uploaded Statements Worksheet แล้ว เนื่องจากตอนนี้รับไฟล์โดยตรง
+    # st.subheader("📁 ข้อมูล Statement ที่โหลดจาก 'Uploaded Statements' (สำหรับตรวจสอบ)")
+    # if not df_gs_uploaded_stmt.empty:
+    #     st.dataframe(df_gs_uploaded_stmt, use_container_width=True)
+    # else:
+    #     st.info("ไม่พบข้อมูลในชีต 'Uploaded Statements'.")
+
+    # ปุ่มล้างข้อมูลในชีท 'Uploaded Statements' อาจจะยังเก็บไว้ถ้าคุณต้องการใช้ชีทนั้นเพื่อวัตถุประสงค์อื่น
+    # หรือถ้าต้องการเคลียร์มันเป็นประจำ
+    # if st.button("🗑️ ล้างข้อมูลในชีต 'Uploaded Statements'", key="clear_uploaded_gs_data"):
+    #     gc = get_gspread_client()
+    #     if gc:
+    #         try:
+    #             sh = gc.open(GOOGLE_SHEET_NAME)
+    #             ws = sh.worksheet(WORKSHEET_UPLOADED_STATEMENTS)
+    #             ws.clear() # ล้างข้อมูลทั้งหมดในชีท
+    #             st.success("ล้างข้อมูลในชีท 'Uploaded Statements' ทั้งหมดแล้ว")
+    #             st.cache_data.clear()
+    #             st.rerun()
+    #         except Exception as e:
+    #             st.error(f"❌ เกิดข้อผิดพลาดในการล้างชีต: {e}")
    
 # ===================== SEC 8: MAIN AREA - PERFORMANCE DASHBOARD =======================
 def load_data_for_dashboard(): # Function to select data source for dashboard
