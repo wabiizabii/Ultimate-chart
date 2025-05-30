@@ -988,12 +988,13 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Processing", expanded=
 
     # --- ฟังก์ชันสำหรับแยกข้อมูล Deals, Orders, Positions จาก DataFrame ของ Statement (ที่โหลดมาจาก Google Sheets) ---
     # ฟังก์ชันนี้ถูกปรับปรุงให้รับ DataFrame ที่โหลดมาจาก Google Sheets โดยตรง
-    def extract_data_from_statement_df(statement_df):
-        extracted_data = {}
-            # --- DEBUGGING: เพิ่มโค้ด 2 บรรทัดนี้เพื่อดู DataFrame ที่เข้ามา ---
-            st.write("DEBUG: DataFrame received by extract_data_from_statement_df:")
-            st.dataframe(statement_df)
-            # --- END DEBUGGING ---
+    def extract_data_from_statement_df(statement_df): # เยื้อง 0 หรือ 4 ช่องว่าง (แล้วแต่ว่าฟังก์ชันนี้อยู่ไหน)
+    extracted_data = {} # เยื้อง 4 ช่องว่างจาก def
+
+    # --- DEBUGGING: เพิ่มโค้ด 2 บรรทัดนี้เพื่อดู DataFrame ที่เข้ามา ---
+    st.write("DEBUG: DataFrame received by extract_data_from_statement_df:") # <<<< บรรทัดนี้ต้องเยื้องให้ถูกต้อง (4 ช่องว่างจาก extracted_data)
+    st.dataframe(statement_df) # <<<< บรรทัดนี้ต้องเยื้องให้ถูกต้อง
+    # --- END DEBUGGING ---
         # Heuristic: ตรวจสอบว่า DataFrame มีคอลัมน์ที่คาดว่าจะเป็นของ Deals ครบถ้วนหรือไม่
         # จาก Screenshot ของคุณ ชีท 'Uploaded Statements' ดูเหมือนมีข้อมูล Deals อยู่แล้ว
         expected_deals_cols = ['Timestamp', 'Deal', 'Symbol', 'Type', 'Volume', 'Price', 'Profit', 'Balance']
