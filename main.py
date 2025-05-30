@@ -867,6 +867,7 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
     st.markdown("### 📊 จัดการ Statement และข้อมูลดิบ")
 
 # --- ฟังก์ชันสำหรับแยกข้อมูลจากเนื้อหาไฟล์ Statement (CSV) ---
+# --- ฟังก์ชันสำหรับแยกข้อมูลจากเนื้อหาไฟล์ Statement (CSV) ---
 def extract_data_from_report_content(file_content):
     extracted_data = {}
 
@@ -1041,6 +1042,7 @@ def extract_data_from_report_content(file_content):
     dfs_output['results_summary'] = results_summary_dict
 
     return dfs_output
+
 
         
         # Find the start line indices for each section's header
