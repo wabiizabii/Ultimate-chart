@@ -889,6 +889,9 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
 
         lines = file_content.strip().split('\n')
         
+        if lines and lines[0].startswith("Orders"):
+            lines.pop(0)
+        
         section_order = ["Positions", "Orders", "Deals"]
         
         # Find the start line indices for each section's header
