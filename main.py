@@ -974,10 +974,10 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
             "Deals": "Time,Deal,Symbol,Type,Direction,Volume,Price,Order,Commission,Fee,Swap,Profit,Balance,Comment",
         }
         
-        # Define expected column names for each section (after cleaning and matching with GSheet headers)
+        # Define expected clean column names for each section (Hardcoded for robust parsing)
         expected_cleaned_columns = {
             "Positions": ["Time", "Position", "Symbol", "Type", "Volume", "Price", "S_L", "T_P", "Close_Time", "Close_Price", "Commission", "Swap", "Profit"],
-            "Orders": ["Open_Time", "Order", "Symbol", "Type", "Volume", "Price", "S_L", "T_P", "Close_Time", "State", "Empty1", "Comment", "Empty2"], 
+            "Orders": ["Open_Time", "Order", "Symbol", "Type", "Volume", "Price", "S_L", "T_P", "Close_Time", "State", "Comment1", "Comment2", "Comment3"], # Handle extra commas in Comments
             "Deals": ["Time", "Deal", "Symbol", "Type", "Direction", "Volume", "Price", "Order", "Commission", "Fee", "Swap", "Profit", "Balance", "Comment"],
         }
 
@@ -986,13 +986,11 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
         
         section_order = ["Positions", "Orders", "Deals"]
         
+        # Find the start line indices for each section's header
         section_start_indices = {}
         for section_name, header_template in section_raw_headers.items():
             for i, line in enumerate(lines):
                 line_stripped = line.strip()
-                
-                # Check for header based on exact match or starts with first column
-                # and has similar number of columns as the template
                 if line_stripped == header_template.strip() or \
                    (line_stripped.startswith(header_template.split(',')[0]) and \
                     len(line_stripped.split(',')) >= (len(header_template.split(',')) - 2) and \
@@ -1006,10 +1004,10 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
         # --- END DEBUGGING ---
 
         dfs_output = {}
-        # Parse collected table sections into DataFrames using csv.reader
+        # Parse collected table sections into DataFrames
         for i, section_name in enumerate(section_order):
             if section_name in section_start_indices:
-                start_idx = section_start_indices[section_name]
+                header_idx = section_start_indices[section_name]
                 
                 # Determine end_idx (start of next section or end of file before summaries)
                 end_idx = len(lines)
@@ -1019,78 +1017,71 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
                         end_idx = section_start_indices[next_section_name]
                         break
                 
-                section_lines_raw = lines[start_idx : end_idx]
+                # Extract raw lines for this section
+                raw_section_lines_block = lines[header_idx : end_idx]
                 
-                table_rows_for_parsing = []
-                header_line_found = False 
+                # --- Specific parsing for each table section ---
+                # This part now directly uses pd.read_csv with skiprows and names
                 
-                for line_num_in_section, line_val in enumerate(section_lines_raw):
+                # Find the first data line (which is concatenated with header)
+                # It's at header_idx. We need to split this line.
+                
+                # Read the header line + first data line
+                first_line_of_block = raw_section_lines_block[0]
+                
+                # Use csv.reader to correctly split the first line of the block
+                try:
+                    # current_line_parts will contain parts like ['Time', 'Position', ..., 'Profit', '2025.05.02...', '7213', ...]
+                    current_line_parts = list(csv.reader(io.StringIO(first_line_of_block)))[0]
+                except Exception as e_csv_reader_first_line:
+                    st.error(f"❌ Critical Error: Could not parse the first line of '{section_name}' section with csv.reader: '{first_line_of_block.strip()}' ({e_csv_reader_first_line})")
+                    dfs_output[section_key.lower()] = pd.DataFrame()
+                    continue # Skip to next section if first line is broken
+
+                header_template_parts_count = len(section_raw_headers[section_name].split(','))
+
+                table_data_lines = []
+                if len(current_line_parts) > header_template_parts_count:
+                    # It's concatenated. Extract the data part.
+                    first_data_row_extracted = current_line_parts[header_template_parts_count:]
+                    table_data_lines.append(','.join(first_data_row_extracted)) # Add as a new row
+                
+                # Add all subsequent lines (from index 1 of raw_section_lines_block)
+                # Filter out lines that are not data lines (e.g., summary keywords, blank lines)
+                for line_val in raw_section_lines_block[1:]:
                     line_val_stripped = line_val.strip()
-                    if not line_val_stripped: # Skip blank lines
-                        continue
+                    if not line_val_stripped: continue
                     
-                    # Check if this is the header line based on template (already found start_idx)
-                    # We only process the header once
-                    is_header_line = (line_val_stripped == section_raw_headers[section_name].strip() or \
-                                      (line_val_stripped.startswith(section_raw_headers[section_name].split(',')[0]) and \
-                                       len(line_val_stripped.split(',')) >= (len(section_raw_headers[section_name].split(',')) - 2)))
+                    if line_val_stripped.startswith("Name:") or \
+                       line_val_stripped.startswith("Account:") or \
+                       line_val_stripped.startswith("Company:") or \
+                       line_val_stripped.startswith("Date:") or \
+                       line_val_stripped.startswith("Results") or \
+                       line_val_stripped.startswith("Balance:") or \
+                       line_val_stripped.startswith("Total Net Profit:"):
+                       break
                     
-                    if is_header_line and not header_line_found:
-                        # Use csv.reader to correctly split the line (handles commas in data, quoted strings)
-                        try:
-                            current_line_parts = list(csv.reader(io.StringIO(line_val)))[0]
-                        except Exception as e_csv_header:
-                            st.warning(f"Skipping malformed header line in {section_name}: '{line_val_stripped}' ({e_csv_header})")
-                            continue # Skip this problematic header line
+                    table_data_lines.append(line_val) # These are already clean data lines
 
-                        header_template_parts_count = len(section_raw_headers[section_name].split(','))
-                        
-                        if len(current_line_parts) > header_template_parts_count:
-                            # Concatenated header and first data row
-                            first_data_row_parts = current_line_parts[header_template_parts_count:]
-                            table_rows_for_parsing.append(','.join(first_data_row_parts)) # Join back with comma
-                            # st.info(f"DEBUG: Manually split header and first data row for {section_name}.") # Optional debug
-                        
-                        header_line_found = True
-                        continue
-                    
-                    if header_line_found:
-                        # Stop if we hit a summary or another section's header
-                        if line_val_stripped.startswith("Name:") or \
-                           line_val_stripped.startswith("Account:") or \
-                           line_val_stripped.startswith("Company:") or \
-                           line_val_stripped.startswith("Date:") or \
-                           line_val_stripped.startswith("Results") or \
-                           line_val_stripped.startswith("Balance:") or \
-                           line_val_stripped.startswith("Total Net Profit:"):
-                           break
-                        
-                        # Add actual data row, splitting correctly with csv.reader
-                        try:
-                            data_row_parts = list(csv.reader(io.StringIO(line_val)))[0]
-                            table_rows_for_parsing.append(','.join(data_row_parts)) # Join back with comma for pandas
-                        except Exception as e_csv_reader:
-                            st.warning(f"Skipping malformed data row in {section_name}: '{line_val_stripped}' ({e_csv_reader})")
-
-
-                csv_string_data_to_parse = "\n".join(table_rows_for_parsing)
-
+                csv_string_data_to_parse = "\n".join(table_data_lines)
+                
                 # DEBUG: Add this to see the CSV string being passed to pandas
                 st.write(f"DEBUG: CSV string for {section_name} (before pandas):")
                 st.code(csv_string_data_to_parse)
 
                 if csv_string_data_to_parse.strip():
                     try:
-                        # Use pandas to read the now-clean data rows
+                        # Use pandas to read the data. Provide column names explicitly.
+                        # header=None and skiprows=0 (default) or not specified means pandas reads from first line given, assuming no header.
                         df = pd.read_csv(io.StringIO(csv_string_data_to_parse),
                                          sep=',',
-                                         names=expected_cleaned_columns[section_name], # Provide names explicitly
-                                         header=None, # No header row in the input string
+                                         names=expected_cleaned_columns[section_name], # Use hardcoded names
+                                         header=None, # Important: Tell pandas there's no header row in this string
                                          skipinitialspace=True,
                                          on_bad_lines='warn', # Warn but don't skip rows with errors
                                          engine='python') # Use Python engine for more flexibility
                         
-                        # Remove 'Empty' columns if they exist (from Orders section)
+                        # Remove 'Empty' columns (from Orders section)
                         df = df.loc[:, ~df.columns.str.startswith('Empty')]
 
                         # Drop rows that are entirely empty or contain only NaN values after parsing
@@ -1207,7 +1198,7 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
             ws = sh.worksheet(WORKSHEET_ACTUAL_POSITIONS)
             expected_headers = [
                 "Time", "Position", "Symbol", "Type", "Volume", "Price", "S_L", "T_P",
-                "Close_Time", "Close_Price", "Commission", "Swap", "Profit", # Renamed "Time_1", "Price_1" for clarity
+                "Close_Time", "Close_Price", "Commission", "Swap", "Profit",
                 "PortfolioID", "PortfolioName", "SourceFile"
             ]
             
@@ -1421,7 +1412,7 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
     # if not df_gs_uploaded_stmt.empty:
     #     st.dataframe(df_gs_uploaded_stmt, use_container_width=True)
     # else:
-    #     st.info("ไม่พบข้อมูลในชีท 'Uploaded Statements'.")
+    #     st.info("ไม่พบข้อมูลในชีต 'Uploaded Statements'.")
 
     # ปุ่มล้างข้อมูลในชีท 'Uploaded Statements' อาจจะยังเก็บไว้ถ้าคุณต้องการใช้ชีทนั้นเพื่อวัตถุประสงค์อื่น
     # หรือถ้าต้องการเคลียร์มันเป็นประจำ
@@ -1437,7 +1428,6 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
     #             st.rerun()
     #         except Exception as e:
     #             st.error(f"❌ เกิดข้อผิดพลาดในการล้างชีต: {e}")
-   
 # ===================== SEC 8: MAIN AREA - PERFORMANCE DASHBOARD =======================
 def load_data_for_dashboard(): # Function to select data source for dashboard
     source_option = st.selectbox(
