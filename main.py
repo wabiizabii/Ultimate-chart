@@ -866,6 +866,7 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
         extracted_data = {}
 
         # Define raw headers from the CSV report for identification
+        # Adjusted Orders header based on your debug output
         section_raw_headers = {
             "Positions": "Time,Position,Symbol,Type,Volume,Price,S / L,T / P,Time,Price,Commission,Swap,Profit",
             "Orders": "Open Time,Order,Symbol,Type,Volume,Price,S / L,T / P,Time,State,,Comment", 
@@ -881,43 +882,30 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
 
         lines = file_content.strip().split('\n')
         
-        section_order = ["Positions", "Orders", "Deals"] # Define the order for processing
+        section_order = ["Positions", "Orders", "Deals"] 
         
         section_start_indices = {}
         for i, line in enumerate(lines):
             line_stripped = line.strip()
 
-            # --- Refined logic for finding section headers ---
-            
-            # Try to find Positions and Deals using the generic startswith and length check
-            is_generic_header_found = False
-            for section_name_generic in ["Positions", "Deals"]:
-                header_template_generic = section_raw_headers[section_name_generic]
-                if line_stripped.startswith(header_template_generic.split(',')[0]) and \
-                   len(line_stripped.split(',')) >= (len(header_template_generic.split(',')) - 2) and \
-                   len(line_stripped.split(',')) <= (len(header_template_generic.split(',')) + 2):
-                    section_start_indices[section_name_generic] = i
-                    is_generic_header_found = True
-                    # If we found a generic header, we should break and let the main loop continue
-                    # to find the next section, assuming sections are sequential.
+            # Find headers for all sections
+            for section_name_check, header_template_check in section_raw_headers.items():
+                first_col_header = header_template_check.split(',')[0].strip()
+                
+                # Check if the line starts with the first column of the header template
+                # And also check if the full header template exists in the line
+                # This is more robust for headers that might have preceding empty cells or titles
+                if line_stripped.startswith(first_col_header) and header_template_check in line_stripped:
+                    section_start_indices[section_name_check] = i
+                    # For simplicity, assuming headers appear in expected order and not interleaved
+                    # If they can be out of order, this break might need to be removed or rethought
                     break 
-            
-            if is_generic_header_found:
-                continue # Skip to the next line if this one was already identified as a header for Positions or Deals
-
-            # Special handling for Orders: Look for "Open Time" as the actual header start,
-            # and confirm it by checking the second column ("Order").
-            orders_header_template = section_raw_headers["Orders"]
-            orders_header_parts = orders_header_template.split(',')
-            
-            if line_stripped.startswith(orders_header_parts[0].strip()): # Check if it starts with "Open Time"
-                current_line_split = line_stripped.split(',')
-                # Validate if it's indeed the header and not just a data row
-                if len(current_line_split) > 1 and current_line_split[1].strip() == orders_header_parts[1].strip() and \
-                   len(current_line_split) >= (len(orders_header_parts) - 2) and \
-                   len(current_line_split) <= (len(orders_header_parts) + 2):
-                    section_start_indices["Orders"] = i
-                    continue # Found Orders header, move to next line
+                # Special check for "Orders" if "Orders" title is on a separate line just before the header
+                # We need to find the actual header line, not the section title.
+                if section_name_check == "Orders" and line_stripped.strip() == "Orders":
+                    # This is just the title, actual header should be on the next line
+                    # We will handle picking the correct data rows later.
+                    pass # Don't record this as the start index for table parsing
 
         # --- End of finding section headers ---
 
@@ -928,31 +916,45 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
             if section_name in section_start_indices:
                 header_idx = section_start_indices[section_name]
                 
+                # Find the end of the current section's data (start of next section or end of file)
                 end_idx = len(lines)
-                # Find the start of the next section to define the end of the current section's data
                 for j in range(i + 1, len(section_order)):
                     next_section_name = section_order[j]
                     if next_section_name in section_start_indices:
                         end_idx = section_start_indices[next_section_name]
                         break
                 
+                # Extract raw lines for the current section's data block
                 raw_section_lines_block = lines[header_idx : end_idx]
                 
                 table_data_lines = []
                 if raw_section_lines_block:
-                    first_line_of_block = raw_section_lines_block[0]
+                    # The actual header row is at header_idx. We want data rows after that.
+                    # Some files have the first data row concatenated to the header row.
+                    # Let's adjust to only take actual data rows.
                     
-                    header_template_parts_count = len(section_raw_headers[section_name].split(','))
+                    # Skip header line itself for data extraction
+                    data_lines_start_from = 0
+                    if header_idx in section_start_indices.values(): # It means this is a header row
+                         data_lines_start_from = 1 # Start from the next line for data
 
-                    # Logic to extract header and first data row if they are on the same line
-                    current_line_parts_raw = first_line_of_block.split(',')
-                    if len(current_line_parts_raw) > header_template_parts_count: # If there's data after the header on the same line
-                        first_data_row_extracted = current_line_parts_raw[header_template_parts_count:]
-                        if any(p.strip() for p in first_data_row_extracted): 
-                            table_data_lines.append(','.join(first_data_row_extracted))
+                    # Handle case where first data row is concatenated to header (e.g. Positions)
+                    first_line_after_header = raw_section_lines_block[0] # This contains the header.
+                    header_template_str = section_raw_headers[section_name]
                     
-                    # Add remaining data lines
-                    for line_val in raw_section_lines_block[1:]:
+                    # Check if the first line of the block contains more parts than just the header
+                    # Indicating data is on the same line as header
+                    parts_of_first_line = list(csv.reader(io.StringIO(first_line_after_header)))[0]
+                    expected_header_parts_count = len(list(csv.reader(io.StringIO(header_template_str))))
+                    
+                    if len(parts_of_first_line) > expected_header_parts_count:
+                        # Extract the data part from the first line
+                        data_part_from_first_line = parts_of_first_line[expected_header_parts_count:]
+                        if any(p.strip() for p in data_part_from_first_line): # Ensure it's not just empty commas
+                            table_data_lines.append(','.join(data_part_from_first_line))
+                            
+                    # Add remaining data lines from the block, starting from the line AFTER the header
+                    for line_val in raw_section_lines_block[data_lines_start_from:]:
                         line_val_stripped = line_val.strip()
                         if not line_val_stripped: continue 
 
@@ -962,21 +964,36 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
                         
                         # Special handling for Orders: Combine extra parts into a single 'Comment' column
                         if section_name == "Orders":
-                            # Use csv.reader to correctly handle quoted commas within fields
                             try:
                                 parts_from_csv_reader = list(csv.reader(io.StringIO(line_val_stripped)))[0]
-                                if len(parts_from_csv_reader) > len(expected_cleaned_columns[section_name]):
-                                    # If more columns than expected, the excess are part of the comment
-                                    comment_index = len(expected_cleaned_columns[section_name]) - 1
-                                    comment_parts = parts_from_csv_reader[comment_index:]
-                                    cleaned_line = ','.join(parts_from_csv_reader[:comment_index]) + ',' + ' '.join(comment_parts)
-                                    table_data_lines.append(cleaned_line)
+                                
+                                # This handles the leading empty columns (,,) in Orders section
+                                # We need to find the first non-empty part and take subsequent parts
+                                first_non_empty_idx = -1
+                                for p_idx, p_val in enumerate(parts_from_csv_reader):
+                                    if p_val.strip() != "":
+                                        first_non_empty_idx = p_idx
+                                        break
+                                
+                                if first_non_empty_idx != -1:
+                                    # Take only the relevant parts of the data row
+                                    relevant_parts = parts_from_csv_reader[first_non_empty_idx:]
+                                    
+                                    # Now, if the relevant_parts are more than expected, combine for Comment
+                                    if len(relevant_parts) > len(expected_cleaned_columns[section_name]):
+                                        comment_index = len(expected_cleaned_columns[section_name]) - 1
+                                        comment_parts = relevant_parts[comment_index:]
+                                        cleaned_line = ','.join(relevant_parts[:comment_index]) + ',' + ' '.join(comment_parts)
+                                        table_data_lines.append(cleaned_line)
+                                    else:
+                                        table_data_lines.append(','.join(relevant_parts)) # Join because parts_from_csv_reader are already split
                                 else:
-                                    table_data_lines.append(line_val_stripped)
+                                    # If all parts are empty, skip this line
+                                    pass
+
                             except csv.Error as csv_err:
                                 st.warning(f"CSV parsing error on line: '{line_val_stripped}'. Error: {csv_err}. Skipping line for {section_name}.")
-                                # Potentially add line_val_stripped to a list of problematic lines for later review
-                                continue # Skip this problematic line
+                                continue 
                         else:
                             table_data_lines.append(line_val_stripped)
 
@@ -997,15 +1014,13 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
                                          on_bad_lines='warn',
                                          engine='python')
                         
-                        # Clean up unnecessary columns (like 'Unnamed: X')
                         df = df.dropna(axis=1, how='all')
                         df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
 
                         # For Orders: ensure 'Comment' column is correctly merged if it was split
                         if section_name == "Orders":
-                            comment_cols = [col for col in df.columns if 'Comment' in col] # 'Comment', 'Comment.1', etc.
+                            comment_cols = [col for col in df.columns if 'Comment' in col] 
                             if comment_cols:
-                                # Ensure we only join strings, handle non-string values gracefully
                                 df['Comment'] = df[comment_cols].astype(str).fillna('').agg(' '.join, axis=1).str.strip()
                                 df.drop(columns=[col for col in comment_cols if col != 'Comment'], inplace=True, errors='ignore')
                             if 'Comment' not in df.columns: 
@@ -1019,11 +1034,11 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
                         # Reorder columns as specified
                         df = df[expected_cleaned_columns[section_name]]
                         
-                        df.dropna(how='all', inplace=True) # Remove entirely empty rows
+                        df.dropna(how='all', inplace=True) 
 
                         dfs_output[section_key_lower] = df
                     except ValueError as ve:
-                        st.error(f"❌ Column mismatch or data type error in {section_name}: {ve}. Expected {len(expected_cleaned_columns[section_name])} columns.")
+                        st.error(f"❌ Column mismatch or data type error in {section_name}: {ve}. Expected {len(expected_cleaned_columns[section_name])} columns. Debug data:\n{csv_string_data_to_parse[:200]}...")
                         dfs_output[section_key_lower] = pd.DataFrame()
                     except Exception as e:
                         st.error(f"❌ Error creating DataFrame for {section_name}: {e}")
@@ -1032,12 +1047,50 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
                     st.warning(f"No valid data rows collected for {section_name} table in the uploaded file.")
                     dfs_output[section_key_lower] = pd.DataFrame()
             else:
-                dfs_output[section_key_lower] = pd.DataFrame() # Return empty DataFrame if section not found
+                dfs_output[section_key_lower] = pd.DataFrame() 
 
         # --- Extract Balance Summary and Results Summary (non-table sections) ---
         balance_summary_dict = {}
         results_summary_dict = {}
         
+        # Helper to parse Key: Value or Key Value pairs
+        def parse_summary_line_part(part_str):
+            key = ""
+            value_str = ""
+            if ':' in part_str: # Key: Value
+                key_val = part_str.split(':', 1)
+                key = key_val[0].strip()
+                value_str = key_val[1].strip()
+            else: # Key Value (no colon)
+                # Find the last space, assume key is before, value is after
+                last_space_idx = part_str.rfind(' ')
+                if last_space_idx != -1:
+                    key = part_str[:last_space_idx].strip()
+                    value_str = part_str[last_space_idx+1:].strip()
+                else: # Could be just a value, or a single word key
+                    key = part_str.strip() # Treat as key, value will be from the next part if available
+                    value_str = ""
+            return key, value_str
+
+        # Helper to safely convert to float (handles spaces, commas, percent, multiple dots)
+        def safe_float_convert(value_str):
+            if isinstance(value_str, (int, float)): # Already numeric
+                return value_str
+            try:
+                # Remove spaces, commas, percent signs
+                clean_value = value_str.replace(" ", "").replace(",", "").replace("%", "")
+                # Handle cases like "2.118.42" -> "2118.42" or "9.458.38" -> "9458.38"
+                # Keep only the last dot for decimal, remove others
+                if clean_value.count('.') > 1:
+                    parts = clean_value.split('.')
+                    clean_value = parts[0] + '.' + ''.join(parts[1:])
+                return float(clean_value)
+            except ValueError:
+                return None
+            except Exception: # Catch any other unexpected errors
+                return None
+
+        # Find Balance Summary
         balance_start_line_idx = -1
         for i, line in enumerate(lines):
             if line.strip().startswith("Balance:"):
@@ -1052,31 +1105,32 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
                 
                 parts = [p.strip() for p in line_stripped.split(',')]
                 
-                def safe_float_convert(value_str):
-                    try:
-                        return float(value_str.replace(" ", "").replace(",", "").replace("%", ""))
-                    except ValueError:
-                        return None
-
+                # Iterate through parts to extract key-value pairs
+                # This logic assumes pairs are either "Key: Value" or "Key Value"
+                # If a part contains only a value, it will be assigned to a previous key or skipped
+                current_key = ""
                 for part in parts:
-                    key = ""
-                    value_str = ""
-                    if ':' in part: # Key: Value format
-                        key_val = part.split(':', 1)
-                        key = key_val[0].strip()
-                        value_str = key_val[1].strip()
-                    else: # Key Value (no colon)
-                        last_space_idx = part.rfind(' ')
-                        if last_space_idx != -1:
-                            key = part[:last_space_idx].strip()
-                            value_str = part[last_space_idx+1:].strip()
+                    if not part: continue # Skip empty parts
+                    key_found, val_str = parse_summary_line_part(part)
                     
-                    if key:
-                        cleaned_key = key.replace(" ", "_").replace(".", "").strip()
-                        if cleaned_key: 
-                            balance_summary_dict[cleaned_key] = safe_float_convert(value_str)
+                    if key_found and val_str: # Found a "Key: Value" or "Key Value" pair
+                        cleaned_key = key_found.replace(" ", "_").replace(".", "").strip()
+                        balance_summary_dict[cleaned_key] = safe_float_convert(val_str)
+                    elif key_found and not val_str: # Found a standalone key (e.g. "Equity", "Balance")
+                        current_key = key_found.replace(" ", "_").replace(".", "").strip()
+                    elif not key_found and current_key: # Found a standalone value for the previous key
+                        balance_summary_dict[current_key] = safe_float_convert(part)
+                        current_key = "" # Reset current key
+                    elif part and not key_found: # Just a standalone value not matching any key
+                        # This might be the case for "2.118.42" as a value without a key
+                        # Attempt to parse it as a value if it looks like a number
+                        potential_value = safe_float_convert(part)
+                        if potential_value is not None:
+                            # Assign it to a generic key or skip if it's not clearly part of a key-value pair
+                            # For simplicity, if no key, we might ignore, or assign to an "unknown_value" key
+                            pass # Or handle explicitly, e.g., balance_summary_dict[f"unknown_value_{len(balance_summary_dict)}"] = potential_value
 
-        # Find and extract Results Summary
+        # Find Results Summary
         results_start_line_idx = -1
         for i, line in enumerate(lines):
             if line.strip().startswith("Results") or line.strip().startswith("Total Net Profit:"):
@@ -1086,33 +1140,33 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
         if results_start_line_idx != -1:
             for i in range(results_start_line_idx, len(lines)): 
                 line_stripped = lines[i].strip()
-                if not line_stripped or line_stripped.startswith("Average consecutive losses"):
+                if not line_stripped or line_stripped.startswith("Average consecutive losses"): # Stop at the next major section
                     break
                 
                 parts = [p.strip() for p in line_stripped.split(',')]
+                current_key = ""
                 for part in parts:
-                    key = ""
-                    value_str = ""
-                    
-                    if ':' in part:
-                        key_val = part.split(':', 1)
-                        key = key_val[0].strip()
-                        value_str = key_val[1].strip()
-                    elif ' ' in part and len(part.split()) > 1:
-                        last_space_idx = part.rfind(' ')
-                        if last_space_idx != -1:
-                            key = part[:last_space_idx].strip()
-                            value_str = part[last_space_idx+1:].strip()
-                    
-                    if key:
-                        cleaned_key = key.replace("(", "").replace(")", "").replace("/", "_").replace("-", "_").replace(" ", "_").replace("__", "_").strip()
-                        if "won %" in cleaned_key: 
-                            cleaned_key = cleaned_key.replace("won %", "won_Percent")
-                        
-                        try:
-                            results_summary_dict[cleaned_key] = safe_float_convert(value_str)
-                        except Exception:
-                            results_summary_dict[cleaned_key] = value_str 
+                    if not part: continue
+                    key_found, val_str = parse_summary_line_part(part)
+
+                    if key_found and val_str:
+                        cleaned_key = key_found.replace("(", "").replace(")", "").replace("/", "_").replace("-", "_").replace(" ", "_").replace("__", "_").strip()
+                        if "won %" in cleaned_key: cleaned_key = cleaned_key.replace("won %", "won_Percent")
+                        results_summary_dict[cleaned_key] = safe_float_convert(val_str)
+                        current_key = "" # Reset current key after a successful pair
+                    elif key_found and not val_str: # Standalone key
+                        current_key = key_found.replace("(", "").replace(")", "").replace("/", "_").replace("-", "_").replace(" ", "_").replace("__", "_").strip()
+                        if "won %" in current_key: current_key = current_key.replace("won %", "won_Percent")
+                    elif not key_found and current_key: # Standalone value for previous key
+                        results_summary_dict[current_key] = safe_float_convert(part)
+                        current_key = ""
+                    elif part and not key_found: # Just a value without a preceding key
+                        # This handles cases like "2.118.42" or "9.458.38" being read as values.
+                        potential_value = safe_float_convert(part)
+                        if potential_value is not None:
+                            # Assign to a unique key if no existing key is active
+                            results_summary_dict[f"unidentified_value_{len(results_summary_dict)}"] = potential_value # Use a unique temporary key
+                            
 
         dfs_output['balance_summary'] = balance_summary_dict
         dfs_output['results_summary'] = results_summary_dict
@@ -1120,11 +1174,9 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
         return dfs_output
 
     # --- ฟังก์ชันสำหรับบันทึก Deals ลงในชีท ActualTrades ---
-    def save_deals_to_actual_trades(df_deals, portfolio_id, portfolio_name, source_file_name="N/A"):
-        gc = get_gspread_client()
-        if not gc: return False
+    # รับ sh (spreadsheet object) มาจากภายนอก เพื่อลด API calls
+    def save_deals_to_actual_trades(sh, df_deals, portfolio_id, portfolio_name, source_file_name="N/A"):
         try:
-            sh = gc.open(GOOGLE_SHEET_NAME)
             ws = sh.worksheet(WORKSHEET_ACTUAL_TRADES)
             expected_headers = [
                 "Time", "Deal", "Symbol", "Type", "Direction", "Volume", "Price", "Order",
@@ -1166,11 +1218,9 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
         except Exception as e: st.error(f"❌ เกิดข้อผิดพลาดในการบันทึก Deals: {e}"); return False
 
     # --- ฟังก์ชันสำหรับบันทึก Positions ลงในชีท ActualPositions ---
-    def save_positions_to_gsheets(df_positions, portfolio_id, portfolio_name, source_file_name="N/A"):
-        gc = get_gspread_client()
-        if not gc: return False
+    # รับ sh (spreadsheet object) มาจากภายนอก
+    def save_positions_to_gsheets(sh, df_positions, portfolio_id, portfolio_name, source_file_name="N/A"):
         try:
-            sh = gc.open(GOOGLE_SHEET_NAME)
             ws = sh.worksheet(WORKSHEET_ACTUAL_POSITIONS)
             expected_headers = [
                 "Time", "Position", "Symbol", "Type", "Volume", "Price", "S_L", "T_P",
@@ -1211,11 +1261,9 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
         except Exception as e: st.error(f"❌ เกิดข้อผิดพลาดในการบันทึก Positions: {e}"); return False
 
     # --- ฟังก์ชันสำหรับบันทึก Orders ลงในชีท ActualOrders ---
-    def save_orders_to_gsheets(df_orders, portfolio_id, portfolio_name, source_file_name="N/A"):
-        gc = get_gspread_client()
-        if not gc: return False
+    # รับ sh (spreadsheet object) มาจากภายนอก
+    def save_orders_to_gsheets(sh, df_orders, portfolio_id, portfolio_name, source_file_name="N/A"):
         try:
-            sh = gc.open(GOOGLE_SHEET_NAME)
             ws = sh.worksheet(WORKSHEET_ACTUAL_ORDERS)
             expected_headers = [
                 "Open_Time", "Order", "Symbol", "Type", "Volume", "Price", "S_L", "T_P",
@@ -1254,11 +1302,9 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
         except Exception as e: st.error(f"❌ เกิดข้อผิดพลาดในการบันทึก Orders: {e}"); return False
 
     # --- ฟังก์ชันสำหรับบันทึก Results Summary ลงในชีท StatementSummaries ---
-    def save_results_summary_to_gsheets(summary_dict, portfolio_id, portfolio_name, source_file_name="N/A"):
-        gc = get_gspread_client()
-        if not gc: return False
+    # รับ sh (spreadsheet object) มาจากภายนอก
+    def save_results_summary_to_gsheets(sh, summary_dict, portfolio_id, portfolio_name, source_file_name="N/A"):
         try:
-            sh = gc.open(GOOGLE_SHEET_NAME)
             ws = sh.worksheet(WORKSHEET_STATEMENT_SUMMARIES)
             
             expected_headers = [
@@ -1290,13 +1336,28 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
                 "PortfolioName": portfolio_name,
                 "SourceFile": source_file_name
             }
-            for key, value in summary_dict.items():
-                cleaned_key = key.replace(" ", "_").replace("%", "Percent").replace("(won_%)", "won_Percent").replace("__", "_").strip()
-                if "TotalNetProfit" in cleaned_key: cleaned_key = "Total_Net_Profit"
+            # Map cleaned keys to expected headers more reliably
+            for header_name in expected_headers:
+                # Try to find a matching key in summary_dict, considering various possible cleaned names
+                found_val = None
+                for summary_key, summary_val in summary_dict.items():
+                    # Simple match
+                    if summary_key == header_name:
+                        found_val = summary_val
+                        break
+                    # More flexible matching for complex names (e.g. Total Net Profit)
+                    if header_name.lower().replace('_', '') == summary_key.lower().replace('_', ''):
+                        found_val = summary_val
+                        break
+                    # Special case for Percentage headers from "won %"
+                    if header_name.endswith("_Percent") and summary_key.replace("won%", "won_Percent").lower() == header_name.lower():
+                        found_val = summary_val
+                        break
+                
+                if found_val is not None:
+                    row_data[header_name] = found_val
+                # If not found, it remains empty or its default (e.g. "")
 
-                if cleaned_key in expected_headers:
-                    row_data[cleaned_key] = value
-            
             final_row_data = [str(row_data.get(h, "")) for h in expected_headers]
 
             rows_to_append.append(final_row_data)
@@ -1355,31 +1416,41 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
                 st.markdown("---")
                 st.subheader("💾 กำลังบันทึกข้อมูลไปยัง Google Sheets...")
                 
-                if not extracted_sections.get('deals', pd.DataFrame()).empty:
-                    if save_deals_to_actual_trades(extracted_sections['deals'], active_portfolio_id_for_actual, active_portfolio_name_for_actual, file_name_for_saving):
-                        st.success(f"บันทึก Deals จำนวน {len(extracted_sections['deals'])} รายการ ไปยังชีต 'ActualTrades' สำเร็จ!")
-                        st.session_state.df_stmt_deals = extracted_sections['deals'].copy() # Update for dashboard
-                    else: st.error("บันทึก Deals ไม่สำเร็จ.")
-                else: st.warning("ไม่พบข้อมูล Deals ใน Statement.")
+                # Get gspread client and spreadsheet object once for all save operations
+                gc_for_save = get_gspread_client()
+                if gc_for_save:
+                    try:
+                        sh_for_save = gc_for_save.open(GOOGLE_SHEET_NAME)
+                        
+                        if not extracted_sections.get('deals', pd.DataFrame()).empty:
+                            if save_deals_to_actual_trades(sh_for_save, extracted_sections['deals'], active_portfolio_id_for_actual, active_portfolio_name_for_actual, file_name_for_saving):
+                                st.success(f"บันทึก Deals จำนวน {len(extracted_sections['deals'])} รายการ ไปยังชีต 'ActualTrades' สำเร็จ!")
+                                st.session_state.df_stmt_deals = extracted_sections['deals'].copy() # Update for dashboard
+                            else: st.error("บันทึก Deals ไม่สำเร็จ.")
+                        else: st.warning("ไม่พบข้อมูล Deals ใน Statement.")
 
-                if not extracted_sections.get('orders', pd.DataFrame()).empty:
-                    if save_orders_to_gsheets(extracted_sections['orders'], active_portfolio_id_for_actual, active_portfolio_name_for_actual, file_name_for_saving):
-                        st.success(f"บันทึก Orders จำนวน {len(extracted_sections['orders'])} รายการ ไปยังชีต 'ActualOrders' สำเร็จ!")
-                    else: st.error("บันทึก Orders ไม่สำเร็จ.")
-                else: st.warning("ไม่พบข้อมูล Orders ใน Statement.")
-                
-                if not extracted_sections.get('positions', pd.DataFrame()).empty:
-                    if save_positions_to_gsheets(extracted_sections['positions'], active_portfolio_id_for_actual, active_portfolio_name_for_actual, file_name_for_saving):
-                        st.success(f"บันทึก Positions จำนวน {len(extracted_sections['positions'])} รายการ ไปยังชีต 'ActualPositions' สำเร็จ!")
-                    else: st.error("บันทึก Positions ไม่สำเร็จ.")
-                else: st.warning("ไม่พบข้อมูล Positions ใน Statement.")
+                        if not extracted_sections.get('orders', pd.DataFrame()).empty:
+                            if save_orders_to_gsheets(sh_for_save, extracted_sections['orders'], active_portfolio_id_for_actual, active_portfolio_name_for_actual, file_name_for_saving):
+                                st.success(f"บันทึก Orders จำนวน {len(extracted_sections['orders'])} รายการ ไปยังชีต 'ActualOrders' สำเร็จ!")
+                            else: st.error("บันทึก Orders ไม่สำเร็จ.")
+                        else: st.warning("ไม่พบข้อมูล Orders ใน Statement.")
+                        
+                        if not extracted_sections.get('positions', pd.DataFrame()).empty:
+                            if save_positions_to_gsheets(sh_for_save, extracted_sections['positions'], active_portfolio_id_for_actual, active_portfolio_name_for_actual, file_name_for_saving):
+                                st.success(f"บันทึก Positions จำนวน {len(extracted_sections['positions'])} รายการ ไปยังชีต 'ActualPositions' สำเร็จ!")
+                            else: st.error("บันทึก Positions ไม่สำเร็จ.")
+                        else: st.warning("ไม่พบข้อมูล Positions ใน Statement.")
 
-                if extracted_sections.get('results_summary'):
-                    if save_results_summary_to_gsheets(extracted_sections['results_summary'], active_portfolio_id_for_actual, active_portfolio_name_for_actual, file_name_for_saving):
-                        st.success("บันทึก Results Summary ไปยังชีต 'StatementSummaries' สำเร็จ!")
-                    else: st.error("บันทึก Results Summary ไม่สำเร็จ.")
-                else: st.warning("ไม่พบข้อมูล Results Summary ใน Statement.")
+                        if extracted_sections.get('results_summary'):
+                            if save_results_summary_to_gsheets(sh_for_save, extracted_sections['results_summary'], active_portfolio_id_for_actual, active_portfolio_name_for_actual, file_name_for_saving):
+                                st.success("บันทึก Results Summary ไปยังชีท 'StatementSummaries' สำเร็จ!")
+                            else: st.error("บันทึก Results Summary ไม่สำเร็จ.")
+                        else: st.warning("ไม่พบข้อมูล Results Summary ใน Statement.")
 
+                    except Exception as e:
+                        st.error(f"❌ เกิดข้อผิดพลาดในการเข้าถึง Google Sheet เพื่อบันทึก: {e}")
+                else:
+                    st.error("ไม่สามารถเชื่อมต่อ Google Sheets Client เพื่อบันทึกข้อมูลได้.")
     else:
         st.info("โปรดอัปโหลดไฟล์ Statement Report (CSV) เพื่อเริ่มต้นประมวลผล.")
 
