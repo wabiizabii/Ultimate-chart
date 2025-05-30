@@ -945,17 +945,39 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
             if section_name == "Orders":
                 # ตรวจสอบว่าบรรทัด header_idx เป็นบรรทัด "Orders,,,," หรือไม่
                 # In main.py, around line 948
+# main.py, around line 945
+
+# ... (previous code)
+
+# Ensure this 'if' statement is at the correct indentation level
+# relative to the rest of the 'extract_data_from_report_content' function.
 if raw_section_lines_block:  # Check if the list is not empty
+    # THIS LINE (the one that was line 948) MUST BE INDENTED
+    # It should be moved one level of indentation to the right.
     if raw_section_lines_block[0].strip().startswith("Orders,,,,,,,,") and len(raw_section_lines_block) > 1:
-        # Your existing logic
-        pass
+        # Your existing logic for processing the 'Orders' section goes here.
+        # Make sure ALL of this existing logic is also indented correctly,
+        # relative to the 'if raw_section_lines_block[0]...' line.
+        # Example:
+        # line_to_process = raw_section_lines_block[0]
+        # do_something_with(line_to_process)
+        pass # <-- Replace 'pass' with your actual code that was there before.
+    else:
+        # This 'else' block also needs to be at the same indentation level
+        # as the 'if raw_section_lines_block[0]...' statement,
+        # meaning it's still *inside* the 'if raw_section_lines_block:' block.
+        print("Debug: raw_section_lines_block was empty or did not start with 'Orders' when trying to access [0] if it existed.")
+        # Consider specific handling if the list exists but doesn't start with "Orders"
+        # or if len(raw_section_lines_block) <= 1
 else:
-    # Handle the case where raw_section_lines_block is empty
-    # You might want to:
-    # - Log a warning: print("Warning: raw_section_lines_block is empty. Cannot process 'Orders' section.")
-    # - Skip processing this section.
-    # - Raise a more specific error if an empty section is unexpected.
-    print("Debug: raw_section_lines_block was empty when trying to access [0]")
+    # This 'else' block belongs to the 'if raw_section_lines_block:'
+    # It should be at the SAME INDENTATION LEVEL as 'if raw_section_lines_block:'.
+    print("Debug: raw_section_lines_block was completely empty (no elements at all).")
+    # Add any specific error handling or logging for an entirely empty block.
+    # For instance, if finding any section is critical, you might:
+    # raise ValueError("No data extracted for current section.")
+
+# ... (rest of your function)
 
             # เพิ่มการตรวจสอบว่ามีบรรทัดข้อมูลอยู่จริงก่อนที่จะเข้าถึง (อาจจะซ้ำกับด้านบนแต่เพื่อความปลอดภัย)
             if not raw_section_lines_block[data_start_from_raw_block_idx:]:
