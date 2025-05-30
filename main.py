@@ -11,7 +11,7 @@ import yfinance as yf
 import random
 import csv
 import io
-import time
+import time # เพิ่ม import time
 
 st.set_page_config(page_title="Ultimate-Chart", layout="wide")
 acc_balance = 10000
@@ -39,7 +39,7 @@ def get_gspread_client():
         return None
 
 # ฟังก์ชันสำหรับโหลดข้อมูล Portfolios
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=300) # Cache ข้อมูลไว้ 5 นาที
 def load_portfolios_from_gsheets():
     gc = get_gspread_client()
     if gc is None:
@@ -947,6 +947,12 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
                 if raw_section_lines_block[0].strip().startswith("Orders,,,,,,,,"):
                     data_start_from_raw_block_idx = 1 # ถ้าใช่ ให้เริ่มประมวลผลข้อมูลจากบรรทัดถัดไป
             
+            # เพิ่มการตรวจสอบว่ามีบรรทัดข้อมูลอยู่จริงก่อนที่จะเข้าถึง
+            if not raw_section_lines_block[data_start_from_raw_block_idx:]:
+                st.warning(f"No valid data rows found for '{section_name}' section starting from expected data index.")
+                dfs_output[section_key_lower] = pd.DataFrame()
+                continue
+
             # เก็บข้อมูลจริงสำหรับประมวลผล
             for line_val in raw_section_lines_block[data_start_from_raw_block_idx:]:
                 line_val_stripped = line_val.strip()
