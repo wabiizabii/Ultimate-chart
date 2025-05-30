@@ -1046,9 +1046,10 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Processing", expanded=
                 
                 csv_string_data = "\n".join(table_lines)
 
-                # DEBUG: Add this to see the CSV string being passed to pandas
-                # st.write(f"DEBUG: CSV string for {section_name}:")
-                # st.code(csv_string_data)
+                # --- DEBUGGING: เพิ่มโค้ด 2 บรรทัดนี้เพื่อดู CSV string ก่อนส่งให้ pandas ---
+                st.write(f"DEBUG: CSV string for {section_name} (before pandas):")
+                st.code(csv_string_data)
+                # --- END DEBUGGING ---
 
                 if csv_string_data.strip(): # Only try to read if there's data
                     try:
