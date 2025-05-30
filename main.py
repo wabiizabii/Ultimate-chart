@@ -961,13 +961,14 @@ with st.expander("🤖 AI Assistant", expanded=True):
 with st.expander("📂 SEC 7: Ultimate Statement Import & Processing", expanded=True):
     st.markdown("### 📊 จัดการ Statement และข้อมูลดิบ")
 
-# --- ฟังก์ชันสำหรับแยกข้อมูลจากเนื้อหาไฟล์ Statement (CSV) ---
+    # --- ฟังก์ชันสำหรับแยกข้อมูลจากเนื้อหาไฟล์ Statement (CSV) ---
     # ฟังก์ชันนี้ถูกปรับปรุงให้รับเนื้อหาไฟล์ทั้งหมด (string) และแยกส่วนต่างๆ
     def extract_data_from_report_content(file_content):
-        extracted_data = {}
-        
+        extracted_data = {} # เยื้อง 4 ช่องว่าง
+
         # Define keywords for each section's header in the CSV report
-        section_headers = {
+        # These are the *exact* headers from the CSV file
+        section_raw_headers = {
             "Positions": "Time,Position,Symbol,Type,Volume,Price,S / L,T / P,Time,Price,Commission,Swap,Profit,",
             "Orders": "Open Time,Order,Symbol,Type,Volume,Price,S / L,T / P,Time,State,,Comment,,",
             "Deals": "Time,Deal,Symbol,Type,Direction,Volume,Price,Order,Commission,Fee,Swap,Profit,Balance,Comment",
@@ -975,51 +976,122 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Processing", expanded=
 
         lines = file_content.strip().split('\n')
         
-        current_section_name = None
-        current_section_lines = []
+        # List of section names in the order they appear in the file
+        section_order = ["Positions", "Orders", "Deals"]
         
-        # --- Pass 1: Identify and collect lines for each major table section (Positions, Orders, Deals) ---
-        for i, line in enumerate(lines):
-            line_stripped = line.strip()
-            
-            # Check for main table headers
-            found_table_header = False
-            for section_key, header_template in section_headers.items():
-                if section_key in ["Positions", "Orders", "Deals"]: # Only process table headers here
-                    if line_stripped.startswith(header_template.split(',')[0]) and \
-                       len(line_stripped.split(',')) >= (len(header_template.split(',')) - 2): # Allow slight variations
-                        if current_section_name and current_section_name in ["Positions", "Orders", "Deals"]:
-                            extracted_data[current_section_name] = "\n".join(current_section_lines)
-                        
-                        current_section_name = section_key
-                        current_section_lines = [line_stripped] # Include the header line
-                        found_table_header = True
-                        break
-            
-            if not found_table_header and current_section_name and current_section_name in ["Positions", "Orders", "Deals"]:
-                current_section_lines.append(line_stripped)
+        # Find the start line indices for each section
+        section_start_indices = {}
+        for section_name, header_template in section_raw_headers.items():
+            # Find the line that *exactly* matches the header template
+            # or starts with the first part of the header and has similar column count
+            for i, line in enumerate(lines):
+                line_stripped = line.strip()
+                if line_stripped == header_template.strip() or \
+                   (line_stripped.startswith(header_template.split(',')[0]) and \
+                    len(line_stripped.split(',')) >= (len(header_template.split(',')) - 2) and \
+                    len(line_stripped.split(',')) <= (len(header_template.split(',')) + 2)
+                   ):
+                    section_start_indices[section_name] = i
+                    break
         
-        # Add the last collected table section
-        if current_section_name and current_section_name in ["Positions", "Orders", "Deals"]:
-            extracted_data[current_section_name] = "\n".join(current_section_lines)
+        # --- DEBUGGING: แสดง indices ที่เจอ ---
+        # st.write("DEBUG: section_start_indices found:", section_start_indices)
+        # --- END DEBUGGING ---
 
-        # --- Pass 2: Parse collected table sections into DataFrames ---
+        # Parse collected table sections into DataFrames
         dfs_output = {}
-        for section_key in ["Positions", "Orders", "Deals"]:
-            if section_key in extracted_data:
-                try:
-                    header_line = section_headers[section_key]
-                    csv_string_data = extracted_data[section_key]
+        for i, section_name in enumerate(section_order):
+            if section_name in section_start_indices:
+                start_idx = section_start_indices[section_name]
+                
+                # Determine end_idx (start of next section or end of file before summaries)
+                end_idx = len(lines)
+                for j in range(i + 1, len(section_order)):
+                    next_section_name = section_order[j]
+                    if next_section_name in section_start_indices:
+                        end_idx = section_start_indices[next_section_name]
+                        break
+                
+                # Collect lines for the current section
+                section_lines_raw = lines[start_idx:end_idx]
+                
+                # Clean up lines: filter out empty lines, report headers, and summary lines
+                table_lines = []
+                header_found = False
+                for line_num, line_val in enumerate(section_lines_raw):
+                    line_val_stripped = line_val.strip()
+                    if not line_val_stripped: # Skip blank lines
+                        continue
                     
-                    df = pd.read_csv(io.StringIO(csv_string_data), skipinitialspace=True)
-                    df.columns = df.columns.str.strip().str.replace(' / ', '_', regex=False).str.replace(' ', '_', regex=False)
-                    dfs_output[section_key.lower()] = df
-                except Exception as e:
-                    st.error(f"❌ Error parsing {section_key} section into DataFrame: {e}")
+                    # If this is the header line for the current section
+                    if line_val_stripped == section_raw_headers[section_name].strip() or \
+                       (line_val_stripped.startswith(section_raw_headers[section_name].split(',')[0]) and \
+                        len(line_val_stripped.split(',')) >= (len(section_raw_headers[section_name].split(',')) - 2)
+                       ):
+                        table_lines.append(line_val)
+                        header_found = True
+                        continue
+                    
+                    # After header, collect data lines. Stop if we hit a non-data line (e.g., summary start)
+                    if header_found:
+                        if line_val_stripped.startswith("Name:") or \
+                           line_val_stripped.startswith("Account:") or \
+                           line_val_stripped.startswith("Company:") or \
+                           line_val_stripped.startswith("Date:") or \
+                           line_val_stripped.startswith("Results") or \
+                           line_val_stripped.startswith("Balance:"):
+                           break # Stop collecting table data if it looks like a report header or summary
+                        
+                        table_lines.append(line_val) # Add data line
+                
+                csv_string_data = "\n".join(table_lines)
+
+                # DEBUG: Add this to see the CSV string being passed to pandas
+                # st.write(f"DEBUG: CSV string for {section_name}:")
+                # st.code(csv_string_data)
+
+                if csv_string_data.strip(): # Only try to read if there's data
+                    try:
+                        header_line_for_pd = section_raw_headers[section_name]
+                        df = pd.read_csv(io.StringIO(csv_string_data), skipinitialspace=True)
+                        
+                        # Clean column names (strip spaces, replace ' / ' with '_')
+                        df.columns = df.columns.str.strip().str.replace(' / ', '_', regex=False).str.replace(' ', '_', regex=False)
+                        
+                        # IMPORTANT: Rename specific columns if their names are duplicated or cause issues
+                        if section_name == "Positions":
+                            if 'Time_1' in df.columns: # Pandas might automatically rename duplicate 'Time' to 'Time.1'
+                                df.rename(columns={'Time_1': 'Close_Time'}, inplace=True)
+                            if 'Price_1' in df.columns: # Pandas might automatically rename duplicate 'Price' to 'Price.1'
+                                df.rename(columns={'Price_1': 'Close_Price'}, inplace=True)
+                            # Ensure 'S_L' and 'T_P' are correctly handled if they are not picked up due to header issue
+                            # Check if original 'S / L' and 'T / P' exist and were cleaned
+                            if 'S / L' in df.columns and 'S_L' not in df.columns:
+                                df.rename(columns={'S / L': 'S_L'}, inplace=True)
+                            if 'T / P' in df.columns and 'T_P' not in df.columns:
+                                df.rename(columns={'T / P': 'T_P'}, inplace=True)
+                            
+                        if section_name == "Orders":
+                            if 'Open_Time' not in df.columns and 'Open Time' in df.columns: # Ensure consistent 'Open_Time'
+                                df.rename(columns={'Open Time': 'Open_Time'}, inplace=True)
+                            if 'Time_1' in df.columns: # If pandas duplicated 'Time' due to implicit header issues
+                                df.rename(columns={'Time_1': 'Close_Time'}, inplace=True)
+                            # Ensure 'S_L' and 'T_P' are correctly handled if they are not picked up due to header issue
+                            if 'S / L' in df.columns and 'S_L' not in df.columns:
+                                df.rename(columns={'S / L': 'S_L'}, inplace=True)
+                            if 'T / P' in df.columns and 'T_P' not in df.columns:
+                                df.rename(columns={'T / P': 'T_P'}, inplace=True)
+                        
+                        dfs_output[section_name.lower()] = df
+                    except Exception as e:
+                        st.error(f"❌ Error parsing {section_name} section into DataFrame: {e}")
+                        dfs_output[section_key.lower()] = pd.DataFrame()
+                else:
+                    st.warning(f"No valid data lines found for {section_name} table in the uploaded file.")
                     dfs_output[section_key.lower()] = pd.DataFrame()
             else:
-                dfs_output[section_key.lower()] = pd.DataFrame() # Return empty if section not found
-
+                dfs_output[section_key.lower()] = pd.DataFrame() # Return empty if section not found in file
+        
         # --- Pass 3: Extract Balance Summary and Results Summary (non-table sections) ---
         balance_summary_dict = {}
         results_summary_dict = {}
@@ -1330,7 +1402,7 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Processing", expanded=
                 # Results Summary
                 if extracted_sections.get('results_summary'):
                     if save_results_summary_to_gsheets(extracted_sections['results_summary'], active_portfolio_id_for_actual, active_portfolio_name_for_actual, file_name_for_saving):
-                        st.success("บันทึก Results Summary ไปยังชีต 'StatementSummaries' สำเร็จ!")
+                        st.success("บันทึก Results Summary ไปยังชีท 'StatementSummaries' สำเร็จ!")
                     else: st.error("บันทึก Results Summary ไม่สำเร็จ.")
                 else: st.warning("ไม่พบข้อมูล Results Summary ใน Statement.")
 
