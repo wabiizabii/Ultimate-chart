@@ -856,27 +856,32 @@ with st.expander("🤖 AI Assistant", expanded=True):
             elif "⚠️" in msg or "📉" in msg: st.warning(msg)
             elif "🚨" in msg: st.error(msg)
             else: st.info(msg)
-
 # ===================== SEC 7: MAIN AREA - STATEMENT IMPORT & PROCESSING =======================
 with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", expanded=True):
     st.markdown("### 📊 จัดการ Statement และข้อมูลดิบ")
-
-    # ===================== SEC 7: MAIN AREA - STATEMENT IMPORT & PROCESSING =======================
-# ... (โค้ดส่วนอื่น ๆ ใน SEC 7 ของ mainขาดsum.py ยังคงเดิม) ...
-
     # --- ฟังก์ชันสำหรับแยกข้อมูลจากเนื้อหาไฟล์ Statement (CSV) ---
-    def extract_data_from_report_content(file_content):
-        # ... (ส่วนประกาศ extracted_data, section_raw_headers, expected_cleaned_columns, lines, section_order, section_start_indices คงเดิม) ...
-        # ... (ส่วนการประมวลผล dfs_output สำหรับ Positions, Orders, Deals คงเดิม) ...
+    def extract_data_from_report_content(file_content): # <--- ชื่อพารามิเตอร์ในฟังก์ชันนี้คือ file_content
+        extracted_data = {}
+        # ... (ส่วนประกาศ section_raw_headers, expected_cleaned_columns, section_order, section_start_indices ถ้ามี ก็ควรอยู่แถวนี้) ...
+
+        # !!! แก้ไขตรงนี้: เพิ่มการสร้างตัวแปร lines จาก file_content !!!
+        # ตรวจสอบให้แน่ใจว่าชื่อพารามิเตอร์ที่รับมา (file_content) ถูกต้อง
+        lines = file_content.strip().split('\n')
+
+        # ... (ส่วนการประมวลผล dfs_output สำหรับ Positions, Orders, Deals ถ้ามี ก็ควรอยู่แถวนี้ ก่อนจะใช้ lines สำหรับ summary) ...
 
         # --- Extract Balance Summary (Equity, Free Margin, etc.) ---
         balance_summary_dict = {}
         balance_start_line_idx = -1
+        # ตอนนี้ 'lines' ถูกกำหนดค่าแล้ว จึงสามารถใช้ใน for loop ได้
         for i, line in enumerate(lines):
             if line.strip().startswith("Balance:"):
                 balance_start_line_idx = i
                 break
-
+        # ... (โค้ดส่วนที่เหลือในการประมวลผล balance_summary_dict และ results_summary_dict) ...
+        
+        # อย่าลืม return ค่าที่ประมวลผลได้
+        # return extracted_data # หรือ dfs_output ตามที่คุณตั้งชื่อไว้
         if balance_start_line_idx != -1:
             # ใช้ logic เดิมในการ parse balance_summary_dict สำหรับส่วน "Balance:", "Credit Facility:", "Floating P/L:", "Equity:"
             # เนื่องจากส่วนนี้ค่อนข้างเฉพาะเจาะจงกับรูปแบบนั้น
