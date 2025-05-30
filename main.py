@@ -965,7 +965,7 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
     # --- ฟังก์ชันสำหรับแยกข้อมูลจากเนื้อหาไฟล์ Statement (CSV) ---
     # ฟังก์ชันนี้ถูกปรับปรุงให้รับเนื้อหาไฟล์ทั้งหมด (string) และแยกส่วนต่างๆ
     def extract_data_from_report_content(file_content):
-        extracted_data = {} # เยื้อง 4 ช่องว่าง
+        extracted_data = {}
 
         # Define raw headers from the CSV report for identification
         section_raw_headers = {
@@ -977,7 +977,8 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
         # Define expected clean column names for each section (Hardcoded for robust parsing)
         expected_cleaned_columns = {
             "Positions": ["Time", "Position", "Symbol", "Type", "Volume", "Price", "S_L", "T_P", "Close_Time", "Close_Price", "Commission", "Swap", "Profit"],
-            "Orders": ["Open_Time", "Order", "Symbol", "Type", "Volume", "Price", "S_L", "T_P", "Close_Time", "State", "Comment1", "Comment2", "Comment3"], # Handle extra commas in Comments
+            # ปรับ Orders เพื่อให้ Comment เป็นคอลัมน์เดียวและไม่มี Comment1, Comment2, Comment3
+            "Orders": ["Open_Time", "Order", "Symbol", "Type", "Volume", "Price", "S_L", "T_P", "Close_Time", "State", "Comment"],
             "Deals": ["Time", "Deal", "Symbol", "Type", "Direction", "Volume", "Price", "Order", "Commission", "Fee", "Swap", "Profit", "Balance", "Comment"],
         }
 
@@ -991,7 +992,12 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
         for section_name, header_template in section_raw_headers.items():
             for i, line in enumerate(lines):
                 line_stripped = line.strip()
+                # Remove trailing comma from header_template for more robust matching if it's just the header
+                header_template_no_trailing_comma = header_template.strip().rstrip(',')
+                
+                # Check for exact header match OR starting with the first part and having similar length
                 if line_stripped == header_template.strip() or \
+                   line_stripped == header_template_no_trailing_comma or \
                    (line_stripped.startswith(header_template.split(',')[0]) and \
                     len(line_stripped.split(',')) >= (len(header_template.split(',')) - 2) and \
                     len(line_stripped.split(',')) <= (len(header_template.split(',')) + 2)
@@ -999,13 +1005,10 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
                     section_start_indices[section_name] = i
                     break
         
-        # --- DEBUGGING: แสดง indices ที่เจอ ---
-        # st.write("DEBUG: section_start_indices found:", section_start_indices)
-        # --- END DEBUGGING ---
-
         dfs_output = {}
         # Parse collected table sections into DataFrames
         for i, section_name in enumerate(section_order):
+            section_key_lower = section_name.lower() # กำหนด section_key_lower ไว้ตั้งแต่ต้น
             if section_name in section_start_indices:
                 header_idx = section_start_indices[section_name]
                 
@@ -1020,59 +1023,75 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
                 # Extract raw lines for this section
                 raw_section_lines_block = lines[header_idx : end_idx]
                 
-                # --- Specific parsing for each table section ---
-                # This part now directly uses pd.read_csv with skiprows and names
-                
-                # Find the first data line (which is concatenated with header)
-                # It's at header_idx. We need to split this line.
-                
-                # Read the header line + first data line
-                first_line_of_block = raw_section_lines_block[0]
-                
-                # Use csv.reader to correctly split the first line of the block
-                try:
-                    # current_line_parts will contain parts like ['Time', 'Position', ..., 'Profit', '2025.05.02...', '7213', ...]
-                    current_line_parts = list(csv.reader(io.StringIO(first_line_of_block)))[0]
-                except Exception as e_csv_reader_first_line:
-                    st.error(f"❌ Critical Error: Could not parse the first line of '{section_name}' section with csv.reader: '{first_line_of_block.strip()}' ({e_csv_reader_first_line})")
-                    dfs_output[section_key.lower()] = pd.DataFrame()
-                    continue # Skip to next section if first line is broken
-
-                header_template_parts_count = len(section_raw_headers[section_name].split(','))
-
                 table_data_lines = []
-                if len(current_line_parts) > header_template_parts_count:
-                    # It's concatenated. Extract the data part.
-                    first_data_row_extracted = current_line_parts[header_template_parts_count:]
-                    table_data_lines.append(','.join(first_data_row_extracted)) # Add as a new row
-                
-                # Add all subsequent lines (from index 1 of raw_section_lines_block)
-                # Filter out lines that are not data lines (e.g., summary keywords, blank lines)
-                for line_val in raw_section_lines_block[1:]:
-                    line_val_stripped = line_val.strip()
-                    if not line_val_stripped: continue
+                # Attempt to parse the first line of the block
+                if raw_section_lines_block:
+                    first_line_of_block = raw_section_lines_block[0]
                     
-                    if line_val_stripped.startswith("Name:") or \
-                       line_val_stripped.startswith("Account:") or \
-                       line_val_stripped.startswith("Company:") or \
-                       line_val_stripped.startswith("Date:") or \
-                       line_val_stripped.startswith("Results") or \
-                       line_val_stripped.startswith("Balance:") or \
-                       line_val_stripped.startswith("Total Net Profit:"):
-                       break
-                    
-                    table_data_lines.append(line_val) # These are already clean data lines
+                    try:
+                        # Use csv.reader to correctly split the first line of the block.
+                        # Using a list comprehension to ensure it's iterable even if first_line_of_block is empty
+                        current_line_parts = next(csv.reader(io.StringIO(first_line_of_block)), [])
+                    except Exception as e_csv_reader_first_line:
+                        st.error(f"❌ Critical Error: Could not parse the first line of '{section_name}' section with csv.reader: '{first_line_of_block.strip()}' ({e_csv_reader_first_line})")
+                        dfs_output[section_key_lower] = pd.DataFrame()
+                        continue # Skip to next section if first line is broken
+
+                    header_template_parts_count = len(section_raw_headers[section_name].split(','))
+
+                    # Logic to determine if the first line contains data
+                    if len(current_line_parts) >= header_template_parts_count:
+                        # If the first line is concatenated (header + first data row)
+                        # We assume the data starts *after* the number of expected header parts
+                        # And potentially trim any extra parts that might come from bad parsing
+                        if len(current_line_parts) > header_template_parts_count:
+                            first_data_row_extracted = current_line_parts[header_template_parts_count:]
+                            table_data_lines.append(','.join(first_data_row_extracted))
+                        
+                        # Process subsequent lines (from index 1 of raw_section_lines_block)
+                        for line_val in raw_section_lines_block[1:]:
+                            line_val_stripped = line_val.strip()
+                            if not line_val_stripped: continue
+                            
+                            # Heuristic to stop processing if summary lines are encountered
+                            if line_val_stripped.startswith("Name:") or \
+                               line_val_stripped.startswith("Account:") or \
+                               line_val_stripped.startswith("Company:") or \
+                               line_val_stripped.startswith("Date:") or \
+                               line_val_stripped.startswith("Results") or \
+                               line_val_stripped.startswith("Balance:") or \
+                               line_val_stripped.startswith("Total Net Profit:"):
+                               break
+                            
+                            table_data_lines.append(line_val) # These are already clean data lines
+                    else:
+                        st.warning(f"Unexpected header or data format for '{section_name}' on the first line. Data extraction for this section might be incomplete.")
+                        # If the first line has fewer columns than the header template, it's likely just the header
+                        # So, data starts from the next line (raw_section_lines_block[1:])
+                        for line_val in raw_section_lines_block[1:]:
+                            line_val_stripped = line_val.strip()
+                            if not line_val_stripped: continue
+                            if line_val_stripped.startswith("Name:") or \
+                               line_val_stripped.startswith("Account:") or \
+                               line_val_stripped.startswith("Company:") or \
+                               line_val_stripped.startswith("Date:") or \
+                               line_val_stripped.startswith("Results") or \
+                               line_val_stripped.startswith("Balance:") or \
+                               line_val_stripped.startswith("Total Net Profit:"):
+                               break
+                            table_data_lines.append(line_val)
+
 
                 csv_string_data_to_parse = "\n".join(table_data_lines)
                 
                 # DEBUG: Add this to see the CSV string being passed to pandas
-                st.write(f"DEBUG: CSV string for {section_name} (before pandas):")
-                st.code(csv_string_data_to_parse)
+                if st.session_state.get("debug_statement_processing", False):
+                    st.write(f"DEBUG: CSV string for {section_name} (before pandas):")
+                    st.code(csv_string_data_to_parse)
 
                 if csv_string_data_to_parse.strip():
                     try:
                         # Use pandas to read the data. Provide column names explicitly.
-                        # header=None and skiprows=0 (default) or not specified means pandas reads from first line given, assuming no header.
                         df = pd.read_csv(io.StringIO(csv_string_data_to_parse),
                                          sep=',',
                                          names=expected_cleaned_columns[section_name], # Use hardcoded names
@@ -1081,24 +1100,44 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
                                          on_bad_lines='warn', # Warn but don't skip rows with errors
                                          engine='python') # Use Python engine for more flexibility
                         
-                        # Remove 'Empty' columns (from Orders section)
-                        df = df.loc[:, ~df.columns.str.startswith('Empty')]
+                        # Drop columns that are entirely empty or start with 'Unnamed' after initial parse
+                        df = df.dropna(axis=1, how='all')
+                        df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
+                        
+                        # Specific column cleanup for 'Orders' and 'Positions' (if columns are inconsistent)
+                        if section_name == "Orders":
+                            # Ensure 'Comment' column exists and consolidate if necessary
+                            if 'Comment1' in df.columns:
+                                df['Comment'] = df['Comment1'].fillna('') # Use Comment1 as base for Comment
+                                if 'Comment2' in df.columns:
+                                    df['Comment'] += ' ' + df['Comment2'].fillna('')
+                                if 'Comment3' in df.columns:
+                                    df['Comment'] += ' ' + df['Comment3'].fillna('')
+                                df.drop(columns=[col for col in ['Comment1', 'Comment2', 'Comment3'] if col in df.columns], inplace=True, errors='ignore')
+                            if 'Comment' not in df.columns:
+                                df['Comment'] = '' # Ensure Comment column always exists
 
-                        # Drop rows that are entirely empty or contain only NaN values after parsing
+                        # Ensure final DataFrame has the expected columns, add if missing
+                        # And reorder columns to match expected_cleaned_columns
+                        final_df_columns = pd.DataFrame(columns=expected_cleaned_columns[section_name])
+                        df = pd.concat([final_df_columns, df], ignore_index=True)
+                        df = df[expected_cleaned_columns[section_name]] # Reorder and select only expected columns
+
+                        # Drop rows that are entirely empty or contain only NaN values after all processing
                         df.dropna(how='all', inplace=True)
                         
-                        dfs_output[section_name.lower()] = df
-                    except ValueError as ve: # Catch if column count doesn't match names
-                        st.error(f"❌ Column mismatch error in {section_name}: {ve}. Expected {len(expected_cleaned_columns[section_name])} columns, got different count in data.")
-                        dfs_output[section_key.lower()] = pd.DataFrame()
+                        dfs_output[section_key_lower] = df
+                    except ValueError as ve: # Catch if column count doesn't match names (even after prep)
+                        st.error(f"❌ Column mismatch error in {section_name}: {ve}. Ensure expected_cleaned_columns is accurate.")
+                        dfs_output[section_key_lower] = pd.DataFrame()
                     except Exception as e:
                         st.error(f"❌ Error creating DataFrame for {section_name}: {e}")
-                        dfs_output[section_key.lower()] = pd.DataFrame()
+                        dfs_output[section_key_lower] = pd.DataFrame()
                 else:
                     st.warning(f"No valid data rows collected for {section_name} table in the uploaded file.")
-                    dfs_output[section_key.lower()] = pd.DataFrame()
+                    dfs_output[section_key_lower] = pd.DataFrame()
             else:
-                dfs_output[section_key.lower()] = pd.DataFrame() # Return empty if section not found in file
+                dfs_output[section_key_lower] = pd.DataFrame() # Return empty if section not found in file
         
         # --- Pass 3: Extract Balance Summary and Results Summary (non-table sections) ---
         balance_summary_dict = {}
@@ -1116,32 +1155,36 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
                 if not line_stripped:
                     break
                 
-                if line_stripped.startswith("Results"):
+                if line_stripped.startswith("Results") or line_stripped.startswith("Total Net Profit:"):
                     break
 
                 parts = [p.strip() for p in line_stripped.split(',')]
                 
                 def safe_float_convert(value_str):
                     try:
+                        # Remove spaces, thousands commas, and then convert
                         return float(value_str.replace(" ", "").replace(",", ""))
                     except ValueError:
                         return None
 
-                if parts[0].replace(":", "").strip() == "Balance" and len(parts) >= 2:
-                    balance_summary_dict["Balance"] = safe_float_convert(parts[1])
-                    if len(parts) >= 6 and parts[4].replace(":", "").strip() == "Free Margin":
-                        balance_summary_dict["Free_Margin"] = safe_float_convert(parts[5])
-                elif parts[0].replace(":", "").strip() == "Credit Facility" and len(parts) >= 2:
-                    balance_summary_dict["Credit_Facility"] = safe_float_convert(parts[1])
-                    if len(parts) >= 6 and parts[4].replace(":", "").strip() == "Margin":
-                        balance_summary_dict["Margin"] = safe_float_convert(parts[5])
-                elif parts[0].replace(":", "").strip() == "Floating P/L" and len(parts) >= 2:
-                    balance_summary_dict["Floating_P_L"] = safe_float_convert(parts[1])
-                    if len(parts) >= 6 and parts[4].replace(":", "").strip() == "Margin Level":
-                        balance_summary_dict["Margin_Level"] = safe_float_convert(parts[5].replace("%", ""))
-                elif parts[0].replace(":", "").strip() == "Equity" and len(parts) >= 2:
-                    balance_summary_dict["Equity"] = safe_float_convert(parts[1])
-        
+                # More robust parsing of Balance section lines
+                for part in parts:
+                    if ':' in part: # Example: "Balance: 10000.00"
+                        key_val = part.split(':', 1)
+                        key = key_val[0].strip().replace(" ", "_").replace(".", "")
+                        value_str = key_val[1].strip()
+                        if key:
+                            balance_summary_dict[key] = safe_float_convert(value_str.replace("%", ""))
+                    elif ' ' in part and len(part.split()) > 1: # Example: "Equity 10000.00" (no colon)
+                        # Split by the last space assuming "Key Value" format
+                        last_space_idx = part.rfind(' ')
+                        if last_space_idx != -1:
+                            key = part[:last_space_idx].strip().replace(" ", "_").replace(".", "")
+                            value_str = part[last_space_idx+1:].strip()
+                            if key:
+                                balance_summary_dict[key] = safe_float_convert(value_str.replace("%", ""))
+
+
         results_start_line_idx = -1
         for i, line in enumerate(lines):
             if line.strip().startswith("Results") or line.strip().startswith("Total Net Profit:"):
@@ -1149,45 +1192,102 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
                 break
         
         if results_start_line_idx != -1:
-            for i in range(results_start_line_idx + 1, len(lines)):
+            # We need to iterate from the results_start_line_idx itself for parsing the initial "Results" header
+            # and then continue to the next lines for key-value pairs
+            for i in range(results_start_line_idx, len(lines)):
                 line_stripped = lines[i].strip()
-                if not line_stripped:
-                    break
+                if not line_stripped or line_stripped.startswith("Average consecutive losses"):
+                    break # Stop at blank line or specific ending marker
                 
                 parts = [p.strip() for p in line_stripped.split(',')]
-                for k_idx in range(0, len(parts), 2):
-                    if k_idx + 1 < len(parts):
-                        key = parts[k_idx].replace(":", "").replace(" ", "_").replace(".", "").strip()
-                        value_str = parts[k_idx + 1].strip()
-                        
-                        if key:
-                            try:
-                                if '%' in value_str:
-                                    results_summary_dict[key] = float(value_str.replace('%', ''))
-                                elif '(' in value_str and ')' in value_str:
-                                    num_part = value_str.split('(')[0].strip()
-                                    results_summary_dict[key] = safe_float_convert(num_part)
-                                else:
-                                    results_summary_dict[key] = float(value_str)
-                            except ValueError:
-                                if "won %" in key and '(' in value_str:
-                                    try:
-                                        num_val_str = value_str.split('(')[0].strip()
-                                        results_summary_dict[key] = safe_float_convert(num_val_str)
-                                    except Exception:
-                                        results_summary_dict[key] = value_str
-                                elif "%" in value_str:
-                                    results_summary_dict[key] = safe_float_convert(value_str.replace("%", ""))
-                                else:
-                                    results_summary_dict[key] = value_str
+                
+                for part in parts:
+                    key = ""
+                    value_str = ""
+                    
+                    if ':' in part:
+                        key_val = part.split(':', 1)
+                        key = key_val[0].strip()
+                        value_str = key_val[1].strip()
+                    elif ' ' in part and len(part.split()) > 1: # Try to split by last space if no colon
+                        last_space_idx = part.rfind(' ')
+                        if last_space_idx != -1:
+                            key = part[:last_space_idx].strip()
+                            value_str = part[last_space_idx+1:].strip()
+                    
+                    if key:
+                        cleaned_key = key.replace("(", "").replace(")", "").replace("/", "_").replace("-", "_").replace(" ", "_").replace("__", "_").strip()
+                        # Specific handling for "won %" in key names
+                        if "won_" in cleaned_key and "won_%" not in cleaned_key:
+                            cleaned_key = cleaned_key.replace("won_", "won_%")
+                        # For "Total Net Profit" which might not have colon/space split
+                        if "TotalNetProfit" in cleaned_key:
+                            cleaned_key = "Total_Net_Profit"
 
-                if "Average consecutive losses" in line_stripped:
-                    break
+                        try:
+                            if '%' in value_str:
+                                results_summary_dict[cleaned_key] = float(value_str.replace('%', ''))
+                            elif '(' in value_str and ')' in value_str: # e.g., "0.00 (0.00%)"
+                                num_part = value_str.split('(')[0].strip()
+                                results_summary_dict[cleaned_key] = safe_float_convert(num_part)
+                            else:
+                                results_summary_dict[cleaned_key] = safe_float_convert(value_str)
+                        except ValueError:
+                            results_summary_dict[cleaned_key] = value_str # Keep as string if cannot convert
+                        except Exception as e_parse:
+                            st.warning(f"Could not parse results summary item '{part}': {e_parse}")
+                            results_summary_dict[cleaned_key] = value_str
 
         dfs_output['balance_summary'] = balance_summary_dict
         dfs_output['results_summary'] = results_summary_dict
 
         return dfs_output
+
+    # --- ฟังก์ชันสำหรับบันทึก Deals ลงในชีท ActualTrades ---
+    def save_deals_to_actual_trades(df_deals, portfolio_id, portfolio_name, source_file_name="N/A"):
+        gc = get_gspread_client()
+        if not gc: return False
+        try:
+            sh = gc.open(GOOGLE_SHEET_NAME)
+            ws = sh.worksheet(WORKSHEET_ACTUAL_TRADES)
+            expected_headers = [
+                "Time", "Deal", "Symbol", "Type", "Direction", "Volume", "Price", "Order",
+                "Commission", "Fee", "Swap", "Profit", "Balance", "Comment",
+                "PortfolioID", "PortfolioName", "SourceFile"
+            ]
+            
+            current_headers = []
+            if ws.row_count > 0: current_headers = ws.row_values(1)
+            if not current_headers or all(h == "" for h in current_headers): ws.append_row(expected_headers)
+
+            rows_to_append = []
+            for index, row in df_deals.iterrows():
+                row_data = {
+                    "Time": row.get("Time", ""),
+                    "Deal": row.get("Deal", ""),
+                    "Symbol": row.get("Symbol", ""),
+                    "Type": row.get("Type", ""),
+                    "Direction": row.get("Direction", ""),
+                    "Volume": row.get("Volume", ""),
+                    "Price": row.get("Price", ""),
+                    "Order": row.get("Order", ""),
+                    "Commission": row.get("Commission", ""),
+                    "Fee": row.get("Fee", ""),
+                    "Swap": row.get("Swap", ""),
+                    "Profit": row.get("Profit", ""),
+                    "Balance": row.get("Balance", ""),
+                    "Comment": row.get("Comment", ""),
+                    "PortfolioID": portfolio_id,
+                    "PortfolioName": portfolio_name,
+                    "SourceFile": source_file_name
+                }
+                rows_to_append.append([str(row_data.get(h, "")) for h in expected_headers])
+            if rows_to_append: ws.append_rows(rows_to_append, value_input_option='USER_ENTERED'); return True
+            return False
+        except gspread.exceptions.WorksheetNotFound:
+            st.error(f"❌ ไม่พบ Worksheet '{WORKSHEET_ACTUAL_TRADES}'. กรุณาสร้างและใส่ Headers: {', '.join(expected_headers)}")
+            return False
+        except Exception as e: st.error(f"❌ เกิดข้อผิดพลาดในการบันทึก Deals: {e}"); return False
 
     # --- ฟังก์ชันสำหรับบันทึก Positions ลงในชีท ActualPositions ---
     def save_positions_to_gsheets(df_positions, portfolio_id, portfolio_name, source_file_name="N/A"):
@@ -1293,8 +1393,8 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
                 "Balance_Drawdown_Absolute", "Balance_Drawdown_Maximal", 
                 "Balance_Drawdown_Maximal_Percent", "Balance_Drawdown_Relative", 
                 "Balance_Drawdown_Relative_Percent", "Total_Trades", 
-                "Short_Trades", "Short_Trades_won_%", "Long_Trades", 
-                "Long_Trades_won_%", "Profit_Trades", "Profit_Trades_Percent_of_total", 
+                "Short_Trades", "Short_Trades_won_Percent", "Long_Trades", 
+                "Long_Trades_won_Percent", "Profit_Trades", "Profit_Trades_Percent_of_total", 
                 "Loss_Trades", "Loss_Trades_Percent_of_total", "Largest_profit_trade", 
                 "Largest_loss_trade", "Average_profit_trade", "Average_loss_trade", 
                 "Maximum_consecutive_wins_Count", "Maximum_consecutive_wins_Profit", 
@@ -1318,11 +1418,20 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
             # Add all summary items from the dictionary
             for key, value in summary_dict.items():
                 # Clean up key names to match expected_headers (replace spaces, etc.)
-                cleaned_key = key.replace(" ", "_").replace("%", "Percent").replace("(won_%)", "won_%").replace("__", "_")
+                cleaned_key = key.replace(" ", "_").replace("%", "Percent").replace("(won_%)", "won_Percent").replace("__", "_").strip()
+                # For "Total Net Profit" which might not have colon/space split
+                if "TotalNetProfit" in cleaned_key:
+                    cleaned_key = "Total_Net_Profit"
+
                 if cleaned_key in expected_headers:
                     row_data[cleaned_key] = value
+                # else:
+                #     st.warning(f"Key '{cleaned_key}' from summary not found in expected headers for StatementSummaries.")
             
-            rows_to_append.append([str(row_data.get(h, "")) for h in expected_headers])
+            # Fill any missing expected headers with empty string to maintain column integrity
+            final_row_data = [str(row_data.get(h, "")) for h in expected_headers]
+
+            rows_to_append.append(final_row_data)
             
             if rows_to_append: ws.append_rows(rows_to_append, value_input_option='USER_ENTERED'); return True
             return False
@@ -1363,7 +1472,10 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
                 for section_name, data_item in extracted_sections.items():
                     st.write(f"#### {section_name.replace('_',' ').title()}")
                     if isinstance(data_item, pd.DataFrame):
-                        st.dataframe(data_item)
+                        if not data_item.empty:
+                            st.dataframe(data_item)
+                        else:
+                            st.info(f"DataFrame for {section_name.replace('_',' ').title()} is empty.")
                     else: # For balance_summary and results_summary (dictionaries)
                         st.json(data_item)
 
@@ -1428,6 +1540,375 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
     #             st.rerun()
     #         except Exception as e:
     #             st.error(f"❌ เกิดข้อผิดพลาดในการล้างชีต: {e}")
+# ===================== SEC 8: MAIN AREA - PERFORMANCE DASHBOARD =======================
+def load_data_for_dashboard(): # Function to select data source for dashboard
+    source_option = st.selectbox(
+        "เลือกแหล่งข้อมูลสำหรับแดชบอร์ด:",
+        ["Planned Trades (Google Sheets)", "Actual Trades (Statement Import)"],
+        index=0, # Default to planned trades
+        key="dashboard_source_selector"
+    )
+    
+    df_dashboard_data = pd.DataFrame()
+    if source_option == "Planned Trades (Google Sheets)":
+        # Load from Google Sheets 'PlannedTradeLogs'
+        gc_dash = get_gspread_client()
+        if gc_dash:
+            try:
+                sh_dash = gc_dash.open(GOOGLE_SHEET_NAME)
+                ws_dash_logs = sh_dash.worksheet(WORKSHEET_PLANNED_LOGS)
+                records_dash = ws_dash_logs.get_all_records()
+                if records_dash:
+                    df_dashboard_data = pd.DataFrame(records_dash)
+                    # Convert types for dashboard
+                    if 'Risk $' in df_dashboard_data.columns:
+                        df_dashboard_data['Profit'] = pd.to_numeric(df_dashboard_data['Risk $'], errors='coerce').fillna(0)
+                    if 'Timestamp' in df_dashboard_data.columns:
+                        df_dashboard_data['Time'] = pd.to_datetime(df_dashboard_data['Timestamp'], errors='coerce')
+                    if 'RR' in df_dashboard_data.columns: # Ensure RR is numeric
+                         df_dashboard_data['RR'] = pd.to_numeric(df_dashboard_data['RR'], errors='coerce')
+                    if 'Lot' in df_dashboard_data.columns: # Ensure Lot is numeric
+                         df_dashboard_data['Lot'] = pd.to_numeric(df_dashboard_data['Lot'], errors='coerce')
+                    # Rename columns for consistency if needed, e.g. Asset -> Symbol
+                    if 'Asset' in df_dashboard_data.columns:
+                        df_dashboard_data.rename(columns={'Asset': 'Symbol'}, inplace=True)
+
+            except Exception as e:
+                st.warning(f"ไม่สามารถโหลด Planned Trades สำหรับ Dashboard: {e}")
+        st.caption("ข้อมูลจากชีต 'PlannedTradeLogs'")
+
+    else: # Actual Trades (Statement Import)
+        df_dashboard_data = st.session_state.get('df_stmt_deals', pd.DataFrame()).copy()
+        # For actual trades, 'Profit' and 'Time' columns are usually standard from MT4/5 statements
+        # Ensure they are correctly named and typed after parsing.
+        # Example: if your parser names profit column 'Profit_USD', rename it to 'Profit'
+        # And convert 'Time' to datetime if it's not already.
+        if not df_dashboard_data.empty:
+            # Standardize column names from statement for dashboard
+            # This depends heavily on your statement parser output
+            rename_map = {} 
+            # Example common renames (ADAPT THESE TO YOUR ACTUAL STATEMENT PARSER OUTPUT)
+            for col in df_dashboard_data.columns:
+                col_lower = col.lower()
+                if 'profit' in col_lower and 'Profit' not in rename_map.values(): rename_map[col] = 'Profit'
+                if 'time' in col_lower and 'open time' not in col_lower and 'Time' not in rename_map.values(): rename_map[col] = 'Time' # Assuming general time is close time
+                if 'open time' in col_lower and 'Open Time' not in rename_map.values(): rename_map[col] = 'Open Time'
+                if 'symbol' in col_lower and 'Symbol' not in rename_map.values(): rename_map[col] = 'Symbol'
+                if 'volume' in col_lower or 'lots' in col_lower and 'Lot' not in rename_map.values(): rename_map[col] = 'Lot'
+                # Add more mappings as needed based on your statement format
+
+            df_dashboard_data.rename(columns=rename_map, inplace=True)
+
+            if 'Profit' in df_dashboard_data.columns:
+                df_dashboard_data['Profit'] = pd.to_numeric(df_dashboard_data['Profit'], errors='coerce').fillna(0)
+            if 'Time' in df_dashboard_data.columns: # Assuming 'Time' is close time
+                df_dashboard_data['Time'] = pd.to_datetime(df_dashboard_data['Time'], errors='coerce')
+            elif 'Open Time' in df_dashboard_data.columns: # Use Open Time if Close Time isn't available
+                 df_dashboard_data['Time'] = pd.to_datetime(df_dashboard_data['Open Time'], errors='coerce')
+            if 'Lot' in df_dashboard_data.columns:
+                df_dashboard_data['Lot'] = pd.to_numeric(df_dashboard_data['Lot'], errors='coerce').fillna(0)
+
+
+        st.caption("ข้อมูลจากไฟล์ Statement ที่อัปโหลด (Deals)")
+        
+    return df_dashboard_data
+
+
+with st.expander("📊 Performance Dashboard", expanded=True):
+    df_data_dash = load_data_for_dashboard() # Renamed variable
+
+    if df_data_dash.empty:
+        st.info("ยังไม่มีข้อมูลสำหรับ Dashboard หรือไม่สามารถโหลดข้อมูลได้")
+    else:
+        # Ensure essential columns exist before proceeding with tabs
+        required_cols_present = True
+        if 'Profit' not in df_data_dash.columns:
+            st.warning("ไม่พบคอลัมน์ 'Profit' ในข้อมูลสำหรับ Dashboard")
+            required_cols_present = False
+        if 'Time' not in df_data_dash.columns:
+            st.warning("ไม่พบคอลัมน์ 'Time' (หรือเทียบเท่า) ในข้อมูลสำหรับ Dashboard")
+            required_cols_present = False
+        
+        if not required_cols_present:
+            st.stop() # Stop rendering dashboard if essential data is missing
+
+        # --- Filters ---
+        st.markdown("#### ⚙️ Filters")
+        col_filter1, col_filter2 = st.columns(2)
+
+        with col_filter1: # Portfolio Filter
+            portfolio_col_name = None
+            if "Portfolio" in df_data_dash.columns and df_data_dash["Portfolio"].notna().any():
+                portfolio_col_name = "Portfolio"
+            elif "PortfolioName" in df_data_dash.columns and df_data_dash["PortfolioName"].notna().any(): # From Planned Logs
+                portfolio_col_name = "PortfolioName"
+            
+            if portfolio_col_name:
+                portfolio_list_dash = ["ทั้งหมด"] + sorted(df_data_dash[portfolio_col_name].dropna().unique().tolist())
+                selected_portfolio_dash = st.selectbox(
+                    "📂 Filter by Portfolio", portfolio_list_dash, key="dash_portfolio_filter"
+                )
+                if selected_portfolio_dash != "ทั้งหมด":
+                    df_data_dash = df_data_dash[df_data_dash[portfolio_col_name] == selected_portfolio_dash]
+            else:
+                st.selectbox("📂 Filter by Portfolio", ["- (ไม่มีข้อมูลพอร์ต)"], disabled=True, key="dash_portfolio_filter_disabled")
+        
+        with col_filter2: # Asset/Symbol Filter
+            symbol_col_name = None
+            if "Symbol" in df_data_dash.columns and df_data_dash["Symbol"].notna().any():
+                symbol_col_name = "Symbol"
+            
+            if symbol_col_name:
+                asset_list_dash = ["ทั้งหมด"] + sorted(df_data_dash[symbol_col_name].dropna().unique().tolist())
+                selected_asset_dash = st.selectbox(
+                    f"🎯 Filter by {symbol_col_name}", asset_list_dash, key="dash_asset_filter"
+                )
+                if selected_asset_dash != "ทั้งหมด":
+                    df_data_dash = df_data_dash[df_data_dash[symbol_col_name] == selected_asset_dash]
+            else:
+                st.selectbox("🎯 Filter by Asset/Symbol", ["- (ไม่มีข้อมูล Symbol)"], disabled=True, key="dash_asset_filter_disabled")
+        
+        st.markdown("---")
+
+        # --- Dashboard Tabs ---
+        tab_names = ["📊 Dashboard", "📈 RR Analysis", "📉 Lot Size", "🕒 Time Analysis", "🤖 AI Insight", "⬇️ Export"]
+        # Conditionally remove RR tab if RR column not present or not relevant for 'Actual Trades'
+        if 'RR' not in df_data_dash.columns and st.session_state.get("dashboard_source_selector") == "Actual Trades (Statement Import)":
+            # Or if 'RR' doesn't make sense for actual trades directly from statement
+            if "📈 RR Analysis" in tab_names: tab_names.remove("📈 RR Analysis")
+        
+        tabs = st.tabs(tab_names)
+        
+        with tabs[0]: # Dashboard Tab
+            st.markdown("### ⚖️ Win/Loss Ratio")
+            win_count_dash = df_data_dash[df_data_dash['Profit'] > 0].shape[0]
+            loss_count_dash = df_data_dash[df_data_dash['Profit'] <= 0].shape[0]
+            if win_count_dash + loss_count_dash > 0:
+                pie_df_dash = pd.DataFrame({"Result": ["Win", "Loss"], "Count": [win_count_dash, loss_count_dash]})
+                pie_chart_dash = px.pie(pie_df_dash, names="Result", values="Count", color="Result",
+                                        color_discrete_map={"Win": "mediumseagreen", "Loss": "indianred"}, title="Win vs Loss Trades")
+                st.plotly_chart(pie_chart_dash, use_container_width=True)
+            else:
+                st.info("ไม่มีข้อมูล Win/Loss เพียงพอสำหรับ Pie Chart")
+
+            st.markdown("### 🗓️ Daily Profit/Loss")
+            df_data_dash['TradeDate'] = df_data_dash['Time'].dt.date # Group by date part only
+            daily_pnl_df = df_data_dash.groupby("TradeDate")['Profit'].sum().reset_index(name="Daily P/L")
+            daily_bar_chart = px.bar(daily_pnl_df, x="TradeDate", y="Daily P/L", 
+                                     color="Daily P/L", title="กำไร/ขาดทุนรายวัน",
+                                     color_continuous_scale=["indianred", "lightgrey", "mediumseagreen"])
+            st.plotly_chart(daily_bar_chart, use_container_width=True)
+
+            st.markdown("### 📉 Balance Curve (Equity Timeline)")
+            df_data_dash_sorted = df_data_dash.sort_values(by="Time")
+            df_data_dash_sorted["Balance"] = acc_balance + df_data_dash_sorted['Profit'].cumsum() # Start with acc_balance
+            balance_curve_chart = px.line(df_data_dash_sorted, x="Time", y="Balance", markers=True, title="Balance Curve")
+            balance_curve_chart.update_traces(line_color='deepskyblue')
+            st.plotly_chart(balance_curve_chart, use_container_width=True)
+
+        # Conditional RR Tab
+        rr_tab_index = -1
+        if "📈 RR Analysis" in tab_names:
+            rr_tab_index = tab_names.index("📈 RR Analysis")
+        
+        if rr_tab_index != -1:
+            with tabs[rr_tab_index]:
+                if 'RR' in df_data_dash.columns and not df_data_dash['RR'].dropna().empty:
+                    rr_data_dash = df_data_dash['RR'].dropna()
+                    st.markdown("#### Risk:Reward Ratio (RR) Histogram")
+                    rr_hist = px.histogram(rr_data_dash, nbins=20, title="RR Distribution", labels={'value': 'RR Ratio'}, opacity=0.8)
+                    rr_hist.update_layout(bargap=0.1, xaxis_title='Risk:Reward Ratio', yaxis_title='จำนวนเทรด')
+                    rr_hist.update_traces(marker_color='cornflowerblue')
+                    st.plotly_chart(rr_hist, use_container_width=True)
+                    st.caption("วิเคราะห์การกระจายตัวของ RR. RR ที่สูงกว่า 1.5 หรือ 2 ถือว่าดี.")
+                else:
+                    st.info("ไม่พบข้อมูล RR หรือข้อมูลไม่เพียงพอสำหรับ Histogram นี้.")
+        
+        # Lot Size Tab
+        lot_tab_index = tab_names.index("📉 Lot Size")
+        with tabs[lot_tab_index]:
+            if 'Lot' in df_data_dash.columns and not df_data_dash['Lot'].dropna().empty:
+                st.markdown("#### Lot Size Over Time")
+                # Ensure data is sorted by time for line chart
+                lot_df_sorted = df_data_dash.dropna(subset=['Lot', 'Time']).sort_values(by="Time")
+                lot_line_chart = px.line(lot_df_sorted, x="Time", y="Lot", markers=True, title="Lot Size Evolution")
+                lot_line_chart.update_traces(line_color='goldenrod')
+                st.plotly_chart(lot_line_chart, use_container_width=True)
+                st.caption("ติดตามการเปลี่ยนแปลงของ Lot Size เพื่อวิเคราะห์ Money Management และ Scaling.")
+            else:
+                st.info("ไม่พบข้อมูล Lot Size หรือข้อมูลไม่เพียงพอ.")
+
+        # Time Analysis Tab
+        time_analysis_tab_index = tab_names.index("🕒 Time Analysis")
+        with tabs[time_analysis_tab_index]:
+            st.markdown("#### Performance by Day of Week")
+            df_data_dash['Weekday'] = df_data_dash['Time'].dt.day_name()
+            weekday_order = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+            weekday_pnl = df_data_dash.groupby("Weekday")['Profit'].sum().reindex(weekday_order).reset_index()
+            weekday_chart = px.bar(weekday_pnl, x="Weekday", y="Profit", title="Total P/L by Day of Week", color="Profit",
+                                   color_continuous_scale=["tomato", "lightgoldenrodyellow", "lightgreen"])
+            st.plotly_chart(weekday_chart, use_container_width=True)
+            st.caption("ดูว่าวันไหนในสัปดาห์ที่มักทำกำไรหรือขาดทุน.")
+
+        # AI Insight Tab
+        ai_insight_tab_index = tab_names.index("🤖 AI Insight")
+        with tabs[ai_insight_tab_index]:
+            st.markdown("### AI Insight & Recommendation (Dashboard Data)")
+            # Simplified AI prompt based on aggregated dashboard data
+            total_trades_dash_ai = df_data_dash.shape[0]
+            winrate_dash_ai = (win_count_dash / total_trades_dash_ai * 100) if total_trades_dash_ai > 0 else 0
+            gross_profit_dash_ai = df_data_dash['Profit'].sum()
+            
+            st.write(f"Trades in current view: {total_trades_dash_ai}")
+            st.write(f"Winrate: {winrate_dash_ai:.2f}%")
+            st.write(f"Net Profit: {gross_profit_dash_ai:,.2f} USD")
+            
+            # You can add more stats here for the AI prompt
+
+            # Gemini AI call (ensure API key is set in secrets)
+            try:
+                if "google_api" in st.secrets and "GOOGLE_API_KEY" in st.secrets.google_api:
+                    genai.configure(api_key=st.secrets.google_api.GOOGLE_API_KEY)
+                    model_gemini = genai.GenerativeModel('gemini-pro')
+                    prompt_text_dash = (
+                        f"Analyze this trading performance: Total trades: {total_trades_dash_ai}, "
+                        f"Winrate: {winrate_dash_ai:.2f}%, Net Profit/Loss: {gross_profit_dash_ai:,.2f} USD. "
+                        f"Provide concise trading insights and recommendations for improvement. "
+                        f"What are potential strengths and weaknesses? Focus on practical advice. Respond in Thai."
+                    )
+                    with st.spinner("🤖 Gemini AI กำลังวิเคราะห์ข้อมูล Dashboard..."):
+                        response_gemini = model_gemini.generate_content(prompt_text_dash)
+                    st.markdown("---")
+                    st.markdown("**มุมมองจาก Gemini AI:**")
+                    st.write(response_gemini.text)
+                else:
+                    st.info("โปรดตั้งค่า Google API Key ใน `secrets.toml` (ใต้ `[google_api]`) เพื่อเปิดใช้งาน AI Assistant จาก Gemini.")
+            except Exception as e_gemini:
+                st.error(f"❌ เกิดข้อผิดพลาดในการเรียกใช้ Gemini AI: {e_gemini}")
+
+        # Export Tab
+        export_tab_index = tab_names.index("⬇️ Export")
+        with tabs[export_tab_index]:
+            st.markdown("### 📄 Export Filtered Data")
+            if not df_data_dash.empty:
+                csv_export = df_data_dash.to_csv(index=False).encode('utf-8')
+                st.download_button(
+                    label="📥 Download Data as CSV",
+                    data=csv_export,
+                    file_name=f"dashboard_data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                    mime="text/csv",
+                )
+            else:
+                st.info("ไม่มีข้อมูลที่กรองไว้สำหรับ Export.")
+
+# ===================== SEC 9: MAIN AREA - TRADE LOG VIEWER =======================
+# --- ฟังก์ชันสำหรับโหลด Planned Trades จาก Google Sheets ---
+@st.cache_data(ttl=120) # Cache for 2 minutes
+def load_planned_trades_from_gsheets_for_viewer(): # Renamed to be specific
+    gc = get_gspread_client()
+    if gc is None: return pd.DataFrame()
+    try:
+        sh = gc.open(GOOGLE_SHEET_NAME)
+        worksheet = sh.worksheet(WORKSHEET_PLANNED_LOGS)
+        records = worksheet.get_all_records()
+        if not records: return pd.DataFrame()
+        
+        df_logs_viewer = pd.DataFrame(records)
+        if 'Timestamp' in df_logs_viewer.columns:
+            df_logs_viewer['Timestamp'] = pd.to_datetime(df_logs_viewer['Timestamp'], errors='coerce')
+        
+        # Ensure numeric columns are correctly typed for display, handle empty strings
+        cols_to_numeric_log_viewer = ['Risk %', 'Entry', 'SL', 'TP', 'Lot', 'Risk $', 'RR']
+        for col_viewer in cols_to_numeric_log_viewer:
+            if col_viewer in df_logs_viewer.columns:
+                df_logs_viewer[col_viewer] = pd.to_numeric(df_logs_viewer[col_viewer].astype(str).str.replace('', 'NaN', regex=False), errors='coerce')
+        
+        return df_logs_viewer.sort_values(by="Timestamp", ascending=False) if 'Timestamp' in df_logs_viewer.columns else df_logs_viewer
+    except gspread.exceptions.WorksheetNotFound:
+        st.error(f"❌ Log Viewer: ไม่พบ Worksheet '{WORKSHEET_PLANNED_LOGS}'.")
+        return pd.DataFrame()
+    except Exception as e_log_viewer:
+        st.error(f"❌ Log Viewer: เกิดข้อผิดพลาดในการโหลด Log - {e_log_viewer}")
+        return pd.DataFrame()
+
+with st.expander("📚 Trade Log Viewer (แผนเทรดจาก Google Sheets)", expanded=False):
+    df_log_viewer_gs = load_planned_trades_from_gsheets_for_viewer()
+
+    if df_log_viewer_gs.empty:
+        st.info("ยังไม่มีข้อมูลแผนที่บันทึกไว้ใน Google Sheets หรือ Worksheet 'PlannedTradeLogs' ว่างเปล่า.")
+    else:
+        df_show_log_viewer = df_log_viewer_gs.copy()
+
+        # --- Filters for Log Viewer ---
+        log_filter_cols = st.columns(4)
+        with log_filter_cols[0]:
+            portfolios_in_log = ["ทั้งหมด"] + sorted(df_show_log_viewer["PortfolioName"].dropna().unique().tolist()) if "PortfolioName" in df_show_log_viewer else ["ทั้งหมด"]
+            portfolio_filter_log = st.selectbox("Portfolio", portfolios_in_log, key="log_viewer_portfolio_filter")
+        with log_filter_cols[1]:
+            modes_in_log = ["ทั้งหมด"] + sorted(df_show_log_viewer["Mode"].dropna().unique().tolist()) if "Mode" in df_show_log_viewer else ["ทั้งหมด"]
+            mode_filter_log = st.selectbox("Mode", modes_in_log, key="log_viewer_mode_filter")
+        with log_filter_cols[2]:
+            assets_in_log = ["ทั้งหมด"] + sorted(df_show_log_viewer["Asset"].dropna().unique().tolist()) if "Asset" in df_show_log_viewer else ["ทั้งหมด"]
+            asset_filter_log = st.selectbox("Asset", assets_in_log, key="log_viewer_asset_filter")
+        with log_filter_cols[3]:
+            date_filter_log = None
+            if 'Timestamp' in df_show_log_viewer.columns and not df_show_log_viewer['Timestamp'].isnull().all():
+                 date_filter_log = st.date_input("ค้นหาวันที่ (Log)", value=None, key="log_viewer_date_filter", help="เลือกวันที่เพื่อกรอง Log")
+
+
+        # --- Apply Filters ---
+        if portfolio_filter_log != "ทั้งหมด" and "PortfolioName" in df_show_log_viewer:
+            df_show_log_viewer = df_show_log_viewer[df_show_log_viewer["PortfolioName"] == portfolio_filter_log]
+        if mode_filter_log != "ทั้งหมด" and "Mode" in df_show_log_viewer:
+            df_show_log_viewer = df_show_log_viewer[df_show_log_viewer["Mode"] == mode_filter_log]
+        if asset_filter_log != "ทั้งหมด" and "Asset" in df_show_log_viewer:
+            df_show_log_viewer = df_show_log_viewer[df_show_log_viewer["Asset"] == asset_filter_log]
+        if date_filter_log and 'Timestamp' in df_show_log_viewer:
+            df_show_log_viewer = df_show_log_viewer[df_show_log_viewer["Timestamp"].dt.date == date_filter_log]
+        
+        # Displaying the filtered log
+        # st.dataframe(df_show_log_viewer, use_container_width=True, hide_index=True)
+        
+        # Display with Plot button (more interactive)
+        st.markdown("---")
+        st.markdown("**Log Details & Actions:**")
+        
+        # Define columns to display and their headers
+        cols_to_display = {
+            "Timestamp": "Timestamp", "PortfolioName": "Portfolio", "Asset": "Asset",
+            "Mode": "Mode", "Direction": "Direction", "Entry": "Entry", "SL": "SL", "TP": "TP",
+            "Lot": "Lot", "Risk $": "Risk $" , "RR": "RR"
+        }
+        # Filter out columns not present in the DataFrame
+        actual_cols_to_display = {k:v for k,v in cols_to_display.items() if k in df_show_log_viewer.columns}
+        
+        num_display_cols = len(actual_cols_to_display)
+        header_display_cols = st.columns(num_display_cols + 1) # +1 for Action button
+
+        for i, (col_key, col_name) in enumerate(actual_cols_to_display.items()):
+            header_display_cols[i].markdown(f"**{col_name}**")
+        header_display_cols[num_display_cols].markdown(f"**Action**")
+
+
+        for index_log, row_log in df_show_log_viewer.iterrows():
+            row_display_cols = st.columns(num_display_cols + 1)
+            for i, col_key in enumerate(actual_cols_to_display.keys()):
+                val = row_log.get(col_key, "-")
+                if isinstance(val, float): # Format floats nicely
+                    row_display_cols[i].write(f"{val:.2f}" if not np.isnan(val) else "-")
+                elif isinstance(val, pd.Timestamp):
+                    row_display_cols[i].write(val.strftime("%Y-%m-%d %H:%M") if pd.notnull(val) else "-")
+                else:
+                    row_display_cols[i].write(str(val) if pd.notnull(val) and str(val).strip() != "" else "-")
+
+            if row_display_cols[num_display_cols].button(f"📈 Plot", key=f"plot_log_{row_log.get('LogID', index_log)}"):
+                st.session_state['plot_data'] = row_log.to_dict()
+                st.success(f"เลือกข้อมูลเทรด '{row_log.get('Asset', '-')}' ที่ Entry '{row_log.get('Entry', '-')}' เตรียมพร้อมสำหรับ Plot บน Chart Visualizer!")
+                st.rerun()
+        
+        if 'plot_data' in st.session_state and st.session_state['plot_data']:
+            st.sidebar.success(f"ข้อมูลพร้อม Plot: {st.session_state['plot_data'].get('Asset')} @ {st.session_state['plot_data'].get('Entry')}")
+            st.sidebar.json(st.session_state['plot_data'], expanded=False)
 # ===================== SEC 8: MAIN AREA - PERFORMANCE DASHBOARD =======================
 def load_data_for_dashboard(): # Function to select data source for dashboard
     source_option = st.selectbox(
