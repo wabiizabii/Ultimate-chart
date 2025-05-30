@@ -81,43 +81,74 @@ df_portfolios_gs = load_portfolios_from_gsheets()
 st.sidebar.markdown("---")
 st.sidebar.subheader("เลือกพอร์ตที่ใช้งาน (Active Portfolio)")
 
+# เพิ่มการตรวจสอบและกำหนดค่าเริ่มต้นที่แข็งแกร่งขึ้นสำหรับ session_state ของพอร์ต
+if 'active_portfolio_name_gs' not in st.session_state:
+    st.session_state.active_portfolio_name_gs = "" # ค่าเริ่มต้นเป็น string ว่าง
+if 'active_portfolio_id_gs' not in st.session_state:
+    st.session_state.active_portfolio_id_gs = None # ค่าเริ่มต้นเป็น None
+
+# สร้างรายการชื่อพอร์ตสำหรับ selectbox
+# ตรวจสอบว่า df_portfolios_gs ไม่ว่างเปล่าและมีคอลัมน์ 'PortfolioName' ก่อนที่จะดำเนินการ
+portfolio_names_list_gs = [""]
 if not df_portfolios_gs.empty and 'PortfolioName' in df_portfolios_gs.columns:
-    portfolio_names_list_gs = [""] + sorted(df_portfolios_gs['PortfolioName'].dropna().unique().tolist())
+    portfolio_names_list_gs.extend(sorted(df_portfolios_gs['PortfolioName'].dropna().unique().tolist()))
 
-    # --- เพิ่มการตรวจสอบและกำหนดค่าเริ่มต้นตรงนี้ ---
-    if 'active_portfolio_name_gs' not in st.session_state:
-        st.session_state.active_portfolio_name_gs = portfolio_names_list_gs[0] # กำหนดค่าเริ่มต้นเป็น "" (ตัวเลือกแรก)
-    # --- สิ้นสุดส่วนที่เพิ่ม ---
+# ตรวจสอบว่าค่าใน session_state ยังอยู่ใน options ที่มีอยู่หรือไม่
+if st.session_state.active_portfolio_name_gs not in portfolio_names_list_gs:
+    st.session_state.active_portfolio_name_gs = portfolio_names_list_gs[0] # ตั้งค่ากลับไปที่ตัวเลือกแรกหากไม่ถูกต้อง
 
-    current_active_portfolio_gs = st.session_state.get('active_portfolio_name_gs', portfolio_names_list_gs[0])
-    if current_active_portfolio_gs not in portfolio_names_list_gs:
-        st.session_state.active_portfolio_name_gs = portfolio_names_list_gs[0]
+selected_portfolio_name_gs = st.sidebar.selectbox(
+    "เลือกพอร์ต:",
+    options=portfolio_names_list_gs,
+    index=portfolio_names_list_gs.index(st.session_state.active_portfolio_name_gs),
+    key='sb_active_portfolio_selector_gs'
+)
 
-    selected_portfolio_name_gs = st.sidebar.selectbox(
-        "เลือกพอร์ต:",
-        options=portfolio_names_list_gs,
-        # บรรทัดที่ 92 (หรือใกล้เคียง) ที่เกิด Error
-        index=portfolio_names_list_gs.index(st.session_state.active_portfolio_name_gs),
-        key='sb_active_portfolio_selector_gs'
-    )
+# อัปเดต session_state เมื่อมีการเลือกพอร์ต
+if selected_portfolio_name_gs != "":
+    st.session_state.active_portfolio_name_gs = selected_portfolio_name_gs
+    # ดึง PortfolioID จาก DataFrame ที่โหลดมา
+    selected_portfolio_row = df_portfolios_gs[df_portfolios_gs['PortfolioName'] == selected_portfolio_name_gs]
+    if not selected_portfolio_row.empty and 'PortfolioID' in selected_portfolio_row.columns:
+        st.session_state.active_portfolio_id_gs = selected_portfolio_row['PortfolioID'].iloc[0]
+    else:
+        st.session_state.active_portfolio_id_gs = None
+        st.sidebar.warning("ไม่พบ PortfolioID สำหรับพอร์ตที่เลือก. กรุณาตรวจสอบข้อมูลในชีต 'Portfolios'.")
+else: # ถ้าเลือกตัวเลือกว่าง ("")
+    st.session_state.active_portfolio_name_gs = ""
+    st.session_state.active_portfolio_id_gs = None
 
-    # ... (โค้ดส่วนที่เหลือ) ...
-else:
+# แสดงกฎเกณฑ์ของพอร์ตที่เลือก
+if st.session_state.active_portfolio_name_gs and not df_portfolios_gs.empty:
+    current_portfolio_rules = df_portfolios_gs[df_portfolios_gs['PortfolioName'] == st.session_state.active_portfolio_name_gs]
+    if not current_portfolio_rules.empty:
+        st.sidebar.markdown(f"**💡 ข้อมูลพอร์ต '{st.session_state.active_portfolio_name_gs}'**")
+        # ตรวจสอบว่าคอลัมน์มีอยู่ก่อนแสดง
+        if 'InitialBalance' in current_portfolio_rules.columns:
+            st.sidebar.write(f"- **Initial Balance:** {current_portfolio_rules['InitialBalance'].iloc[0]:,.2f} USD")
+        if 'ProfitTargetPercent' in current_portfolio_rules.columns:
+            st.sidebar.write(f"- **Profit Target:** {current_portfolio_rules['ProfitTargetPercent'].iloc[0]:.1f}%")
+        if 'DailyLossLimitPercent' in current_portfolio_rules.columns:
+            st.sidebar.write(f"- **Daily Loss Limit:** {current_portfolio_rules['DailyLossLimitPercent'].iloc[0]:.1f}%")
+        if 'TotalStopoutPercent' in current_portfolio_rules.columns:
+            st.sidebar.write(f"- **Total Stopout:** {current_portfolio_rules['TotalStopoutPercent'].iloc[0]:.1f}%")
+        if 'Status' in current_portfolio_rules.columns:
+            st.sidebar.write(f"- **Status:** {current_portfolio_rules['Status'].iloc[0]}")
+    else:
+        st.sidebar.warning("ไม่พบรายละเอียดสำหรับพอร์ตที่เลือก.")
+elif df_portfolios_gs.empty:
     st.sidebar.warning("ไม่พบข้อมูล Portfolio ใน Google Sheets หรือเกิดข้อผิดพลาดในการโหลด.")
     st.sidebar.info("กรุณาเพิ่มข้อมูลในชีต 'Portfolios' และตรวจสอบการตั้งค่า Google Sheets.")
-    # หากไม่มีข้อมูล portfolio ก็ควรตั้งค่าเริ่มต้นให้ session_state ด้วย
-    st.session_state.active_portfolio_name_gs = "" # หรือ None ตามความเหมาะสม
-    st.session_state.active_portfolio_id_gs = None
 
 # --- UI for managing portfolios (can be enhanced later per Phase 4.1) ---
 # with st.expander("💼 จัดการพอร์ต (เพิ่ม/ดูพอร์ต)"):
-    # This section would need to be updated to interact with Google Sheets
-    # For now, managing portfolios is done directly in Google Sheets as per initial setup.
-    # st.info("การจัดการพอร์ต (เพิ่ม/แก้ไข) ทำได้โดยตรงใน Google Sheet 'Portfolios'")
-    # if not df_portfolios_gs.empty:
-    #     st.dataframe(df_portfolios_gs, use_container_width=True, hide_index=True)
-    # else:
-    #    st.info("ยังไม่มีข้อมูลพอร์ตใน Google Sheets")
+#     # This section would need to be updated to interact with Google Sheets
+#     # For now, managing portfolios is done directly in Google Sheets as per initial setup.
+#     # st.info("การจัดการพอร์ต (เพิ่ม/แก้ไข) ทำได้โดยตรงใน Google Sheet 'Portfolios'")
+#     # if not df_portfolios_gs.empty:
+#     #     st.dataframe(df_portfolios_gs, use_container_width=True, hide_index=True)
+#     # else:
+#     #    st.info("ยังไม่มีข้อมูลพอร์ตใน Google Sheets")
 
 # ========== Function Utility ==========
 # log_file = 'trade_log.csv' # This will be less used for planned trades.
