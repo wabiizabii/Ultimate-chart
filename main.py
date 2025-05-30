@@ -866,31 +866,31 @@ with st.expander("🤖 AI Assistant", expanded=True):
 with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", expanded=True):
     st.markdown("### 📊 จัดการ Statement และข้อมูลดิบ")
 
-    # --- ฟังก์ชันสำหรับแยกข้อมูลจากเนื้อหาไฟล์ Statement (CSV) ---
-    def extract_data_from_report_content(file_content):
-        extracted_data = {}
+def extract_data_from_report_content(file_content):
+    extracted_data = {}
 
-        # Define raw headers from the CSV report for identification
-        # ปรับ Orders header ให้ตรงกับรูปแบบ MT4/5 ที่มี Comment อยู่ท้ายสุด และไม่มีคอมม่าที่ไม่จำเป็น
-        # **ปรับปรุง Comments ใน Headers ให้ยืดหยุ่นขึ้น (จาก debug.txt)**
-        section_raw_headers = {
-            "Positions": "Time,Position,Symbol,Type,Volume,Price,S / L,T / P,Time,Price,Commission,Swap,Profit,", # มีคอมม่าท้าย
-            "Orders": "Open Time,Order,Symbol,Type,Volume,Price,S / L,T / P,Time,State,,Comment,,", # มีคอมม่าท้าย 2 ตัว
-            "Deals": "Time,Deal,Symbol,Type,Direction,Volume,Price,Order,Commission,Fee,Swap,Profit,Balance,Comment", # ไม่มีคอมม่าท้าย
-        }
-        
-        # Define expected clean column names for each section (Hardcoded for robust parsing)
-        expected_cleaned_columns = {
-            "Positions": ["Time", "Position", "Symbol", "Type", "Volume", "Price", "S_L", "T_P", "Close_Time", "Close_Price", "Commission", "Swap", "Profit"],
-            # ปรับ Orders: เพิ่ม Empty1, Empty2 เพื่อให้ Pandas อ่านได้ครบ และลบออกหลังรวม Comment
-            "Orders": ["Open_Time", "Order", "Symbol", "Type", "Volume", "Price", "S_L", "T_P", "Close_Time", "State", "Empty1", "Comment", "Empty2"], 
-            "Deals": ["Time", "Deal", "Symbol", "Type", "Direction", "Volume", "Price", "Order", "Commission", "Fee", "Swap", "Profit", "Balance", "Comment"],
-        }
+    # --- แบ่งบรรทัดก่อน แล้วดึง Orders แถวเปล่าออก ---
+    lines = file_content.strip().split('\n')
+    if lines and lines[0].strip().startswith("Orders"):
+        lines.pop(0)
 
-        lines = file_content.strip().split('\n')
-        
-        if lines and lines[0].startswith("Orders"):
-            lines.pop(0)
+    # --- กำหนด raw headers ตามเดิม ---
+    section_raw_headers = {
+        "Positions": "Time,Position,Symbol,Type,Volume,Price,S / L,T / P,Time,Price,Commission,Swap,Profit,",
+        "Orders":    "Open Time,Order,Symbol,Type,Volume,Price,S / L,T / P,Time,State,,Comment,,",
+        "Deals":     "Time,Deal,Symbol,Type,Direction,Volume,Price,Order,Commission,Fee,Swap,Profit,Balance,Comment",
+    }
+
+    expected_cleaned_columns = {
+        "Positions": ["Time", "Position", "Symbol", "Type", "Volume", "Price", "S_L", "T_P", "Close_Time", "Close_Price", "Commission", "Swap", "Profit"],
+        "Orders":    ["Open_Time", "Order", "Symbol", "Type", "Volume", "Price", "S_L", "T_P", "Close_Time", "State", "Empty1", "Comment", "Empty2"],
+        "Deals":     ["Time", "Deal", "Symbol", "Type", "Direction", "Volume", "Price", "Order", "Commission", "Fee", "Swap", "Profit", "Balance", "Comment"],
+    }
+
+    section_order = ["Positions", "Orders", "Deals"]
+
+    # … โค้ดเดิมที่เหลือของคุณต่อจากนี้ …
+
         
         section_order = ["Positions", "Orders", "Deals"]
         
