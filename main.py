@@ -1033,84 +1033,100 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Processing", expanded=
             else:
                 dfs_output[section_key.lower()] = pd.DataFrame() # Return empty if section not found
 
-        # --- Pass 3: Extract Balance Summary and Results Summary (non-table sections) ---
-        balance_summary_dict = {}
-        results_summary_dict = {}
-        
-        in_balance_section = False
-        in_results_section = False
-        
-        # Find start of balance summary
-        balance_start_line_idx = -1
-        for i, line in enumerate(lines):
-            if line.strip().startswith("Balance:"):
-                balance_start_line_idx = i
+     # --- Pass 3: Extract Balance Summary and Results Summary (non-table sections) ---
+    balance_summary_dict = {}
+    results_summary_dict = {}
+
+    # Find start of balance summary
+    balance_start_line_idx = -1
+    for i, line in enumerate(lines):
+        if line.strip().startswith("Balance:"):
+            balance_start_line_idx = i
+            break
+
+    if balance_start_line_idx != -1:
+        for i in range(balance_start_line_idx, len(lines)):
+            line_stripped = lines[i].strip()
+            if not line_stripped: # Stop at first blank line
                 break
 
-        if balance_start_line_idx != -1:
-            for i in range(balance_start_line_idx, len(lines)):
-                line_stripped = lines[i].strip()
-                if not line_stripped: # Stop at first blank line
-                    break
-                
-                # Check for "Results" keyword, if found, it's end of balance summary
-                if line_stripped.startswith("Results"):
-                    break # Stop parsing balance if results section starts
+            # Check for "Results" keyword, if found, it's end of balance summary
+            if line_stripped.startswith("Results"):
+                break # Stop parsing balance if results section starts
 
-                parts = [p.strip() for p in line_stripped.split(',')]
-                
-                # Parse Balance, Free Margin, Credit Facility, Margin, Floating P/L, Margin Level, Equity
-                if parts[0].replace(":", "").strip() == "Balance" and len(parts) >= 2:
-                    balance_summary_dict["Balance"] = float(parts[1].replace(" ", ""))
-                    if len(parts) >= 6 and parts[4].replace(":", "").strip() == "Free Margin":
-                        balance_summary_dict["Free_Margin"] = float(parts[5].replace(" ", ""))
-                elif parts[0].replace(":", "").strip() == "Credit Facility" and len(parts) >= 2:
-                    balance_summary_dict["Credit_Facility"] = float(parts[1].replace(" ", ""))
-                    if len(parts) >= 6 and parts[4].replace(":", "").strip() == "Margin":
-                        balance_summary_dict["Margin"] = float(parts[5].replace(" ", ""))
-                elif parts[0].replace(":", "").strip() == "Floating P/L" and len(parts) >= 2:
-                    balance_summary_dict["Floating_P_L"] = float(parts[1].replace(" ", ""))
-                    if len(parts) >= 6 and parts[4].replace(":", "").strip() == "Margin Level":
-                        balance_summary_dict["Margin_Level"] = float(parts[5].replace("%", "").replace(" ", ""))
-                elif parts[0].replace(":", "").strip() == "Equity" and len(parts) >= 2:
-                    balance_summary_dict["Equity"] = float(parts[1].replace(" ", ""))
-        
-        # Find start of results summary
-        results_start_line_idx = -1
-        for i, line in enumerate(lines):
-            if line.strip().startswith("Results"):
-                results_start_line_idx = i
+            parts = [p.strip() for p in line_stripped.split(',')]
+
+            # Helper function to safely convert to float
+            def safe_float_convert(value_str):
+                try:
+                    return float(value_str.replace(" ", "").replace(",", "")) # Also remove commas
+                except ValueError:
+                    return None # Return None if conversion fails
+
+            # Parse Balance, Free Margin, Credit Facility, Margin, Floating P/L, Margin Level, Equity
+            if parts[0].replace(":", "").strip() == "Balance" and len(parts) >= 2:
+                balance_summary_dict["Balance"] = safe_float_convert(parts[1])
+                if len(parts) >= 6 and parts[4].replace(":", "").strip() == "Free Margin":
+                    balance_summary_dict["Free_Margin"] = safe_float_convert(parts[5])
+            elif parts[0].replace(":", "").strip() == "Credit Facility" and len(parts) >= 2:
+                balance_summary_dict["Credit_Facility"] = safe_float_convert(parts[1])
+                if len(parts) >= 6 and parts[4].replace(":", "").strip() == "Margin":
+                    balance_summary_dict["Margin"] = safe_float_convert(parts[5])
+            elif parts[0].replace(":", "").strip() == "Floating P/L" and len(parts) >= 2:
+                balance_summary_dict["Floating_P_L"] = safe_float_convert(parts[1])
+                if len(parts) >= 6 and parts[4].replace(":", "").strip() == "Margin Level":
+                    balance_summary_dict["Margin_Level"] = safe_float_convert(parts[5].replace("%", "")) # Remove % before conversion
+            elif parts[0].replace(":", "").strip() == "Equity" and len(parts) >= 2:
+                balance_summary_dict["Equity"] = safe_float_convert(parts[1])
+
+    # Find start of results summary
+    results_start_line_idx = -1
+    for i, line in enumerate(lines):
+        if line.strip().startswith("Results"):
+            results_start_line_idx = i
+            break
+
+    if results_start_line_idx != -1:
+        for i in range(results_start_line_idx + 1, len(lines)): # Start after "Results" line
+            line_stripped = lines[i].strip()
+            if not line_stripped: # Stop at first blank line
                 break
-        
-        if results_start_line_idx != -1:
-            for i in range(results_start_line_idx + 1, len(lines)): # Start after "Results" line
-                line_stripped = lines[i].strip()
-                if not line_stripped: # Stop at first blank line
-                    break
-                
-                # Assume results are key-value pairs separated by commas
-                parts = [p.strip() for p in line_stripped.split(',')]
-                for k_idx in range(0, len(parts), 2):
-                    if k_idx + 1 < len(parts):
-                        key = parts[k_idx].replace(":", "").replace(" ", "_").replace(".", "").strip() # Clean key
-                        value_str = parts[k_idx + 1].strip() # Get value string
-                        
-                        if key:
-                            try:
-                                # Attempt to convert to float. Handle percentages and values in parentheses.
-                                if '%' in value_str:
-                                    results_summary_dict[key] = float(value_str.replace('%', ''))
-                                elif '(' in value_str and ')' in value_str: # e.g., "1211.92 (11.46%)"
-                                    num_part = value_str.split('(')[0].strip()
-                                    results_summary_dict[key] = float(num_part)
-                                else:
-                                    results_summary_dict[key] = float(value_str)
-                            except ValueError:
+
+            # Assume results are key-value pairs separated by commas
+            parts = [p.strip() for p in line_stripped.split(',')]
+            for k_idx in range(0, len(parts), 2):
+                if k_idx + 1 < len(parts):
+                    key = parts[k_idx].replace(":", "").replace(" ", "_").replace(".", "").strip() # Clean key
+                    value_str = parts[k_idx + 1].strip() # Get value string
+
+                    if key:
+                        try:
+                            # Attempt to convert to float. Handle percentages and values in parentheses.
+                            if '%' in value_str:
+                                results_summary_dict[key] = float(value_str.replace('%', ''))
+                            elif '(' in value_str and ')' in value_str: # e.g., "1211.92 (11.46%)"
+                                num_part = value_str.split('(')[0].strip()
+                                results_summary_dict[key] = float(num_part)
+                            else:
+                                results_summary_dict[key] = float(value_str)
+                        except ValueError:
+                            # For cases like "Short Trades (won %)" where the value itself contains text.
+                            # Try to extract the number part from the string if possible.
+                            # Example: "43 (18.60%)" -> 43, "18.60%" -> 18.60
+                            if "won %" in key and '(' in value_str: # Specific handling for won %
+                                try:
+                                    num_val_str = value_str.split('(')[0].strip()
+                                    results_summary_dict[key] = safe_float_convert(num_val_str)
+                                except Exception:
+                                    results_summary_dict[key] = value_str # Fallback to string
+                            elif "%" in value_str: # if it's a percentage number
+                                results_summary_dict[key] = safe_float_convert(value_str.replace("%", ""))
+                            else:
                                 results_summary_dict[key] = value_str # Keep as string if conversion fails
-                
-                # Stop parsing results after "Average consecutive losses"
-                if "Average consecutive losses" in line_stripped:
-                    break
+
+            # Stop parsing results after "Average consecutive losses"
+            if "Average consecutive losses" in line_stripped:
+                break
 
         dfs_output['balance_summary'] = balance_summary_dict
         dfs_output['results_summary'] = results_summary_dict
