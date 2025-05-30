@@ -866,36 +866,51 @@ with st.expander("🤖 AI Assistant", expanded=True):
 with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", expanded=True):
     st.markdown("### 📊 จัดการ Statement และข้อมูลดิบ")
 
+d# --- ฟังก์ชันสำหรับแยกข้อมูลจากเนื้อหาไฟล์ Statement (CSV) ---
 def extract_data_from_report_content(file_content):
     extracted_data = {}
 
-    # --- แบ่งบรรทัดก่อน แล้วดึง Orders แถวเปล่าออก ---
+    # 1) แบ่งบรรทัดก่อน แล้วตัดบรรทัด "Orders,,,,…" ทิ้ง
     lines = file_content.strip().split('\n')
     if lines and lines[0].strip().startswith("Orders"):
         lines.pop(0)
 
-    # --- กำหนด raw headers ตามเดิม ---
+    # 2) นิยาม raw headers ตามเดิม
     section_raw_headers = {
         "Positions": "Time,Position,Symbol,Type,Volume,Price,S / L,T / P,Time,Price,Commission,Swap,Profit,",
         "Orders":    "Open Time,Order,Symbol,Type,Volume,Price,S / L,T / P,Time,State,,Comment,,",
-        "Deals":     "Time,Deal,Symbol,Type,Direction,Volume,Price,Order,Commission,Fee,Swap,Profit,Balance,Comment"
+        "Deals":     "Time,Deal,Symbol,Type,Direction,Volume,Price,Order,Commission,Fee,Swap,Profit,Balance,Comment",
     }
 
+    # 3) คอลัมน์ที่คาดหวังสำหรับแต่ละ section
     expected_cleaned_columns = {
-        "Positions": ["Time", "Position", "Symbol", "Type", "Volume", "Price", "S_L", "T_P", "Close_Time", "Close_Price", "Commission", "Swap", "Profit"],
-        "Orders":    ["Open_Time", "Order", "Symbol", "Type", "Volume", "Price", "S_L", "T_P", "Close_Time", "State", "Empty1", "Comment", "Empty2"],
-        "Deals":     ["Time", "Deal", "Symbol", "Type", "Direction", "Volume", "Price", "Order", "Commission", "Fee", "Swap", "Profit", "Balance", "Comment"]
+        "Positions": ["Time", "Position", "Symbol", "Type", "Volume", "Price",
+                      "S_L", "T_P", "Close_Time", "Close_Price", "Commission", "Swap", "Profit"],
+        "Orders":    ["Open_Time", "Order", "Symbol", "Type", "Volume", "Price",
+                      "S_L", "T_P", "Close_Time", "State", "Empty1", "Comment", "Empty2"],
+        "Deals":     ["Time", "Deal", "Symbol", "Type", "Direction", "Volume",
+                      "Price", "Order", "Commission", "Fee", "Swap", "Profit", "Balance", "Comment"],
     }
 
+    # 4) ลำดับ section ที่จะวนหา
     section_order = ["Positions", "Orders", "Deals"]
 
-    # … ต่อด้วยโค้ดเดิมของคุณ …
+    dfs_output = {}
+    for idx, section_name in enumerate(section_order):
+        # … (โค้ดเดิมที่วนหา header, extract block, ใช้ csv.reader, clean data, สร้าง DataFrame ฯลฯ) …
+        # ตัวอย่าง:
+        # header_idx = section_start_indices.get(section_name)
+        # raw_section_lines_block = lines[header_idx:end_idx]
+        # … จนถึง …
+        # dfs_output[section_name.lower()] = df
 
+    # 5) ส่วนสรุป Balance และ Results Summary (เดิม)
+    # … (โค้ดดึง balance_summary_dict, results_summary_dict) …
 
-    # … โค้ดเดิมที่เหลือของคุณต่อจากนี้ …
+    dfs_output['balance_summary'] = balance_summary_dict
+    dfs_output['results_summary'] = results_summary_dict
 
-        
-        section_order = ["Positions", "Orders", "Deals"]
+    return dfs_output
         
         # Find the start line indices for each section's header
         section_start_indices = {}
