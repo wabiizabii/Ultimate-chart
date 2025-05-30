@@ -65,11 +65,11 @@ def load_portfolios_from_gsheets():
         st.sidebar.error(f"❌ ไม่พบ Worksheet ชื่อ '{WORKSHEET_PORTFOLIOS}' ใน Google Sheet '{GOOGLE_SHEET_NAME}'.")
         st.sidebar.info(f"กรุณาสร้าง Worksheet ชื่อ '{WORKSHEET_PORTFOLIOS}' และใส่หัวคอลัมน์พร้อมข้อมูลตัวอย่าง")
         return pd.DataFrame()
-    except gspread.exceptions.APIError as e:
+    except gspread.exceptions.APIError as e: # ดักจับ APIError (รวมถึง Quota Exceeded)
         st.sidebar.error(f"❌ เกิดข้อผิดพลาดในการโหลด Portfolios (Google Sheets API Error): {e}")
         st.sidebar.info("⚠️ อาจเกิดจากการเรียกใช้ API บ่อยเกินไป. กรุณารอสักครู่แล้วลองโหลดหน้าใหม่.")
-        time.sleep(5)
-        st.experimental_rerun()
+        time.sleep(5) # หยุดพัก 5 วินาที
+        st.experimental_rerun() # ลอง rerun ใหม่
         return pd.DataFrame()
     except Exception as e:
         st.sidebar.error(f"❌ เกิดข้อผิดพลาดที่ไม่คาดคิดในการโหลด Portfolios: {e}")
@@ -784,7 +784,7 @@ with st.expander("🤖 AI Assistant", expanded=True):
     gc_ai = get_gspread_client()
     if gc_ai:
         try:
-            sh_ai = gc_ai.open(GOOGLE_SHEET_NAME)
+            sh_ai = gc.open(GOOGLE_SHEET_NAME)
             ws_ai_logs = sh_ai.worksheet(WORKSHEET_PLANNED_LOGS)
             records_ai = ws_ai_logs.get_all_records()
             if records_ai:
@@ -872,17 +872,17 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
 
         # Define raw headers from the CSV report for identification
         # ปรับ Orders header ให้ตรงกับรูปแบบ MT4/5 ที่มี Comment อยู่ท้ายสุด และไม่มีคอมม่าที่ไม่จำเป็น
-        # **ปรับปรุง Comments ใน Headers ให้ยืดหยุ่นขึ้น (จาก debug.txt)** [cite: 16]
+        # **ปรับปรุง Comments ใน Headers ให้ยืดหยุ่นขึ้น (จาก debug.txt)**
         section_raw_headers = {
             "Positions": "Time,Position,Symbol,Type,Volume,Price,S / L,T / P,Time,Price,Commission,Swap,Profit,", # มีคอมม่าท้าย
-            "Orders": "Open Time,Order,Symbol,Type,Volume,Price,S / L,T / P,Time,State,,Comment,,", # มีคอมม่าท้าย 2 ตัว [cite: 16]
+            "Orders": "Open Time,Order,Symbol,Type,Volume,Price,S / L,T / P,Time,State,,Comment,,", # มีคอมม่าท้าย 2 ตัว
             "Deals": "Time,Deal,Symbol,Type,Direction,Volume,Price,Order,Commission,Fee,Swap,Profit,Balance,Comment", # ไม่มีคอมม่าท้าย
         }
         
         # Define expected clean column names for each section (Hardcoded for robust parsing)
         expected_cleaned_columns = {
             "Positions": ["Time", "Position", "Symbol", "Type", "Volume", "Price", "S_L", "T_P", "Close_Time", "Close_Price", "Commission", "Swap", "Profit"],
-            # ปรับ Orders: เพิ่ม Comment1, Comment2, Comment3 เพื่อให้ Pandas อ่านได้ครบ และลบออกหลังรวม Comment
+            # ปรับ Orders: เพิ่ม Empty1, Empty2 เพื่อให้ Pandas อ่านได้ครบ และลบออกหลังรวม Comment
             "Orders": ["Open_Time", "Order", "Symbol", "Type", "Volume", "Price", "S_L", "T_P", "Close_Time", "State", "Empty1", "Comment", "Empty2"], 
             "Deals": ["Time", "Deal", "Symbol", "Type", "Direction", "Volume", "Price", "Order", "Commission", "Fee", "Swap", "Profit", "Balance", "Comment"],
         }
@@ -956,16 +956,19 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
                 # --- สร้าง Clean CSV String จากบรรทัดข้อมูล ---
                 data_lines_to_process = []
                 
+                # ตรวจสอบว่าบรรทัดแรกของ block มีข้อมูลติดมาด้วยหรือไม่
                 if len(current_line_parts_raw) >= header_template_parts_count:
-                    # ถ้าบรรทัดแรกมีข้อมูลติดมาด้วย
                     first_data_row_extracted = current_line_parts_raw[header_template_parts_count:]
-                    if any(p.strip() for p in first_data_row_extracted):
+                    if any(p.strip() for p in first_data_row_extracted): # เช็คว่ามีข้อมูลจริงๆ ไม่ใช่แค่คอมม่าว่างๆ
                         # นี่คือบรรทัดข้อมูลแรกจริงๆ
                         data_lines_to_process.append(current_line_parts_raw)
+                        # และข้อมูลจริงจะเริ่มจากบรรทัดถัดไปใน raw_section_lines_block
                         data_start_from_raw_block_idx = 1
                     else: # ถ้าไม่มีข้อมูลจริงๆ (อาจจะเป็นแค่ Header)
+                        # ข้อมูลจริงจะเริ่มจากบรรทัดถัดไปใน raw_section_lines_block
                         data_start_from_raw_block_idx = 1
                 else: # ถ้าบรรทัดแรกเป็นแค่ Header หรือสั้นกว่าที่คาด
+                    # ข้อมูลจริงจะเริ่มจากบรรทัดถัดไปใน raw_section_lines_block
                     data_start_from_raw_block_idx = 1
                 
                 # เพิ่มบรรทัดข้อมูลที่เหลือจาก raw_section_lines_block
@@ -994,24 +997,40 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
                         
                     # สำหรับ Orders และ Deals: จัดการ Comment field
                     if section_name in ["Orders", "Deals"]:
-                        # จำนวนคอลัมน์ก่อน Comment field
-                        core_cols_count = len(expected_cleaned_columns[section_name]) - 1 # ลบ Comment ออกไป 1 คอลัมน์
+                        # จำนวนคอลัมน์ก่อน Comment field (อ้างอิงจาก expected_cleaned_columns ที่มี Comment แยกแล้ว)
+                        # เช่น Orders มี 10 คอลัมน์แรก + Empty1 + Comment + Empty2 = 13
+                        # expected_cleaned_columns["Orders"] = ["Open_Time", ..., "State", "Empty1", "Comment", "Empty2"]
+                        # เราจะถือว่าคอลัมน์สุดท้ายของ expected_cleaned_columns คือ Comment หลัก
                         
-                        if len(parts) > core_cols_count:
-                            # ถ้ามีคอลัมน์เกินมา ส่วนที่เกินมาคือ Comment ที่มีคอมม่าข้างใน
-                            comment_parts = parts[core_cols_count:]
-                            # รวม Comment และใส่ Quote ครอบ
-                            quoted_comment = '"' + ' '.join(comment_parts).replace('"', '""') + '"'
-                            cleaned_parts = parts[:core_cols_count] + [quoted_comment]
-                            final_csv_rows.append(','.join(cleaned_parts))
+                        # แยกส่วน core columns และ potential comment columns
+                        core_cols_from_expected = expected_cleaned_columns[section_name][:-1] # เอาคอลัมน์ทั้งหมด ยกเว้น Comment สุดท้าย
+                        core_cols_count_actual_data = len(core_cols_from_expected) # จำนวนคอลัมน์หลักจริงๆ ที่ไม่มี Comment
+
+                        cleaned_parts_for_row = parts[:core_cols_count_actual_data]
+                        remaining_parts_for_comment = parts[core_cols_count_actual_data:]
+
+                        # สร้าง Comment string ที่ถูกต้อง
+                        # ถ้ามี Comment หลายส่วน ให้รวมกันและใส่ quote
+                        if remaining_parts_for_comment:
+                            quoted_comment = '"' + ' '.join(remaining_parts_for_comment).replace('"', '""') + '"'
+                            cleaned_parts_for_row.append(quoted_comment)
                         else:
-                            # ถ้าจำนวนคอลัมน์ปกติ หรือน้อยกว่าที่คาด ให้เติมค่าว่างถ้าจำเป็น
-                            # และใส่ quote ให้ Comment field ถ้ามี
-                            padded_parts = parts + [''] * (core_cols_count - len(parts)) # เติมให้ครบ core_cols_count
-                            if len(parts) > core_cols_count-1: # ตรวจสอบว่า Comment field เดิมมีอยู่ไหม
-                                if parts[core_cols_count-1].strip(): # ถ้า Comment field เดิมไม่ว่าง
-                                    padded_parts[core_cols_count-1] = '"' + padded_parts[core_cols_count-1].replace('"', '""') + '"'
-                            final_csv_rows.append(','.join(padded_parts))
+                            cleaned_parts_for_row.append('') # ถ้าไม่มี Comment ก็ใส่ string ว่าง
+                        
+                        # เติม Empty fields ที่อาจจะขาดไป (เฉพาะ Orders ที่มี Empty1, Empty2)
+                        if section_name == "Orders":
+                            # Orders มี 13 คอลัมน์ (10 core + Empty1 + Comment + Empty2)
+                            # ถ้า current parts มีแค่ 10 + 1 (comment รวมแล้ว)
+                            # เราต้องเติม Empty1 และ Empty2
+                            # ใน expected_cleaned_columns["Orders"] มี ["Empty1", "Comment", "Empty2"]
+                            # ดังนั้น ถ้า Parts มีแค่ 10 + 1 (Comment) ก็ต้องเติมอีก 2 ช่อง
+                            actual_parts_count_after_comment_merge = len(cleaned_parts_for_row) # 10 (core) + 1 (Comment)
+                            expected_parts_count_for_row = len(expected_cleaned_columns[section_name]) # 13
+                            
+                            if actual_parts_count_after_comment_merge < expected_parts_count_for_row:
+                                cleaned_parts_for_row.extend([''] * (expected_parts_count_for_row - actual_parts_count_after_comment_merge))
+                        
+                        final_csv_rows.append(','.join(cleaned_parts_for_row))
                     else: # สำหรับ Positions (หรือ Section อื่นๆ ที่ไม่มี Comment ซับซ้อน)
                         # ตรวจสอบความยาวของ parts และเติมให้ครบตาม expected_cols_len
                         padded_parts = parts + [''] * (expected_cols_len - len(parts))
@@ -1423,7 +1442,7 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
 
                 if extracted_sections.get('results_summary'):
                     if save_results_summary_to_gsheets(extracted_sections['results_summary'], active_portfolio_id_for_actual, active_portfolio_name_for_actual, file_name_for_saving):
-                        st.success("บันทึก Results Summary ไปยังชีท 'StatementSummaries' สำเร็จ!")
+                        st.success("บันทึก Results Summary ไปยังชีต 'StatementSummaries' สำเร็จ!")
                     else: st.error("บันทึก Results Summary ไม่สำเร็จ.")
                 else: st.warning("ไม่พบข้อมูล Results Summary ใน Statement.")
 
