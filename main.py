@@ -65,7 +65,7 @@ def load_portfolios_from_gsheets():
         st.sidebar.error(f"❌ ไม่พบ Worksheet ชื่อ '{WORKSHEET_PORTFOLIOS}' ใน Google Sheet '{GOOGLE_SHEET_NAME}'.")
         st.sidebar.info(f"กรุณาสร้าง Worksheet ชื่อ '{WORKSHEET_PORTFOLIOS}' และใส่หัวคอลัมน์พร้อมข้อมูลตัวอย่าง")
         return pd.DataFrame()
-    except gspread.exceptions.APIError as e:
+    except gspread.exceptions.APIError as e: # ดักจับ APIError (รวมถึง Quota Exceeded)
         st.sidebar.error(f"❌ เกิดข้อผิดพลาดในการโหลด Portfolios (Google Sheets API Error): {e}")
         st.sidebar.info("⚠️ อาจเกิดจากการเรียกใช้ API บ่อยเกินไป. กรุณารอสักครู่แล้วลองโหลดหน้าใหม่.")
         time.sleep(5) # หยุดพัก 5 วินาที
@@ -784,7 +784,7 @@ with st.expander("🤖 AI Assistant", expanded=True):
     gc_ai = get_gspread_client()
     if gc_ai:
         try:
-            sh_ai = gc_ai.open(GOOGLE_SHEET_NAME)
+            sh_ai = gc.open(GOOGLE_SHEET_NAME)
             ws_ai_logs = sh_ai.worksheet(WORKSHEET_PLANNED_LOGS)
             records_ai = ws_ai_logs.get_all_records()
             if records_ai:
@@ -903,19 +903,11 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
                 line_to_match = line_stripped.replace(" / ", "/").strip().rstrip(',')
 
                 # ตรวจสอบการ match ของ header
-                # สำหรับ "Orders" ให้ตรวจสอบว่าบรรทัดก่อนหน้าเป็น "Orders," ด้วย
-                if section_name == "Orders" and i > 0 and lines[i-1].strip().startswith("Orders,,,,,,,,"): # Check for the section name line
-                    if line_to_match.startswith(header_template_clean.split(',')[0]) and \
-                       len(line_to_match.split(',')) >= (len(header_template_clean.split(',')) - 2) and \
-                       len(line_to_match.split(',')) <= (len(header_template_clean.split(',')) + 3):
-                        section_start_indices[section_name] = i
-                        break
-                elif section_name != "Orders": # For other sections, use existing logic
-                    if line_to_match.startswith(header_template_clean.split(',')[0]) and \
-                       len(line_to_match.split(',')) >= (len(header_template_clean.split(',')) - 2) and \
-                       len(line_to_match.split(',')) <= (len(header_template_clean.split(',')) + 3):
-                        section_start_indices[section_name] = i
-                        break
+                if line_to_match.startswith(header_template_clean.split(',')[0]) and \
+                   len(line_to_match.split(',')) >= (len(header_template_clean.split(',')) - 2) and \
+                   len(line_to_match.split(',')) <= (len(header_template_clean.split(',')) + 3): # เพิ่ม 3 สำหรับ Comment ที่อาจมีคอมม่าหลายตัว
+                    section_start_indices[section_name] = i
+                    break
         
         dfs_output = {}
         for i, section_name in enumerate(section_order):
@@ -937,178 +929,162 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
             
             raw_section_lines_block = lines[header_idx : end_idx]
             
-            table_data_lines_raw = [] # เก็บเฉพาะบรรทัดข้อมูลดิบที่จะนำไปประมวลผล
-            
-            # สำหรับ Orders: บรรทัดแรกของ block อาจจะเป็นแค่ชื่อ Section "Orders,,,,,,,,,,,,,""Open Time,Order,Symbol..."
-            # เราต้องหาบรรทัด Header ที่แท้จริง (บรรทัดถัดไป)
-            data_start_from_raw_block_idx = 0 # default
-            if section_name == "Orders":
-                # ตรวจสอบว่าบรรทัด header_idx เป็นบรรทัด "Orders,,,," หรือไม่
-                if raw_section_lines_block[0].strip().startswith("Orders,,,,,,,,"):
-                    data_start_from_raw_block_idx = 1 # ถ้าใช่ ให้เริ่มประมวลผลข้อมูลจากบรรทัดถัดไป
-            
-            # เก็บข้อมูลจริงสำหรับประมวลผล
-            for line_val in raw_section_lines_block[data_start_from_raw_block_idx:]:
-                line_val_stripped = line_val.strip()
-                if not line_val_stripped: continue
-
-                if line_val_stripped.startswith(("Name:", "Account:", "Company:", "Date:", "Results", "Balance:", "Total Net Profit:", "Average consecutive losses")):
-                    break
+            table_data_lines = []
+            if raw_section_lines_block:
+                first_line_of_block = raw_section_lines_block[0]
                 
-                table_data_lines_raw.append(line_val_stripped)
+                if st.session_state.get("debug_statement_processing", False):
+                    st.write(f"DEBUG: Processing first line of block for {section_name}:")
+                    st.code(first_line_of_block)
 
-
-            final_csv_rows = []
-            expected_cols_len = len(expected_cleaned_columns[section_name]) # ใช้จำนวนคอลัมน์ที่คาดหวังเป็นเกณฑ์
-            
-            for line_val_stripped in table_data_lines_raw:
-                parts = []
+                current_line_parts_raw = [] # กำหนดค่าเริ่มต้น
                 try:
-                    # ใช้ csv.reader ในการแยกทุกบรรทัดข้อมูล (รวมถึง Comment ที่ซับซ้อน)
-                    parts = list(csv.reader(io.StringIO(line_val_stripped)))[0]
-                except Exception as e_csv_reader:
-                    st.warning(f"Warning: Could not parse line in '{section_name}' using csv.reader. Falling back to simple split. Error: {e_csv_reader} Line: {line_val_stripped}")
-                    parts = line_val_stripped.split(',') # Fallback to simple split
+                    # ใช้ `csv.reader` เพื่อแยกบรรทัดแรกอย่างแม่นยำ (เพื่อจัดการ Quote, Comma ใน data)
+                    current_line_parts_raw = list(csv.reader(io.StringIO(first_line_of_block)))[0]
+                except Exception as e_csv_reader_first_line:
+                    st.error(f"❌ Error with csv.reader on first line of '{section_name}'. Attempting basic split. Error: {e_csv_reader_first_line}")
+                    current_line_parts_raw = first_line_of_block.split(',') 
+                
+                if st.session_state.get("debug_statement_processing", False):
+                    st.write(f"DEBUG: current_line_parts_raw for {section_name}:")
+                    st.code(current_line_parts_raw)
 
-                if not parts or all(p.strip() == '' for p in parts): # ข้ามบรรทัดว่าง
-                    continue
-                    
-                # สำหรับ Orders และ Deals: จัดการ Comment field
-                if section_name in ["Orders", "Deals"]:
-                    # จำนวนคอลัมน์หลัก (ไม่รวม Comment ที่เราจะรวมเอง)
-                    # Orders: 10 คอลัมน์หลัก (Open Time ถึง State)
-                    core_cols_count_actual_data = len(expected_cleaned_columns[section_name]) - 3 # ลบ Comment และ Empty ออก 3 ตัว
-                    
-                    cleaned_parts_for_row = parts[:core_cols_count_actual_data]
-                    remaining_parts_for_comment = parts[core_cols_count_actual_data:]
+                # header_template_parts_count ควรคำนวณจาก expected_cleaned_columns เพื่อความสอดคล้อง
+                # ใช้ len(section_raw_headers[section_name].split(',')) เพื่อบอกจำนวนคอลัมน์ของ Header จริง
+                header_template_parts_count = len(section_raw_headers[section_name].split(','))
+                
+                # --- สร้าง Clean CSV String จากบรรทัดข้อมูล ---
+                data_lines_to_process = []
+                
+                # ตรวจสอบว่าบรรทัดแรกของ block มีข้อมูลติดมาด้วยหรือไม่
+                if len(current_line_parts_raw) >= header_template_parts_count:
+                    first_data_row_extracted = current_line_parts_raw[header_template_parts_count:]
+                    if any(p.strip() for p in first_data_row_extracted): # เช็คว่ามีข้อมูลจริงๆ ไม่ใช่แค่คอมม่าว่างๆ
+                        # นี่คือบรรทัดข้อมูลแรกจริงๆ
+                        data_lines_to_process.append(current_line_parts_raw)
+                        # และข้อมูลจริงจะเริ่มจากบรรทัดถัดไปใน raw_section_lines_block
+                        data_start_from_raw_block_idx = 1
+                    else: # ถ้าไม่มีข้อมูลจริงๆ (อาจจะเป็นแค่ Header)
+                        # ข้อมูลจริงจะเริ่มจากบรรทัดถัดไปใน raw_section_lines_block
+                        data_start_from_raw_block_idx = 1
+                else: # ถ้าบรรทัดแรกเป็นแค่ Header หรือสั้นกว่าที่คาด
+                    # ข้อมูลจริงจะเริ่มจากบรรทัดถัดไปใน raw_section_lines_block
+                    data_start_from_raw_block_idx = 1
+                
+                # เพิ่มบรรทัดข้อมูลที่เหลือจาก raw_section_lines_block
+                for line_val in raw_section_lines_block[data_start_from_raw_block_idx:]:
+                    line_val_stripped = line_val.strip()
+                    if not line_val_stripped: continue
 
-                    if remaining_parts_for_comment:
-                        quoted_comment = '"' + ' '.join(remaining_parts_for_comment).replace('"', '""') + '"'
-                        cleaned_parts_for_row.append(quoted_comment)
-                    else:
-                        cleaned_parts_for_row.append('') # ถ้าไม่มี Comment ก็ใส่ string ว่าง
+                    if line_val_stripped.startswith(("Name:", "Account:", "Company:", "Date:", "Results", "Balance:", "Total Net Profit:", "Average consecutive losses")):
+                        break
                     
-                    # สำหรับ Orders: ต้องเติม Empty1 และ Empty2 ที่อยู่หน้า Comment
-                    if section_name == "Orders":
-                        # expected: ["Open_Time", ..., "State", "Empty1", "Comment", "Empty2"]
-                        # เราสร้าง cleaned_parts_for_row เป็น ["Open_Time", ..., "State", "Comment (merged)"]
-                        # ต้องเติม Empty1 (หลัง State) และ Empty2 (หลัง Comment)
-                        # ตำแหน่ง Empty1 คือ expected_cleaned_columns["Orders"].index("Empty1")
-                        empty1_idx = expected_cleaned_columns["Orders"].index("Empty1")
-                        comment_idx_in_expected = expected_cleaned_columns["Orders"].index("Comment")
-                        empty2_idx = expected_cleaned_columns["Orders"].index("Empty2")
+                    try:
+                        # ใช้ csv.reader ในการแยกทุกบรรทัดข้อมูล (รวมถึง Comment ที่ซับซ้อน)
+                        parts = list(csv.reader(io.StringIO(line_val_stripped)))[0]
+                        data_lines_to_process.append(parts)
+                    except Exception as e_inner_csv:
+                        st.warning(f"Warning: Could not parse line in '{section_name}' using csv.reader. Appending raw line. Error: {e_inner_csv} Line: {line_val_stripped}")
+                        data_lines_to_process.append(line_val_stripped.split(',')) # Fallback to simple split
+
+                # สร้าง CSV String สำหรับ Pandas
+                final_csv_rows = []
+                expected_cols_len = len(expected_cleaned_columns[section_name]) # ใช้จำนวนคอลัมน์ที่คาดหวังเป็นเกณฑ์
+                
+                for parts in data_lines_to_process:
+                    if not parts or all(p.strip() == '' for p in parts): # ข้ามบรรทัดว่าง
+                        continue
                         
-                        # สร้างแถวที่สมบูรณ์ขึ้นมาใหม่ตาม expected_cleaned_columns
-                        full_row_parts = [''] * expected_cols_len
+                    # สำหรับ Orders และ Deals: จัดการ Comment field
+                    if section_name in ["Orders", "Deals"]:
+                        # จำนวนคอลัมน์ก่อน Comment field (อ้างอิงจาก expected_cleaned_columns ที่มี Comment แยกแล้ว)
+                        # เช่น Orders มี 10 คอลัมน์แรก + Empty1 + Comment + Empty2 = 13
+                        # expected_cleaned_columns["Orders"] = ["Open_Time", ..., "State", "Empty1", "Comment", "Empty2"]
+                        # เราจะถือว่าคอลัมน์สุดท้ายของ expected_cleaned_columns คือ Comment หลัก
                         
-                        # คัดลอก core data
-                        for k in range(core_cols_count_actual_data):
-                            if k < len(cleaned_parts_for_row):
-                                full_row_parts[k] = cleaned_parts_for_row[k]
-                        
-                        # ใส่ Comment ที่รวมแล้ว
-                        full_row_parts[comment_idx_in_expected] = cleaned_parts_for_row[-1] # Comment ที่รวมแล้วคือตัวสุดท้ายของ cleaned_parts_for_row
-                        
-                        # เติม Empty1 และ Empty2
-                        # ในที่นี้คือ Empty1 และ Empty2 จะเป็นช่องว่างจากไฟล์เดิม
-                        # ดังนั้นถ้า parts มีน้อยกว่าที่คาดหวัง เราจะใส่ empty string เข้าไป
-                        # แต่ถ้ามันถูก quote มาแล้วใน original parts เราก็แค่รวมมันเข้าไป
-                        
-                        # ตอนนี้เราได้สร้าง `cleaned_parts_for_row` ที่มี core_cols_count_actual_data + 1 (for merged comment)
-                        # เราต้องนำมันมา map เข้ากับ `expected_cleaned_columns`
-                        
-                        # นี่คือวิธีที่แข็งแกร่งกว่าในการสร้าง row ที่มี empty fields
-                        new_row = [''] * expected_cols_len # สร้าง row เปล่าตามจำนวนคอลัมน์ที่คาดหวัง
-                        
-                        # Map core columns
-                        for idx, val in enumerate(parts[:core_cols_count_actual_data]):
-                            new_row[idx] = val
-                        
-                        # Map comment parts
+                        # แยกส่วน core columns และ potential comment columns
+                        core_cols_from_expected = expected_cleaned_columns[section_name][:-1] # เอาคอลัมน์ทั้งหมด ยกเว้น Comment สุดท้าย
+                        core_cols_count_actual_data = len(core_cols_from_expected) # จำนวนคอลัมน์หลักจริงๆ ที่ไม่มี Comment
+
+                        cleaned_parts_for_row = parts[:core_cols_count_actual_data]
+                        remaining_parts_for_comment = parts[core_cols_count_actual_data:]
+
+                        # สร้าง Comment string ที่ถูกต้อง
+                        # ถ้ามี Comment หลายส่วน ให้รวมกันและใส่ quote
                         if remaining_parts_for_comment:
-                            new_row[comment_idx_in_expected] = ' '.join(remaining_parts_for_comment)
-                            # และลบคอมม่าที่เกินมาออกในส่วนอื่น
-                            # ถ้า Comment เป็นตัวสุดท้ายของ expected_cleaned_columns เราก็ไม่ต้องกังวลเรื่อง Empty2
-                            # แต่ถ้า Comment มี Empty2 ตามหลัง ต้องแน่ใจว่ามันถูก handle
-                            # ใน `expected_cleaned_columns` มี `Empty2` หลัง `Comment`
-                            # ดังนั้น ถ้า Comment มีข้อมูลใน remaining_parts_for_comment
-                            # และมันมี `Empty2` ที่ตามมาด้วย
-                            if empty2_idx < expected_cols_len and len(remaining_parts_for_comment) > 1:
-                                new_row[empty2_idx] = remaining_parts_for_comment[1] # ถ้ามี Empty2 จริงๆ ในส่วน comment
-                                
-                        final_csv_rows.append(','.join(new_row))
-
-                    else: # สำหรับ Deals (และ Positions ที่ไม่มี Empty fields ซับซ้อน)
+                            quoted_comment = '"' + ' '.join(remaining_parts_for_comment).replace('"', '""') + '"'
+                            cleaned_parts_for_row.append(quoted_comment)
+                        else:
+                            cleaned_parts_for_row.append('') # ถ้าไม่มี Comment ก็ใส่ string ว่าง
+                        
+                        # เติม Empty fields ที่อาจจะขาดไป (เฉพาะ Orders ที่มี Empty1, Empty2)
+                        if section_name == "Orders":
+                            # Orders มี 13 คอลัมน์ (10 core + Empty1 + Comment + Empty2)
+                            # ถ้า current parts มีแค่ 10 + 1 (comment รวมแล้ว)
+                            # เราต้องเติม Empty1 และ Empty2
+                            # ใน expected_cleaned_columns["Orders"] มี ["Empty1", "Comment", "Empty2"]
+                            # ดังนั้น ถ้า Parts มีแค่ 10 + 1 (Comment) ก็ต้องเติมอีก 2 ช่อง
+                            actual_parts_count_after_comment_merge = len(cleaned_parts_for_row) # 10 (core) + 1 (Comment)
+                            expected_parts_count_for_row = len(expected_cleaned_columns[section_name]) # 13
+                            
+                            if actual_parts_count_after_comment_merge < expected_parts_count_for_row:
+                                cleaned_parts_for_row.extend([''] * (expected_parts_count_for_row - actual_parts_count_after_comment_merge))
+                        
+                        final_csv_rows.append(','.join(cleaned_parts_for_row))
+                    else: # สำหรับ Positions (หรือ Section อื่นๆ ที่ไม่มี Comment ซับซ้อน)
                         # ตรวจสอบความยาวของ parts และเติมให้ครบตาม expected_cols_len
-                        # และ Quote Comment field ถ้ามี
                         padded_parts = parts + [''] * (expected_cols_len - len(parts))
-                        
-                        # สำหรับ Deals, Comment คือคอลัมน์สุดท้าย
-                        comment_idx_deals = expected_cleaned_columns[section_name].index("Comment")
-                        if comment_idx_deals < len(padded_parts) and padded_parts[comment_idx_deals].strip():
-                            # ถ้ามี Comment ให้ใส่ Quote
-                            padded_parts[comment_idx_deals] = '"' + padded_parts[comment_idx_deals].replace('"', '""') + '"'
-                        
                         final_csv_rows.append(','.join(padded_parts[:expected_cols_len]))
 
 
-            csv_string_data_to_parse = "\n".join(final_csv_rows)
-            
-            if st.session_state.get("debug_statement_processing", False):
-                st.write(f"DEBUG: Final CSV string for {section_name} (before pandas):")
-                st.code(csv_string_data_to_parse)
+                csv_string_data_to_parse = "\n".join(final_csv_rows)
+                
+                if st.session_state.get("debug_statement_processing", False):
+                    st.write(f"DEBUG: Final CSV string for {section_name} (before pandas):")
+                    st.code(csv_string_data_to_parse)
 
-            if csv_string_data_to_parse.strip():
-                try:
-                    df = pd.read_csv(io.StringIO(csv_string_data_to_parse),
-                                     sep=',',
-                                     names=expected_cleaned_columns[section_name],
-                                     header=None,
-                                     skipinitialspace=True,
-                                     on_bad_lines='warn',
-                                     engine='python')
-                    
-                    df = df.dropna(axis=1, how='all')
-                    df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
-
-                    # สำหรับ Orders: รวม Comment1, Comment2, Comment3 เป็น Comment เดียว
-                    if section_name == "Orders":
-                        comment_cols_to_merge = [col for col in df.columns if col.startswith('Comment') and col != 'Comment']
-                        if comment_cols_to_merge:
-                            df['Comment'] = df[comment_cols_to_merge].fillna('').agg(' '.join, axis=1).str.strip()
-                            df.drop(columns=comment_cols_to_merge, inplace=True, errors='ignore')
-                        if 'Comment' not in df.columns:
-                            df['Comment'] = ''
+                if csv_string_data_to_parse.strip():
+                    try:
+                        df = pd.read_csv(io.StringIO(csv_string_data_to_parse),
+                                         sep=',',
+                                         names=expected_cleaned_columns[section_name],
+                                         header=None,
+                                         skipinitialspace=True,
+                                         on_bad_lines='warn',
+                                         engine='python')
                         
-                        # ลบคอลัมน์ Empty1, Empty2 ที่อาจจะถูกสร้างขึ้นมา
-                        df.drop(columns=['Empty1', 'Empty2'], inplace=True, errors='ignore')
+                        df = df.dropna(axis=1, how='all')
+                        df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
 
-                    # จัดเรียงคอลัมน์ใหม่ตามที่ expected_cleaned_columns กำหนด
-                    # สร้าง list ของคอลัมน์ที่ต้องการจริงๆ (ไม่มี Empty1, Empty2 ใน Final Output)
-                    final_expected_cols_for_df = [col for col in expected_cleaned_columns[section_name] if not col.startswith('Empty')]
-                    if section_name == "Orders":
-                        final_expected_cols_for_df = [col for col in ["Open_Time", "Order", "Symbol", "Type", "Volume", "Price", "S_L", "T_P", "Close_Time", "State", "Comment"] if col in df.columns]
+                        # สำหรับ Orders: รวม Comment1, Comment2, Comment3 เป็น Comment เดียว
+                        if section_name == "Orders":
+                            comment_cols = [col for col in df.columns if col.startswith('Comment') and col != 'Comment']
+                            if comment_cols:
+                                df['Comment'] = df[comment_cols].fillna('').agg(' '.join, axis=1).str.strip()
+                                df.drop(columns=comment_cols, inplace=True, errors='ignore')
+                            if 'Comment' not in df.columns:
+                                df['Comment'] = ''
 
-                    # เติมคอลัมน์ที่ขาดไป (หากมี) และจัดเรียง
-                    for col_name in final_expected_cols_for_df:
-                        if col_name not in df.columns:
-                            df[col_name] = np.nan
-                    df = df[final_expected_cols_for_df]
-                    
-                    df.dropna(how='all', inplace=True)
+                        # จัดเรียงคอลัมน์ใหม่ตามที่ expected_cleaned_columns กำหนด
+                        for col_name in expected_cleaned_columns[section_name]:
+                            if col_name not in df.columns:
+                                df[col_name] = np.nan
+                        df = df[expected_cleaned_columns[section_name]]
+                        
+                        df.dropna(how='all', inplace=True)
 
-                    dfs_output[section_key_lower] = df
-                except ValueError as ve:
-                    st.error(f"❌ Column mismatch or data type error in {section_name}: {ve}. Expected {len(expected_cleaned_columns[section_name])} columns.")
+                        dfs_output[section_key_lower] = df
+                    except ValueError as ve:
+                        st.error(f"❌ Column mismatch or data type error in {section_name}: {ve}. Expected {len(expected_cleaned_columns[section_name])} columns.")
+                        dfs_output[section_key_lower] = pd.DataFrame()
+                    except Exception as e:
+                        st.error(f"❌ Error creating DataFrame for {section_name}: {e}")
+                        dfs_output[section_key_lower] = pd.DataFrame()
+                else:
+                    st.warning(f"No valid data rows collected for {section_name} table in the uploaded file.")
                     dfs_output[section_key_lower] = pd.DataFrame()
-                except Exception as e:
-                    st.error(f"❌ Error creating DataFrame for {section_name}: {e}")
-                    dfs_output[section_key_lower] = pd.DataFrame()
-            else:
-                st.warning(f"No valid data rows collected for {section_name} table in the uploaded file.")
+            else: # กรณีไม่พบ Header ของ Section นี้
                 dfs_output[section_key_lower] = pd.DataFrame()
-        else: # กรณีไม่พบ Header ของ Section นี้
-            dfs_output[section_key_lower] = pd.DataFrame()
 
         # --- Extract Balance Summary and Results Summary (non-table sections) ---
         balance_summary_dict = {}
@@ -1130,12 +1106,9 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
                 
                 def safe_float_convert(value_str):
                     try:
-                        # Convert "NULL" string to actual None/NaN
-                        if value_str.lower() == "null":
-                            return np.nan
                         return float(value_str.replace(" ", "").replace(",", "").replace("%", ""))
                     except ValueError:
-                        return np.nan # Use NaN for non-convertible values
+                        return None
 
                 for part in parts:
                     key = ""
@@ -1186,9 +1159,7 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
                         cleaned_key = key.replace("(", "").replace(")", "").replace("/", "_").replace("-", "_").replace(" ", "_").replace("__", "_").strip()
                         if "won %" in cleaned_key:
                             cleaned_key = cleaned_key.replace("won %", "won_Percent")
-                        if "TotalNetProfit" in cleaned_key:
-                            cleaned_key = "Total_Net_Profit"
-
+                        
                         try:
                             results_summary_dict[cleaned_key] = safe_float_convert(value_str)
                         except Exception:
@@ -1667,7 +1638,7 @@ with st.expander("📊 Performance Dashboard", expanded=True):
         with tabs[time_analysis_tab_index]:
             st.markdown("#### Performance by Day of Week")
             df_data_dash['Weekday'] = df_data_dash['Time'].dt.day_name()
-            weekday_order = ["Monday", "Tuesday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"] # Added duplicate Tuesday
+            weekday_order = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
             weekday_pnl = df_data_dash.groupby("Weekday")['Profit'].sum().reindex(weekday_order).reset_index()
             weekday_chart = px.bar(weekday_pnl, x="Weekday", y="Profit", title="Total P/L by Day of Week", color="Profit",
                                    color_continuous_scale=["tomato", "lightgoldenrodyellow", "lightgreen"])
