@@ -858,6 +858,65 @@ with st.expander("🤖 AI Assistant", expanded=True):
             else: st.info(msg)
 
 # ===================== SEC 7: MAIN AREA - STATEMENT IMPORT & PROCESSING =======================
+import streamlit as st
+import pandas as pd
+import numpy as np
+from datetime import datetime
+import plotly.express as px
+import google.generativeai as genai
+import gspread
+import plotly.graph_objects as go
+import yfinance as yf
+import random
+import csv
+import io
+import re # Import regular expression module
+
+st.set_page_config(page_title="Ultimate-Chart", layout="wide")
+acc_balance = 10000 # ยอดคงเหลือเริ่มต้นของบัญชีเทรด
+
+# กำหนดชื่อ Google Sheet และ Worksheet ที่จะใช้เก็บข้อมูล
+GOOGLE_SHEET_NAME = "TradeLog"
+WORKSHEET_PORTFOLIOS = "Portfolios"
+WORKSHEET_PLANNED_LOGS = "PlannedTradeLogs"
+WORKSHEET_ACTUAL_TRADES = "ActualTrades"
+WORKSHEET_ACTUAL_ORDERS = "ActualOrders"
+WORKSHEET_ACTUAL_POSITIONS = "ActualPositions"
+WORKSHEET_STATEMENT_SUMMARIES = "StatementSummaries"
+
+# ฟังก์ชันสำหรับเชื่อมต่อ gspread
+# ใช้ st.cache_resource เพื่อให้ GSpread client object ถูกสร้างเพียงครั้งเดียว
+@st.cache_resource(ttl=3600) # Cache the client for 1 hour (3600 seconds)
+def get_gspread_client():
+    try:
+        if "gcp_service_account" not in st.secrets:
+            st.warning("⚠️ โปรดตั้งค่า 'gcp_service_account' ใน `.streamlit/secrets.toml` เพื่อเชื่อมต่อ Google Sheets.")
+            return None
+        return gspread.service_account_from_dict(st.secrets["gcp_service_account"])
+    except Exception as e:
+        st.error(f"❌ เกิดข้อผิดพลาดในการเชื่อมต่อ Google Sheets: {e}")
+        st.info("ตรวจสอบว่า 'gcp_service_account' ใน secrets.toml ถูกต้อง และได้แชร์ Sheet กับ Service Account แล้ว")
+        return None
+
+# Placeholder function definitions from previous sections (for completeness)
+# You should already have these in your main app.
+# If you copy this whole block, ensure these are not duplicated.
+def load_portfolios_from_gsheets():
+    # ... (your existing load_portfolios_from_gsheets code) ...
+    pass
+
+def get_today_drawdown(log_source_df, acc_balance):
+    # ... (your existing get_today_drawdown code) ...
+    pass
+
+def get_performance(log_source_df, mode="week"):
+    # ... (your existing get_performance code) ...
+    pass
+
+# Your existing sidebar and main section logic would go here.
+# For this response, I'm focusing only on SEC 7.
+
+# ===================== SEC 7: MAIN AREA - STATEMENT IMPORT & PROCESSING =======================
 with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", expanded=True):
     st.markdown("### 📊 จัดการ Statement และข้อมูลดิบ")
 
@@ -866,7 +925,6 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
         extracted_data = {}
 
         # Define raw headers from the CSV report for identification
-        # Adjusted Orders header based on your debug output
         section_raw_headers = {
             "Positions": "Time,Position,Symbol,Type,Volume,Price,S / L,T / P,Time,Price,Commission,Swap,Profit",
             "Orders": "Open Time,Order,Symbol,Type,Volume,Price,S / L,T / P,Time,State,,Comment", 
@@ -885,30 +943,69 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
         section_order = ["Positions", "Orders", "Deals"] 
         
         section_start_indices = {}
+        # New: Store content of summary sections separately as raw lines
+        balance_summary_raw_lines = []
+        results_summary_raw_lines = []
+        
+        # Flags to identify current section being read
+        in_balance_summary_section = False
+        in_results_summary_section = False
+
         for i, line in enumerate(lines):
             line_stripped = line.strip()
 
-            # Find headers for all sections
+            # --- Find headers for table sections (Positions, Orders, Deals) ---
+            # Re-evaluating header finding: Use direct match for headers
+            # The previous approach of splitting the header template and checking startsWith
+            # was more robust for partial matches but less precise for exact header rows.
+            # Given the exact header template provided, direct check might be better.
+            
+            header_found_this_line = False
             for section_name_check, header_template_check in section_raw_headers.items():
-                first_col_header = header_template_check.split(',')[0].strip()
-                
-                # Check if the line starts with the first column of the header template
-                # And also check if the full header template exists in the line
-                # This is more robust for headers that might have preceding empty cells or titles
-                if line_stripped.startswith(first_col_header) and header_template_check in line_stripped:
+                # Check if the stripped line is exactly the header_template_check
+                # Or if the header template is contained within the line (for cases with trailing commas/empty cells)
+                if line_stripped == header_template_check or line_stripped.startswith(header_template_check.split(',')[0]) and header_template_check in line_stripped:
                     section_start_indices[section_name_check] = i
-                    # For simplicity, assuming headers appear in expected order and not interleaved
-                    # If they can be out of order, this break might need to be removed or rethought
+                    header_found_this_line = True
+                    # Reset summary flags if a table section is found
+                    in_balance_summary_section = False
+                    in_results_summary_section = False
                     break 
-                # Special check for "Orders" if "Orders" title is on a separate line just before the header
-                # We need to find the actual header line, not the section title.
-                if section_name_check == "Orders" and line_stripped.strip() == "Orders":
-                    # This is just the title, actual header should be on the next line
-                    # We will handle picking the correct data rows later.
-                    pass # Don't record this as the start index for table parsing
+            
+            if header_found_this_line:
+                continue # Skip to the next line if this line was identified as a table header
 
-        # --- End of finding section headers ---
+            # --- Identify Balance Summary and Results Summary sections ---
+            # Use specific keywords to identify start of summary sections
+            if line_stripped.startswith("Balance:") and not in_results_summary_section:
+                in_balance_summary_section = True
+                balance_summary_raw_lines.append(line_stripped)
+                continue
+            if line_stripped.startswith("Results") and not in_balance_summary_section: # "Results" can be a general header
+                in_results_summary_section = True
+                results_summary_raw_lines.append(line_stripped)
+                continue
+            
+            # Collect lines for current summary section
+            if in_balance_summary_section:
+                # Stop if we hit a known header for another section or a new summary section
+                if line_stripped.startswith(("Credit Facility:", "Floating P/L:", "Equity:", "Total Net Profit:", "Results")):
+                    balance_summary_raw_lines.append(line_stripped)
+                elif line_stripped.strip() == "": # Stop at first empty line after a value
+                    in_balance_summary_section = False
+                elif not line_stripped.startswith(tuple([h.split(',')[0] for h in section_raw_headers.values()])): # Not a table header
+                    balance_summary_raw_lines.append(line_stripped) # Continue collecting balance lines
+            elif in_results_summary_section:
+                # Stop if we hit a known header for another section
+                if line_stripped.startswith(("Balance Drawdown:", "Total Trades:", "Largest profit trade:", "Average profit trade:", "Maximum consecutive wins ($):", "Maximal consecutive profit (count):", "Average consecutive wins:")):
+                    results_summary_raw_lines.append(line_stripped)
+                elif line_stripped.strip() == "": # Stop at first empty line after a value
+                    in_results_summary_section = False
+                elif not line_stripped.startswith(tuple([h.split(',')[0] for h in section_raw_headers.values()])): # Not a table header
+                    results_summary_raw_lines.append(line_stripped) # Continue collecting results lines
 
+
+        # --- Process table sections (Positions, Orders, Deals) ---
         dfs_output = {}
         for i, section_name in enumerate(section_order):
             section_key_lower = section_name.lower() 
@@ -916,7 +1013,6 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
             if section_name in section_start_indices:
                 header_idx = section_start_indices[section_name]
                 
-                # Find the end of the current section's data (start of next section or end of file)
                 end_idx = len(lines)
                 for j in range(i + 1, len(section_order)):
                     next_section_name = section_order[j]
@@ -924,51 +1020,40 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
                         end_idx = section_start_indices[next_section_name]
                         break
                 
-                # Extract raw lines for the current section's data block
                 raw_section_lines_block = lines[header_idx : end_idx]
                 
                 table_data_lines = []
                 if raw_section_lines_block:
                     # The actual header row is at header_idx. We want data rows after that.
                     # Some files have the first data row concatenated to the header row.
-                    # Let's adjust to only take actual data rows.
                     
-                    # Skip header line itself for data extraction
-                    data_lines_start_from = 0
-                    if header_idx in section_start_indices.values(): # It means this is a header row
-                         data_lines_start_from = 1 # Start from the next line for data
-
-                    # Handle case where first data row is concatenated to header (e.g. Positions)
-                    first_line_after_header = raw_section_lines_block[0] # This contains the header.
                     header_template_str = section_raw_headers[section_name]
                     
-                    # Check if the first line of the block contains more parts than just the header
-                    # Indicating data is on the same line as header
-                    parts_of_first_line = list(csv.reader(io.StringIO(first_line_after_header)))[0]
-                    expected_header_parts_count = len(list(csv.reader(io.StringIO(header_template_str))))
-                    
-                    if len(parts_of_first_line) > expected_header_parts_count:
-                        # Extract the data part from the first line
-                        data_part_from_first_line = parts_of_first_line[expected_header_parts_count:]
-                        if any(p.strip() for p in data_part_from_first_line): # Ensure it's not just empty commas
+                    # Read the header line using csv.reader for proper splitting of quoted fields
+                    first_line_parts_raw = list(csv.reader(io.StringIO(raw_section_lines_block[0])))[0]
+                    expected_header_parts_count = len(list(csv.reader(io.StringIO(header_template_str)))[0]) # Get actual count of header parts
+
+                    # If there's data immediately after the header on the same line
+                    if len(first_line_parts_raw) > expected_header_parts_count:
+                        data_part_from_first_line = first_line_parts_raw[expected_header_parts_count:]
+                        if any(p.strip() for p in data_part_from_first_line):
                             table_data_lines.append(','.join(data_part_from_first_line))
                             
-                    # Add remaining data lines from the block, starting from the line AFTER the header
-                    for line_val in raw_section_lines_block[data_lines_start_from:]:
+                    # Process subsequent lines in the block
+                    for line_val in raw_section_lines_block[1:]: # Start from the line AFTER the header
                         line_val_stripped = line_val.strip()
                         if not line_val_stripped: continue 
 
                         # Heuristic to stop processing when summary lines are encountered
-                        if line_val_stripped.startswith(("Name:", "Account:", "Company:", "Date:", "Results", "Balance:", "Total Net Profit:", "Average consecutive losses")):
+                        # Adding specific summary starts to this list for better cutoff
+                        if line_val_stripped.startswith(("Name:", "Account:", "Company:", "Date:", "Results", "Balance:", "Total Net Profit:", "Average consecutive losses", "Equity:", "Floating P/L:")):
                             break
                         
-                        # Special handling for Orders: Combine extra parts into a single 'Comment' column
                         if section_name == "Orders":
                             try:
                                 parts_from_csv_reader = list(csv.reader(io.StringIO(line_val_stripped)))[0]
                                 
-                                # This handles the leading empty columns (,,) in Orders section
-                                # We need to find the first non-empty part and take subsequent parts
+                                # Find the first non-empty part to handle leading empty columns (,,)
                                 first_non_empty_idx = -1
                                 for p_idx, p_val in enumerate(parts_from_csv_reader):
                                     if p_val.strip() != "":
@@ -976,21 +1061,18 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
                                         break
                                 
                                 if first_non_empty_idx != -1:
-                                    # Take only the relevant parts of the data row
                                     relevant_parts = parts_from_csv_reader[first_non_empty_idx:]
                                     
-                                    # Now, if the relevant_parts are more than expected, combine for Comment
+                                    # Combine extra parts into a single 'Comment' column
                                     if len(relevant_parts) > len(expected_cleaned_columns[section_name]):
                                         comment_index = len(expected_cleaned_columns[section_name]) - 1
                                         comment_parts = relevant_parts[comment_index:]
                                         cleaned_line = ','.join(relevant_parts[:comment_index]) + ',' + ' '.join(comment_parts)
                                         table_data_lines.append(cleaned_line)
                                     else:
-                                        table_data_lines.append(','.join(relevant_parts)) # Join because parts_from_csv_reader are already split
+                                        table_data_lines.append(','.join(relevant_parts)) 
                                 else:
-                                    # If all parts are empty, skip this line
-                                    pass
-
+                                    pass # Skip if all parts are empty
                             except csv.Error as csv_err:
                                 st.warning(f"CSV parsing error on line: '{line_val_stripped}'. Error: {csv_err}. Skipping line for {section_name}.")
                                 continue 
@@ -1017,7 +1099,6 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
                         df = df.dropna(axis=1, how='all')
                         df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
 
-                        # For Orders: ensure 'Comment' column is correctly merged if it was split
                         if section_name == "Orders":
                             comment_cols = [col for col in df.columns if 'Comment' in col] 
                             if comment_cols:
@@ -1026,12 +1107,10 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
                             if 'Comment' not in df.columns: 
                                 df['Comment'] = ''
 
-                        # Ensure all expected columns are present, fill with NaN if missing
                         for col_name in expected_cleaned_columns[section_name]:
                             if col_name not in df.columns:
                                 df[col_name] = np.nan
                         
-                        # Reorder columns as specified
                         df = df[expected_cleaned_columns[section_name]]
                         
                         df.dropna(how='all', inplace=True) 
@@ -1049,124 +1128,115 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
             else:
                 dfs_output[section_key_lower] = pd.DataFrame() 
 
-        # --- Extract Balance Summary and Results Summary (non-table sections) ---
-        balance_summary_dict = {}
-        results_summary_dict = {}
+        # --- Functions for Summary Sections (Revised for robust parsing) ---
         
-        # Helper to parse Key: Value or Key Value pairs
-        def parse_summary_line_part(part_str):
-            key = ""
-            value_str = ""
-            if ':' in part_str: # Key: Value
-                key_val = part_str.split(':', 1)
-                key = key_val[0].strip()
-                value_str = key_val[1].strip()
-            else: # Key Value (no colon)
-                # Find the last space, assume key is before, value is after
-                last_space_idx = part_str.rfind(' ')
-                if last_space_idx != -1:
-                    key = part_str[:last_space_idx].strip()
-                    value_str = part_str[last_space_idx+1:].strip()
-                else: # Could be just a value, or a single word key
-                    key = part_str.strip() # Treat as key, value will be from the next part if available
-                    value_str = ""
-            return key, value_str
-
-        # Helper to safely convert to float (handles spaces, commas, percent, multiple dots)
+        # Helper to safely convert to float (handles spaces, commas, percent, multiple dots, parentheses)
         def safe_float_convert(value_str):
-            if isinstance(value_str, (int, float)): # Already numeric
+            if isinstance(value_str, (int, float)): 
                 return value_str
+            if not isinstance(value_str, str): # Convert non-string to string
+                value_str = str(value_str)
+            
+            clean_value = value_str.strip().replace(" ", "").replace(",", "") # Remove spaces and commas
+            
+            # Extract number from parentheses if present (e.g., "(11.46%)" or "1 211.92 (11.46%)")
+            match_paren = re.search(r'([\d\.\-]+)\s*\((\d+\.?\d*)\%\)', clean_value) # Tries to match "NUMBER (PERCENT%)"
+            if match_paren:
+                # If matched, we might want the first number or the percentage.
+                # For simplicity, let's take the first number as the primary value
+                clean_value = match_paren.group(1)
+            else:
+                match_percent = re.search(r'([\d\.\-]+)\s*%', clean_value) # Tries to match "NUMBER%"
+                if match_percent:
+                    clean_value = match_percent.group(1)
+            
+            # Handle multiple dots (e.g. "2.118.42" -> "2118.42")
+            if clean_value.count('.') > 1:
+                parts = clean_value.split('.')
+                clean_value = parts[0] + ''.join(parts[1:]) # Combine all parts after first dot without extra dots
+            
             try:
-                # Remove spaces, commas, percent signs
-                clean_value = value_str.replace(" ", "").replace(",", "").replace("%", "")
-                # Handle cases like "2.118.42" -> "2118.42" or "9.458.38" -> "9458.38"
-                # Keep only the last dot for decimal, remove others
-                if clean_value.count('.') > 1:
-                    parts = clean_value.split('.')
-                    clean_value = parts[0] + '.' + ''.join(parts[1:])
                 return float(clean_value)
             except ValueError:
                 return None
-            except Exception: # Catch any other unexpected errors
+            except Exception:
                 return None
-
-        # Find Balance Summary
-        balance_start_line_idx = -1
-        for i, line in enumerate(lines):
-            if line.strip().startswith("Balance:"):
-                balance_start_line_idx = i
-                break
-
-        if balance_start_line_idx != -1:
-            for i in range(balance_start_line_idx, len(lines)):
-                line_stripped = lines[i].strip()
-                if not line_stripped or line_stripped.startswith(("Results", "Total Net Profit:")):
-                    break
-                
-                parts = [p.strip() for p in line_stripped.split(',')]
-                
-                # Iterate through parts to extract key-value pairs
-                # This logic assumes pairs are either "Key: Value" or "Key Value"
-                # If a part contains only a value, it will be assigned to a previous key or skipped
-                current_key = ""
-                for part in parts:
-                    if not part: continue # Skip empty parts
-                    key_found, val_str = parse_summary_line_part(part)
-                    
-                    if key_found and val_str: # Found a "Key: Value" or "Key Value" pair
-                        cleaned_key = key_found.replace(" ", "_").replace(".", "").strip()
-                        balance_summary_dict[cleaned_key] = safe_float_convert(val_str)
-                    elif key_found and not val_str: # Found a standalone key (e.g. "Equity", "Balance")
-                        current_key = key_found.replace(" ", "_").replace(".", "").strip()
-                    elif not key_found and current_key: # Found a standalone value for the previous key
-                        balance_summary_dict[current_key] = safe_float_convert(part)
-                        current_key = "" # Reset current key
-                    elif part and not key_found: # Just a standalone value not matching any key
-                        # This might be the case for "2.118.42" as a value without a key
-                        # Attempt to parse it as a value if it looks like a number
-                        potential_value = safe_float_convert(part)
-                        if potential_value is not None:
-                            # Assign it to a generic key or skip if it's not clearly part of a key-value pair
-                            # For simplicity, if no key, we might ignore, or assign to an "unknown_value" key
-                            pass # Or handle explicitly, e.g., balance_summary_dict[f"unknown_value_{len(balance_summary_dict)}"] = potential_value
-
-        # Find Results Summary
-        results_start_line_idx = -1
-        for i, line in enumerate(lines):
-            if line.strip().startswith("Results") or line.strip().startswith("Total Net Profit:"):
-                results_start_line_idx = i
-                break
         
-        if results_start_line_idx != -1:
-            for i in range(results_start_line_idx, len(lines)): 
-                line_stripped = lines[i].strip()
-                if not line_stripped or line_stripped.startswith("Average consecutive losses"): # Stop at the next major section
-                    break
-                
-                parts = [p.strip() for p in line_stripped.split(',')]
-                current_key = ""
-                for part in parts:
-                    if not part: continue
-                    key_found, val_str = parse_summary_line_part(part)
+        # Regex to find Key: Value pairs or Key Value pairs from various summary lines
+        # This regex tries to capture:
+        # (Start of line OR after comma/space) + (Key text, possibly with spaces) + (optional colon/space) + (Value text)
+        summary_line_pattern = re.compile(r'([^:,]+?)\s*[:]?\s*([+\-]?\d[\d\s\.\%,]*[\d\%]?)')
 
-                    if key_found and val_str:
-                        cleaned_key = key_found.replace("(", "").replace(")", "").replace("/", "_").replace("-", "_").replace(" ", "_").replace("__", "_").strip()
-                        if "won %" in cleaned_key: cleaned_key = cleaned_key.replace("won %", "won_Percent")
-                        results_summary_dict[cleaned_key] = safe_float_convert(val_str)
-                        current_key = "" # Reset current key after a successful pair
-                    elif key_found and not val_str: # Standalone key
-                        current_key = key_found.replace("(", "").replace(")", "").replace("/", "_").replace("-", "_").replace(" ", "_").replace("__", "_").strip()
-                        if "won %" in current_key: current_key = current_key.replace("won %", "won_Percent")
-                    elif not key_found and current_key: # Standalone value for previous key
-                        results_summary_dict[current_key] = safe_float_convert(part)
-                        current_key = ""
-                    elif part and not key_found: # Just a value without a preceding key
-                        # This handles cases like "2.118.42" or "9.458.38" being read as values.
-                        potential_value = safe_float_convert(part)
-                        if potential_value is not None:
-                            # Assign to a unique key if no existing key is active
-                            results_summary_dict[f"unidentified_value_{len(results_summary_dict)}"] = potential_value # Use a unique temporary key
-                            
+
+        # --- Extract Balance Summary ---
+        balance_summary_dict = {}
+        full_balance_summary_text = "\n".join(balance_summary_raw_lines)
+        
+        # Splitting by common delimiters and then parsing each segment
+        segments = re.split(r',+\s*', full_balance_summary_text) # Split by one or more commas and spaces
+        
+        for segment in segments:
+            segment_stripped = segment.strip()
+            if not segment_stripped: continue
+            
+            match = re.search(r'([^:]+?):(.+)', segment_stripped) # Try to match "Key:Value" first
+            if match:
+                key = match.group(1).strip()
+                value = match.group(2).strip()
+                cleaned_key = key.replace(" ", "_").replace(".", "").strip()
+                balance_summary_dict[cleaned_key] = safe_float_convert(value)
+            else: # If no colon, try to split by last space
+                last_space_idx = segment_stripped.rfind(' ')
+                if last_space_idx != -1:
+                    key = segment_stripped[:last_space_idx].strip()
+                    value = segment_stripped[last_space_idx+1:].strip()
+                    cleaned_key = key.replace(" ", "_").replace(".", "").strip()
+                    balance_summary_dict[cleaned_key] = safe_float_convert(value)
+                else: # Fallback: if just a number or single word key
+                    # This case needs to be careful not to overwrite.
+                    # For balance summary, we can assume it's mostly Key: Value.
+                    # If it's a value without a key, it means something is off.
+                    pass # Or handle by assigning to a generic "unidentified_value" key
+
+        # --- Extract Results Summary ---
+        results_summary_dict = {}
+        full_results_summary_text = "\n".join(results_summary_raw_lines)
+        
+        # Split by multiple spaces or comma+space to get logical segments
+        segments = re.split(r',*\s{2,}', full_results_summary_text) # Split by comma then 2+ spaces, or just 2+ spaces
+
+        for segment in segments:
+            segment_stripped = segment.strip()
+            if not segment_stripped: continue
+
+            # Handle special header "Results" if it's there
+            if segment_stripped == "Results": continue 
+
+            # Try to match "Key: Value" or "Key Value"
+            match = re.search(r'([^:]+?):(.+)', segment_stripped) # Try to match "Key:Value" first
+            if match:
+                key = match.group(1).strip()
+                value = match.group(2).strip()
+                cleaned_key = key.replace("(", "").replace(")", "").replace("/", "_").replace("-", "_").replace(" ", "_").replace("__", "_").strip()
+                if "won %" in cleaned_key: cleaned_key = cleaned_key.replace("won %", "won_Percent")
+                results_summary_dict[cleaned_key] = safe_float_convert(value)
+            else: # If no colon, try to split by last space (for "Key Value" patterns)
+                last_space_idx = segment_stripped.rfind(' ')
+                if last_space_idx != -1:
+                    key = segment_stripped[:last_space_idx].strip()
+                    value = segment_stripped[last_space_idx+1:].strip()
+                    cleaned_key = key.replace("(", "").replace(")", "").replace("/", "_").replace("-", "_").replace(" ", "_").replace("__", "_").strip()
+                    if "won %" in cleaned_key: cleaned_key = cleaned_key.replace("won %", "won_Percent")
+                    results_summary_dict[cleaned_key] = safe_float_convert(value)
+                else:
+                    # Fallback for complex lines not easily split, or lone numbers.
+                    # This covers cases like "Total Net Profit:,,,- 575.21,Gross Profit:,,,2 118.42"
+                    # We might need to split by comma again here or have more specific regex for each field.
+                    # For now, let's try to extract numbers that could be values if no key is found.
+                    # This part needs fine-tuning based on the exact format of results lines.
+                    # For now, rely on previous split by multiple spaces/commas.
+                    pass
+
 
         dfs_output['balance_summary'] = balance_summary_dict
         dfs_output['results_summary'] = results_summary_dict
@@ -1340,20 +1410,20 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
             for header_name in expected_headers:
                 # Try to find a matching key in summary_dict, considering various possible cleaned names
                 found_val = None
-                for summary_key, summary_val in summary_dict.items():
-                    # Simple match
-                    if summary_key == header_name:
+                for summary_key_raw, summary_val in summary_dict.items():
+                    # Clean the summary_key_raw similar to how expected_headers are named
+                    summary_key_cleaned_for_match = summary_key_raw.replace("(", "").replace(")", "").replace("/", "_").replace("-", "_").replace(" ", "_").replace("__", "_").strip()
+                    if "won %" in summary_key_cleaned_for_match: summary_key_cleaned_for_match = summary_key_cleaned_for_match.replace("won %", "won_Percent")
+
+                    # Direct match
+                    if summary_key_cleaned_for_match == header_name:
                         found_val = summary_val
                         break
-                    # More flexible matching for complex names (e.g. Total Net Profit)
-                    if header_name.lower().replace('_', '') == summary_key.lower().replace('_', ''):
+                    # More flexible match for keys like "Total_Net_Profit" vs "TotalNetProfit" in raw
+                    if header_name.lower().replace('_', '') == summary_key_cleaned_for_match.lower().replace('_', ''):
                         found_val = summary_val
                         break
-                    # Special case for Percentage headers from "won %"
-                    if header_name.endswith("_Percent") and summary_key.replace("won%", "won_Percent").lower() == header_name.lower():
-                        found_val = summary_val
-                        break
-                
+                    
                 if found_val is not None:
                     row_data[header_name] = found_val
                 # If not found, it remains empty or its default (e.g. "")
@@ -1392,7 +1462,7 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
         # DEBUG: Display raw file content if debug mode is on
         if st.session_state.get("debug_statement_processing", False):
             st.subheader("Raw File Content (Debug)")
-            st.text_area("File Content", file_content_str, height=300, key="raw_file_content_debug")
+            st.text_area("File Content", file_content_str, height=500, key="raw_file_content_debug") # Increased height
 
         st.info(f"กำลังประมวลผลไฟล์: {uploaded_file_statement.name}")
         with st.spinner(f"กำลังแยกส่วนข้อมูลจาก {uploaded_file_statement.name}..."):
@@ -1408,7 +1478,7 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
                         else:
                             st.info(f"DataFrame for {section_name.replace('_',' ').title()} is empty.")
                     else:
-                        st.json(data_item)
+                        st.json(data_item) # Display dicts as JSON for better readability
 
             if not active_portfolio_id_for_actual:
                 st.error("กรุณาเลือกพอร์ตที่ใช้งาน (Active Portfolio) ใน Sidebar ก่อนประมวลผล Statement.")
