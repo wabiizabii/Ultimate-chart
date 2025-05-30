@@ -986,6 +986,9 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Processing", expanded=
             # or starts with the first part of the header and has similar column count
             for i, line in enumerate(lines):
                 line_stripped = line.strip()
+                
+                # Check for header based on exact match or starts with first column
+                # and has similar number of columns as the template
                 if line_stripped == header_template.strip() or \
                    (line_stripped.startswith(header_template.split(',')[0]) and \
                     len(line_stripped.split(',')) >= (len(header_template.split(',')) - 2) and \
@@ -1017,71 +1020,83 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Processing", expanded=
                 
                 # Clean up lines: filter out empty lines, report headers, and summary lines
                 table_lines = []
-                header_found = False
-                for line_num, line_val in enumerate(section_lines_raw):
+                header_line_processed = False # Flag to ensure header is handled once
+                
+                for line_num_in_section, line_val in enumerate(section_lines_raw):
                     line_val_stripped = line_val.strip()
                     if not line_val_stripped: # Skip blank lines
                         continue
                     
-                    # If this is the header line for the current section
-                    if line_val_stripped == section_raw_headers[section_name].strip() or \
-                       (line_val_stripped.startswith(section_raw_headers[section_name].split(',')[0]) and \
-                        len(line_val_stripped.split(',')) >= (len(section_raw_headers[section_name].split(',')) - 2)
-                       ):
-                        table_lines.append(line_val)
-                        header_found = True
-                        continue
+                    # This is the header line based on template
+                    is_header_candidate = (line_val_stripped == section_raw_headers[section_name].strip() or \
+                                           (line_val_stripped.startswith(section_raw_headers[section_name].split(',')[0]) and \
+                                            len(line_val_stripped.split(',')) >= (len(section_raw_headers[section_name].split(',')) - 2)
+                                           ))
                     
-                    # After header, collect data lines. Stop if we hit a non-data line (e.g., summary start)
-                    if header_found:
+                    if is_header_candidate and not header_line_processed:
+                        # Process the header line and potentially the first data row if concatenated
+                        header_template_parts_count = len(section_raw_headers[section_name].split(','))
+                        current_line_parts = line_val.split(',')
+                        
+                        if len(current_line_parts) > header_template_parts_count: # If the line has more parts than the header, it's concatenated
+                            header_part = ",".join(current_line_parts[:header_template_parts_count])
+                            first_data_row_part = ",".join(current_line_parts[header_template_parts_count:])
+                            
+                            table_lines.append(header_part) # Add the header
+                            table_lines.append(first_data_row_part) # Add the first data row (now separated)
+                            # st.info(f"DEBUG: Manually split header and first data row for {section_name}.") # Optional debug
+                        else:
+                            # It's just the header line
+                            table_lines.append(line_val)
+                            
+                        header_line_processed = True
+                        continue # Move to the next line in section_lines_raw
+                    
+                    # After processing the header (and potentially the first data row from the same line),
+                    # collect subsequent data lines.
+                    if header_line_processed:
+                        # Heuristic to stop collecting table data if summary lines start
+                        # These lines usually don't have many commas
                         if line_val_stripped.startswith("Name:") or \
                            line_val_stripped.startswith("Account:") or \
                            line_val_stripped.startswith("Company:") or \
                            line_val_stripped.startswith("Date:") or \
                            line_val_stripped.startswith("Results") or \
-                           line_val_stripped.startswith("Balance:"):
+                           line_val_stripped.startswith("Balance:") or \
+                           line_val_stripped.startswith("Total Net Profit:"): # Added specific result line
                            break # Stop collecting table data if it looks like a report header or summary
                         
                         table_lines.append(line_val) # Add data line
                 
                 csv_string_data = "\n".join(table_lines)
 
-                # --- DEBUGGING: เพิ่มโค้ด 2 บรรทัดนี้เพื่อดู CSV string ก่อนส่งให้ pandas ---
-                st.write(f"DEBUG: CSV string for {section_name} (before pandas):")
-                st.code(csv_string_data)
-                # --- END DEBUGGING ---
+                # DEBUG: Add this to see the CSV string being passed to pandas
+                # st.write(f"DEBUG: CSV string for {section_name}:")
+                # st.code(csv_string_data)
 
                 if csv_string_data.strip(): # Only try to read if there's data
                     try:
-                        header_line_for_pd = section_raw_headers[section_name]
+                        # pd.read_csv will automatically use the first line in StringIO as header
                         df = pd.read_csv(io.StringIO(csv_string_data), skipinitialspace=True)
                         
                         # Clean column names (strip spaces, replace ' / ' with '_')
                         df.columns = df.columns.str.strip().str.replace(' / ', '_', regex=False).str.replace(' ', '_', regex=False)
                         
                         # IMPORTANT: Rename specific columns if their names are duplicated or cause issues
+                        # For Positions: original header "Time", "Price" are duplicated. Pandas adds '.1'
                         if section_name == "Positions":
-                            if 'Time_1' in df.columns: # Pandas might automatically rename duplicate 'Time' to 'Time.1'
-                                df.rename(columns={'Time_1': 'Close_Time'}, inplace=True)
-                            if 'Price_1' in df.columns: # Pandas might automatically rename duplicate 'Price' to 'Price.1'
-                                df.rename(columns={'Price_1': 'Close_Price'}, inplace=True)
-                            # Ensure 'S_L' and 'T_P' are correctly handled if they are not picked up due to header issue
-                            # Check if original 'S / L' and 'T / P' exist and were cleaned
-                            if 'S / L' in df.columns and 'S_L' not in df.columns:
-                                df.rename(columns={'S / L': 'S_L'}, inplace=True)
-                            if 'T / P' in df.columns and 'T_P' not in df.columns:
-                                df.rename(columns={'T / P': 'T_P'}, inplace=True)
+                            if 'Time.1' in df.columns: # Pandas might automatically rename duplicate 'Time' to 'Time.1'
+                                df.rename(columns={'Time.1': 'Close_Time'}, inplace=True)
+                            if 'Price.1' in df.columns: # Pandas might automatically rename duplicate 'Price' to 'Price.1'
+                                df.rename(columns={'Price.1': 'Close_Price'}, inplace=True)
                             
+                        # For Orders: "Open Time" is 'Open_Time', and there's another 'Time' (Close Time)
                         if section_name == "Orders":
                             if 'Open_Time' not in df.columns and 'Open Time' in df.columns: # Ensure consistent 'Open_Time'
                                 df.rename(columns={'Open Time': 'Open_Time'}, inplace=True)
-                            if 'Time_1' in df.columns: # If pandas duplicated 'Time' due to implicit header issues
-                                df.rename(columns={'Time_1': 'Close_Time'}, inplace=True)
-                            # Ensure 'S_L' and 'T_P' are correctly handled if they are not picked up due to header issue
-                            if 'S / L' in df.columns and 'S_L' not in df.columns:
-                                df.rename(columns={'S / L': 'S_L'}, inplace=True)
-                            if 'T / P' in df.columns and 'T_P' not in df.columns:
-                                df.rename(columns={'T / P': 'T_P'}, inplace=True)
+                            # If 'Time' also became 'Time.1' (for Close Time)
+                            if 'Time.1' in df.columns:
+                                df.rename(columns={'Time.1': 'Close_Time'}, inplace=True)
                         
                         dfs_output[section_name.lower()] = df
                     except Exception as e:
@@ -1142,7 +1157,7 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Processing", expanded=
         # Find start of results summary
         results_start_line_idx = -1
         for i, line in enumerate(lines):
-            if line.strip().startswith("Results"):
+            if line.strip().startswith("Results") or line.strip().startswith("Total Net Profit:"):
                 results_start_line_idx = i
                 break
         
@@ -1202,7 +1217,7 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Processing", expanded=
             ws = sh.worksheet(WORKSHEET_ACTUAL_POSITIONS)
             expected_headers = [
                 "Time", "Position", "Symbol", "Type", "Volume", "Price", "S_L", "T_P",
-                "Time_1", "Price_1", "Commission", "Swap", "Profit",
+                "Close_Time", "Close_Price", "Commission", "Swap", "Profit", # Renamed "Time_1", "Price_1" for clarity
                 "PortfolioID", "PortfolioName", "SourceFile"
             ]
             
@@ -1219,10 +1234,10 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Processing", expanded=
                     "Type": row.get("Type", ""),
                     "Volume": row.get("Volume", ""),
                     "Price": row.get("Price", ""),
-                    "S_L": row.get("S_L", ""), # Note: S / L becomes S_L
-                    "T_P": row.get("T_P", ""), # Note: T / P becomes T_P
-                    "Time_1": row.get("Time_1", ""), # Close Time column (from original header "Time")
-                    "Price_1": row.get("Price_1", ""), # Close Price column (from original header "Price")
+                    "S_L": row.get("S_L", ""),
+                    "T_P": row.get("T_P", ""),
+                    "Close_Time": row.get("Close_Time", ""), # Use new clean name
+                    "Close_Price": row.get("Close_Price", ""), # Use new clean name
                     "Commission": row.get("Commission", ""),
                     "Swap": row.get("Swap", ""),
                     "Profit": row.get("Profit", ""),
@@ -1247,7 +1262,7 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Processing", expanded=
             ws = sh.worksheet(WORKSHEET_ACTUAL_ORDERS)
             expected_headers = [
                 "Open_Time", "Order", "Symbol", "Type", "Volume", "Price", "S_L", "T_P",
-                "Time", "State", "Comment",
+                "Close_Time", "State", "Comment", # Renamed "Time" to "Close_Time" for clarity
                 "PortfolioID", "PortfolioName", "SourceFile"
             ]
             
@@ -1258,7 +1273,7 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Processing", expanded=
             rows_to_append = []
             for index, row in df_orders.iterrows():
                 row_data = {
-                    "Open_Time": row.get("Open_Time", ""), # Note: Open Time becomes Open_Time
+                    "Open_Time": row.get("Open_Time", ""),
                     "Order": row.get("Order", ""),
                     "Symbol": row.get("Symbol", ""),
                     "Type": row.get("Type", ""),
@@ -1266,7 +1281,7 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Processing", expanded=
                     "Price": row.get("Price", ""),
                     "S_L": row.get("S_L", ""),
                     "T_P": row.get("T_P", ""),
-                    "Time": row.get("Time", ""), # This is Close Time in the original report's Orders section
+                    "Close_Time": row.get("Close_Time", ""), # Use new clean name
                     "State": row.get("State", ""),
                     "Comment": row.get("Comment", ""),
                     "PortfolioID": portfolio_id,
@@ -1420,7 +1435,7 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Processing", expanded=
 
     # ปุ่มล้างข้อมูลในชีท 'Uploaded Statements' อาจจะยังเก็บไว้ถ้าคุณต้องการใช้ชีทนั้นเพื่อวัตถุประสงค์อื่น
     # หรือถ้าต้องการเคลียร์มันเป็นประจำ
-    # if st.button("🗑️ ล้างข้อมูลในชีต 'Uploaded Statements'", key="clear_uploaded_gs_data"):
+    # if st.button("🗑️ ล้างข้อมูลในชีท 'Uploaded Statements'", key="clear_uploaded_gs_data"):
     #     gc = get_gspread_client()
     #     if gc:
     #         try:
