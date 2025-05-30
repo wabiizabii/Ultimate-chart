@@ -866,23 +866,23 @@ with st.expander("🤖 AI Assistant", expanded=True):
 with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", expanded=True):
     st.markdown("### 📊 จัดการ Statement และข้อมูลดิบ")
 
-d# --- ฟังก์ชันสำหรับแยกข้อมูลจากเนื้อหาไฟล์ Statement (CSV) ---
+# --- ฟังก์ชันสำหรับแยกข้อมูลจากเนื้อหาไฟล์ Statement (CSV) ---
 def extract_data_from_report_content(file_content):
     extracted_data = {}
 
-    # 1) แบ่งบรรทัดก่อน แล้วตัดบรรทัด "Orders,,,,…" ทิ้ง
+    # --- 1) แบ่งบรรทัดก่อน แล้วตัดบรรทัด "Orders,,,,…" ทิ้ง ---
     lines = file_content.strip().split('\n')
     if lines and lines[0].strip().startswith("Orders"):
         lines.pop(0)
 
-    # 2) นิยาม raw headers ตามเดิม
+    # --- 2) นิยาม raw headers สำหรับแต่ละ section ---
     section_raw_headers = {
         "Positions": "Time,Position,Symbol,Type,Volume,Price,S / L,T / P,Time,Price,Commission,Swap,Profit,",
         "Orders":    "Open Time,Order,Symbol,Type,Volume,Price,S / L,T / P,Time,State,,Comment,,",
         "Deals":     "Time,Deal,Symbol,Type,Direction,Volume,Price,Order,Commission,Fee,Swap,Profit,Balance,Comment",
     }
 
-    # 3) คอลัมน์ที่คาดหวังสำหรับแต่ละ section
+    # --- 3) กำหนดชื่อคอลัมน์ที่คาดหวังหลัง clean ---
     expected_cleaned_columns = {
         "Positions": ["Time", "Position", "Symbol", "Type", "Volume", "Price",
                       "S_L", "T_P", "Close_Time", "Close_Price", "Commission", "Swap", "Profit"],
@@ -892,25 +892,156 @@ def extract_data_from_report_content(file_content):
                       "Price", "Order", "Commission", "Fee", "Swap", "Profit", "Balance", "Comment"],
     }
 
-    # 4) ลำดับ section ที่จะวนหา
+    # --- 4) ลำดับ section ที่จะวนหา ---
     section_order = ["Positions", "Orders", "Deals"]
 
-    dfs_output = {}
-    for idx, section_name in enumerate(section_order):
-        # … (โค้ดเดิมที่วนหา header, extract block, ใช้ csv.reader, clean data, สร้าง DataFrame ฯลฯ) …
-        # ตัวอย่าง:
-        # header_idx = section_start_indices.get(section_name)
-        # raw_section_lines_block = lines[header_idx:end_idx]
-        # … จนถึง …
-        # dfs_output[section_name.lower()] = df
+    # หา start index ของแต่ละ section header
+    section_start_indices = {}
+    for section_name, header_template_str in section_raw_headers.items():
+        for i, line in enumerate(lines):
+            line_stripped = line.strip()
+            header_clean = header_template_str.replace(" / ", "/").strip().rstrip(',')
+            line_clean = line_stripped.replace(" / ", "/").strip().rstrip(',')
+            if line_clean.startswith(header_clean.split(',')[0]) and \
+               len(line_clean.split(',')) >= len(header_clean.split(',')) - 2 and \
+               len(line_clean.split(',')) <= len(header_clean.split(',')) + 3:
+                section_start_indices[section_name] = i
+                break
 
-    # 5) ส่วนสรุป Balance และ Results Summary (เดิม)
-    # … (โค้ดดึง balance_summary_dict, results_summary_dict) …
+    dfs_output = {}
+    # ประมวลผลแต่ละ section
+    for idx, section_name in enumerate(section_order):
+        key_lower = section_name.lower()
+        if section_name not in section_start_indices:
+            dfs_output[key_lower] = pd.DataFrame()
+            continue
+
+        header_idx = section_start_indices[section_name]
+        # หา end index ของ block
+        end_idx = len(lines)
+        for next_sec in section_order[idx+1:]:
+            if next_sec in section_start_indices:
+                end_idx = section_start_indices[next_sec]
+                break
+
+        raw_block = lines[header_idx:end_idx]
+        data_lines = []
+        # ตรวจสอบว่าบรรทัดแรกของ block มีข้อมูลหรือเป็นแค่ header
+        first_parts = []
+        try:
+            first_parts = list(csv.reader(io.StringIO(raw_block[0])))[0]
+        except:
+            first_parts = raw_block[0].split(',')
+
+        header_cols_count = len(section_raw_headers[section_name].split(','))
+        start_from = 1
+        if len(first_parts) > header_cols_count and any(p.strip() for p in first_parts[header_cols_count:]):
+            data_lines.append(first_parts)
+        for line in raw_block[start_from:]:
+            if not line.strip(): continue
+            if line.strip().startswith(("Name:", "Account:", "Company:", "Date:", "Results", "Balance:")):
+                break
+            try:
+                parts = list(csv.reader(io.StringIO(line.strip())))[0]
+            except:
+                parts = line.strip().split(',')
+            data_lines.append(parts)
+
+        # สร้าง CSV string และอ่านด้วย pandas
+        final_rows = []
+        exp_cols = expected_cleaned_columns[section_name]
+        for parts in data_lines:
+            if section_name in ["Orders", "Deals"]:
+                core = exp_cols[:-1]
+                core_count = len(core)
+                row_core = parts[:core_count]
+                comment_remain = parts[core_count:]
+                comment = '"' + ' '.join(comment_remain).replace('"','""') + '"' if comment_remain else ''
+                row_core.append(comment)
+                if section_name == "Orders":
+                    # เติม Empty1, Empty2
+                    while len(row_core) < len(exp_cols):
+                        row_core.append('')
+                final_rows.append(','.join(row_core))
+            else:
+                padded = parts + ['']*(len(exp_cols)-len(parts))
+                final_rows.append(','.join(padded[:len(exp_cols)]))
+
+        csv_data = "\n".join(final_rows)
+        if csv_data.strip():
+            try:
+                df = pd.read_csv(io.StringIO(csv_data), sep=',', names=exp_cols,
+                                 header=None, skipinitialspace=True,
+                                 on_bad_lines='warn', engine='python')
+                # ลบคอลัมน์ว่าง และ Unnamed
+                df = df.dropna(axis=1, how='all')
+                df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
+                # รวม comment ใน Orders
+                if section_name == "Orders":
+                    comment_cols = [c for c in df.columns if c.startswith('Comment') and c!='Comment']
+                    if comment_cols:
+                        df['Comment'] = df[comment_cols].fillna('').agg(' '.join, axis=1).str.strip()
+                        df.drop(columns=comment_cols, inplace=True, errors='ignore')
+                    if 'Comment' not in df.columns:
+                        df['Comment'] = ''
+                # จัดคอลัมน์ตาม expected
+                for col in exp_cols:
+                    if col not in df.columns:
+                        df[col] = np.nan
+                df = df[exp_cols]
+                df.dropna(how='all', inplace=True)
+                dfs_output[key_lower] = df
+            except Exception as e:
+                dfs_output[key_lower] = pd.DataFrame()
+        else:
+            dfs_output[key_lower] = pd.DataFrame()
+
+    # --- 5) สรุป Balance และ Results Summary ---
+    balance_summary_dict = {}
+    for i, line in enumerate(lines):
+        if line.strip().startswith("Balance:"):
+            for l in lines[i:]:
+                if not l.strip() or l.strip().startswith(("Results","Total Net Profit:")):
+                    break
+                parts = [p.strip() for p in l.split(',')]
+                for part in parts:
+                    if ':' in part:
+                        k,v = part.split(':',1)
+                    else:
+                        idx = part.rfind(' ')
+                        k,v = part[:idx], part[idx+1:]
+                    key = k.replace(" ","_").replace(".","")
+                    try:
+                        balance_summary_dict[key] = float(v.replace(",","").replace("%",""))
+                    except:
+                        balance_summary_dict[key] = None
+            break
+
+    results_summary_dict = {}
+    for i, line in enumerate(lines):
+        if line.strip().startswith(("Results","Total Net Profit:")):
+            for l in lines[i:]:
+                if not l.strip() or l.strip().startswith("Average consecutive losses"):
+                    break
+                parts = [p.strip() for p in l.split(',')]
+                for part in parts:
+                    if ':' in part:
+                        k,v = part.split(':',1)
+                    elif ' ' in part:
+                        idx = part.rfind(' ')
+                        k,v = part[:idx], part[idx+1:]
+                    key = k.replace("(","").replace(")","").replace("/","_").replace(" ","_").replace("%","Percent")
+                    try:
+                        results_summary_dict[key] = float(v.replace(",",""))
+                    except:
+                        results_summary_dict[key] = v
+            break
 
     dfs_output['balance_summary'] = balance_summary_dict
     dfs_output['results_summary'] = results_summary_dict
 
     return dfs_output
+
         
         # Find the start line indices for each section's header
         section_start_indices = {}
