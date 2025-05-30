@@ -1131,7 +1131,7 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Processing", expanded=
         dfs_output['balance_summary'] = balance_summary_dict
         dfs_output['results_summary'] = results_summary_dict
 
-        return dfs_output
+            return dfs_output
 
     # --- ฟังก์ชันสำหรับบันทึก Positions ลงในชีท ActualPositions ---
     def save_positions_to_gsheets(df_positions, portfolio_id, portfolio_name, source_file_name="N/A"):
