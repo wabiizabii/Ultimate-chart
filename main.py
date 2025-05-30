@@ -1111,6 +1111,7 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Processing", expanded=
                 st.rerun()
             except Exception as e:
                 st.error(f"❌ เกิดข้อผิดพลาดในการล้างชีต: {e}")
+   
 # ===================== SEC 8: MAIN AREA - PERFORMANCE DASHBOARD =======================
 def load_data_for_dashboard(): # Function to select data source for dashboard
     source_option = st.selectbox(
