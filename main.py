@@ -12,7 +12,6 @@ import plotly.graph_objects as go
 import yfinance as yf
 import random # For LogID generation
 import csv
-import io # Import io module for StringIO
 
 st.set_page_config(page_title="Ultimate-Chart", layout="wide")
 acc_balance = 10000
@@ -966,7 +965,7 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
     # --- ฟังก์ชันสำหรับแยกข้อมูลจากเนื้อหาไฟล์ Statement (CSV) ---
     # ฟังก์ชันนี้ถูกปรับปรุงให้รับเนื้อหาไฟล์ทั้งหมด (string) และแยกส่วนต่างๆ
     def extract_data_from_report_content(file_content):
-        extracted_data = {}
+        extracted_data = {} # เยื้อง 4 ช่องว่าง
 
         # Define raw headers from the CSV report for identification
         section_raw_headers = {
@@ -992,7 +991,6 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
         for section_name, header_template in section_raw_headers.items():
             for i, line in enumerate(lines):
                 line_stripped = line.strip()
-                # Check for exact header match or a close match for the first part of the header
                 if line_stripped == header_template.strip() or \
                    (line_stripped.startswith(header_template.split(',')[0]) and \
                     len(line_stripped.split(',')) >= (len(header_template.split(',')) - 2) and \
@@ -1001,10 +999,13 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
                     section_start_indices[section_name] = i
                     break
         
+        # --- DEBUGGING: แสดง indices ที่เจอ ---
+        # st.write("DEBUG: section_start_indices found:", section_start_indices)
+        # --- END DEBUGGING ---
+
         dfs_output = {}
         # Parse collected table sections into DataFrames
         for i, section_name in enumerate(section_order):
-            section_key = section_name.lower() # Use lowercase key for dictionary
             if section_name in section_start_indices:
                 header_idx = section_start_indices[section_name]
                 
@@ -1022,32 +1023,28 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
                 # --- Specific parsing for each table section ---
                 # This part now directly uses pd.read_csv with skiprows and names
                 
+                # Find the first data line (which is concatenated with header)
+                # It's at header_idx. We need to split this line.
+                
+                # Read the header line + first data line
+                first_line_of_block = raw_section_lines_block[0]
+                
+                # Use csv.reader to correctly split the first line of the block
+                try:
+                    # current_line_parts will contain parts like ['Time', 'Position', ..., 'Profit', '2025.05.02...', '7213', ...]
+                    current_line_parts = list(csv.reader(io.StringIO(first_line_of_block)))[0]
+                except Exception as e_csv_reader_first_line:
+                    st.error(f"❌ Critical Error: Could not parse the first line of '{section_name}' section with csv.reader: '{first_line_of_block.strip()}' ({e_csv_reader_first_line})")
+                    dfs_output[section_key.lower()] = pd.DataFrame()
+                    continue # Skip to next section if first line is broken
+
+                header_template_parts_count = len(section_raw_headers[section_name].split(','))
+
                 table_data_lines = []
-                if raw_section_lines_block:
-                    first_line_of_block = raw_section_lines_block[0]
-                    
-                    # Use csv.reader to correctly split the first line of the block
-                    try:
-                        # current_line_parts will contain parts like ['Time', 'Position', ..., 'Profit', '2025.05.02...', '7213', ...]
-                        current_line_parts = list(csv.reader(io.StringIO(first_line_of_block)))[0]
-                    except Exception as e_csv_reader_first_line:
-                        st.error(f"❌ Critical Error: Could not parse the first line of '{section_name}' section with csv.reader: '{first_line_of_block.strip()}' ({e_csv_reader_first_line})")
-                        dfs_output[section_key] = pd.DataFrame() # Ensure section_key is used
-                        continue # Skip to next section if first line is broken
-
-                    header_template_parts_count = len(section_raw_headers[section_name].split(','))
-
-                    # If the first line is concatenated (header + first data row)
-                    if len(current_line_parts) > header_template_parts_count:
-                        first_data_row_extracted = current_line_parts[header_template_parts_count:]
-                        table_data_lines.append(','.join(first_data_row_extracted)) # Add as a new row
-                    elif len(current_line_parts) == header_template_parts_count:
-                        # It's just the header, so the actual data starts from the next line
-                        pass # No data to append from this line if it's just the header
-                    else:
-                        st.warning(f"Unexpected format for '{section_name}' header line. Skipping data extraction for this section.")
-                        dfs_output[section_key] = pd.DataFrame()
-                        continue
+                if len(current_line_parts) > header_template_parts_count:
+                    # It's concatenated. Extract the data part.
+                    first_data_row_extracted = current_line_parts[header_template_parts_count:]
+                    table_data_lines.append(','.join(first_data_row_extracted)) # Add as a new row
                 
                 # Add all subsequent lines (from index 1 of raw_section_lines_block)
                 # Filter out lines that are not data lines (e.g., summary keywords, blank lines)
@@ -1055,7 +1052,6 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
                     line_val_stripped = line_val.strip()
                     if not line_val_stripped: continue
                     
-                    # Heuristic to stop processing if summary lines are encountered
                     if line_val_stripped.startswith("Name:") or \
                        line_val_stripped.startswith("Account:") or \
                        line_val_stripped.startswith("Company:") or \
@@ -1070,13 +1066,13 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
                 csv_string_data_to_parse = "\n".join(table_data_lines)
                 
                 # DEBUG: Add this to see the CSV string being passed to pandas
-                if st.session_state.get("debug_statement_processing", False):
-                    st.write(f"DEBUG: CSV string for {section_name} (before pandas):")
-                    st.code(csv_string_data_to_parse)
+                st.write(f"DEBUG: CSV string for {section_name} (before pandas):")
+                st.code(csv_string_data_to_parse)
 
                 if csv_string_data_to_parse.strip():
                     try:
                         # Use pandas to read the data. Provide column names explicitly.
+                        # header=None and skiprows=0 (default) or not specified means pandas reads from first line given, assuming no header.
                         df = pd.read_csv(io.StringIO(csv_string_data_to_parse),
                                          sep=',',
                                          names=expected_cleaned_columns[section_name], # Use hardcoded names
@@ -1085,65 +1081,24 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
                                          on_bad_lines='warn', # Warn but don't skip rows with errors
                                          engine='python') # Use Python engine for more flexibility
                         
-                        # Remove 'Empty' columns (from Orders section due to extra commas in template)
-                        # This specifically targets the 'Comment1', 'Comment2', 'Comment3' issue by dropping the last ones
-                        # if section_name == "Orders" and len(df.columns) > len(expected_cleaned_columns[section_name]):
-                        #     # If there are more columns than expected, it's likely due to extra commas.
-                        #     # Try to trim excess columns from the end.
-                        #     df = df.iloc[:, :len(expected_cleaned_columns[section_name])]
-                        
-                        # General check for extra columns from parsing that might be 'CommentX' or unnamed
-                        # Drop columns that are entirely empty or start with 'Unnamed'
-                        df = df.dropna(axis=1, how='all')
-                        df = df.loc[:, ~df.columns.str.contains('^Unnamed')] # Drop unnamed columns
-                        
-                        # For 'Orders' specifically, handle the Comment columns more robustly if needed
-                        if section_name == "Orders":
-                             # If original data had fewer columns than expected, some names might be missing
-                            # For example, if 'Comment3' is not filled by data, it might not exist.
-                            # Just ensure Comment is a single column if possible
-                            if 'Comment1' in df.columns and 'Comment2' in df.columns:
-                                df['Comment'] = df['Comment1'].fillna('') + ' ' + df['Comment2'].fillna('')
-                                if 'Comment3' in df.columns:
-                                    df['Comment'] = df['Comment'] + ' ' + df['Comment3'].fillna('')
-                                df.drop(columns=['Comment1', 'Comment2'], inplace=True, errors='ignore')
-                                df.drop(columns=['Comment3'], inplace=True, errors='ignore')
-                            elif 'Comment1' in df.columns:
-                                df.rename(columns={'Comment1': 'Comment'}, inplace=True)
-                            else: # If no comments, ensure 'Comment' column exists for consistency
-                                if 'Comment' not in df.columns:
-                                    df['Comment'] = '' # Add empty comment column
-
+                        # Remove 'Empty' columns (from Orders section)
+                        df = df.loc[:, ~df.columns.str.startswith('Empty')]
 
                         # Drop rows that are entirely empty or contain only NaN values after parsing
                         df.dropna(how='all', inplace=True)
                         
-                        # Rename columns to the clean names, ensuring the order and count match
-                        if len(df.columns) == len(expected_cleaned_columns[section_name]):
-                            df.columns = expected_cleaned_columns[section_name]
-                        else:
-                            st.warning(f"Column count mismatch for {section_name}. Expected {len(expected_cleaned_columns[section_name])}, got {len(df.columns)}. Attempting to match by position.")
-                            # Attempt to match by position, but warn if names are different
-                            for idx, col_name in enumerate(expected_cleaned_columns[section_name]):
-                                if idx < len(df.columns):
-                                    df.rename(columns={df.columns[idx]: col_name}, inplace=True)
-                                else:
-                                    # Add missing columns with NaN if they weren't parsed
-                                    df[col_name] = np.nan
-                            df = df[expected_cleaned_columns[section_name]] # Reorder columns explicitly
-
-                        dfs_output[section_key] = df
+                        dfs_output[section_name.lower()] = df
                     except ValueError as ve: # Catch if column count doesn't match names
-                        st.error(f"❌ Column mismatch error in {section_name}: {ve}. Expected {len(expected_cleaned_columns[section_name])} columns or less for flexible parsing, but something went wrong.")
-                        dfs_output[section_key] = pd.DataFrame()
+                        st.error(f"❌ Column mismatch error in {section_name}: {ve}. Expected {len(expected_cleaned_columns[section_name])} columns, got different count in data.")
+                        dfs_output[section_key.lower()] = pd.DataFrame()
                     except Exception as e:
                         st.error(f"❌ Error creating DataFrame for {section_name}: {e}")
-                        dfs_output[section_key] = pd.DataFrame()
+                        dfs_output[section_key.lower()] = pd.DataFrame()
                 else:
                     st.warning(f"No valid data rows collected for {section_name} table in the uploaded file.")
-                    dfs_output[section_key] = pd.DataFrame()
+                    dfs_output[section_key.lower()] = pd.DataFrame()
             else:
-                dfs_output[section_key] = pd.DataFrame() # Return empty if section not found in file
+                dfs_output[section_key.lower()] = pd.DataFrame() # Return empty if section not found in file
         
         # --- Pass 3: Extract Balance Summary and Results Summary (non-table sections) ---
         balance_summary_dict = {}
@@ -1161,52 +1116,32 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
                 if not line_stripped:
                     break
                 
-                if line_stripped.startswith("Results") or line_stripped.startswith("Total Net Profit:"):
+                if line_stripped.startswith("Results"):
                     break
 
                 parts = [p.strip() for p in line_stripped.split(',')]
                 
                 def safe_float_convert(value_str):
                     try:
-                        # Remove spaces, thousands commas, and then convert
                         return float(value_str.replace(" ", "").replace(",", ""))
                     except ValueError:
                         return None
 
-                # More robust parsing of Balance section lines
-                # Example line: Balance: 10000.00,Free Margin: 10000.00
-                # Or: Credit Facility: 0.00,Margin: 0.00
-                # Or: Floating P/L: 0.00,Margin Level: 0.00%
-                # Or: Equity: 10000.00
-                
-                # Check for common keywords and extract values
-                if len(parts) > 0:
-                    key_val_pairs = []
-                    current_key = ""
-                    for part in parts:
-                        if ':' in part:
-                            if current_key: # Save previous pair if any
-                                key_val_pairs.append((current_key, "")) # Should not happen if colon is main separator
-                            split_part = part.split(':', 1)
-                            current_key = split_part[0].strip()
-                            if len(split_part) > 1:
-                                key_val_pairs.append((current_key, split_part[1].strip()))
-                                current_key = ""
-                        else: # Value part without a colon
-                            if key_val_pairs and not key_val_pairs[-1][1]: # If the last pair has an empty value (multi-part value)
-                                key_val_pairs[-1] = (key_val_pairs[-1][0], key_val_pairs[-1][1] + ' ' + part.strip())
-                            elif current_key: # Value for the current_key
-                                key_val_pairs.append((current_key, part.strip()))
-                                current_key = ""
-                            else: # Likely a continuation of a previous value that was not handled
-                                pass # Or handle as a warning/error
-
-
-                    for key, value_str in key_val_pairs:
-                        key = key.replace(":", "").replace(" ", "_").replace(".", "").strip()
-                        if key: # Ensure key is not empty
-                            balance_summary_dict[key] = safe_float_convert(value_str.replace("%", ""))
-
+                if parts[0].replace(":", "").strip() == "Balance" and len(parts) >= 2:
+                    balance_summary_dict["Balance"] = safe_float_convert(parts[1])
+                    if len(parts) >= 6 and parts[4].replace(":", "").strip() == "Free Margin":
+                        balance_summary_dict["Free_Margin"] = safe_float_convert(parts[5])
+                elif parts[0].replace(":", "").strip() == "Credit Facility" and len(parts) >= 2:
+                    balance_summary_dict["Credit_Facility"] = safe_float_convert(parts[1])
+                    if len(parts) >= 6 and parts[4].replace(":", "").strip() == "Margin":
+                        balance_summary_dict["Margin"] = safe_float_convert(parts[5])
+                elif parts[0].replace(":", "").strip() == "Floating P/L" and len(parts) >= 2:
+                    balance_summary_dict["Floating_P_L"] = safe_float_convert(parts[1])
+                    if len(parts) >= 6 and parts[4].replace(":", "").strip() == "Margin Level":
+                        balance_summary_dict["Margin_Level"] = safe_float_convert(parts[5].replace("%", ""))
+                elif parts[0].replace(":", "").strip() == "Equity" and len(parts) >= 2:
+                    balance_summary_dict["Equity"] = safe_float_convert(parts[1])
+        
         results_start_line_idx = -1
         for i, line in enumerate(lines):
             if line.strip().startswith("Results") or line.strip().startswith("Total Net Profit:"):
@@ -1214,102 +1149,45 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
                 break
         
         if results_start_line_idx != -1:
-            # Assuming the results summary is a block of key-value pairs
-            # It starts from results_start_line_idx and goes until a blank line or a line starting with "Average consecutive losses"
-            for i in range(results_start_line_idx, len(lines)):
+            for i in range(results_start_line_idx + 1, len(lines)):
                 line_stripped = lines[i].strip()
-                if not line_stripped or line_stripped.startswith("Average consecutive losses"):
-                    break # Stop at blank line or specific ending marker
+                if not line_stripped:
+                    break
                 
-                # Split by comma, then split each part by ':' or recognize key-value patterns
                 parts = [p.strip() for p in line_stripped.split(',')]
-                
-                # Heuristic to parse "Key: Value" or "Key Value" pairs
-                # This logic assumes pairs are either `Key: Value, Key: Value` or `Key Value, Key Value`
-                for part in parts:
-                    if ':' in part:
-                        key_val = part.split(':', 1)
-                        key = key_val[0].replace(" ", "_").replace(".", "").strip()
-                        value_str = key_val[1].strip()
-                    else: # Try to split by last space if no colon (e.g., "Total Net Profit 123.45")
-                        last_space_idx = part.rfind(' ')
-                        if last_space_idx != -1:
-                            key = part[:last_space_idx].replace(" ", "_").replace(".", "").strip()
-                            value_str = part[last_space_idx+1:].strip()
-                        else:
-                            key = "" # Cannot parse as key-value pair
-                            value_str = ""
+                for k_idx in range(0, len(parts), 2):
+                    if k_idx + 1 < len(parts):
+                        key = parts[k_idx].replace(":", "").replace(" ", "_").replace(".", "").strip()
+                        value_str = parts[k_idx + 1].strip()
+                        
+                        if key:
+                            try:
+                                if '%' in value_str:
+                                    results_summary_dict[key] = float(value_str.replace('%', ''))
+                                elif '(' in value_str and ')' in value_str:
+                                    num_part = value_str.split('(')[0].strip()
+                                    results_summary_dict[key] = safe_float_convert(num_part)
+                                else:
+                                    results_summary_dict[key] = float(value_str)
+                            except ValueError:
+                                if "won %" in key and '(' in value_str:
+                                    try:
+                                        num_val_str = value_str.split('(')[0].strip()
+                                        results_summary_dict[key] = safe_float_convert(num_val_str)
+                                    except Exception:
+                                        results_summary_dict[key] = value_str
+                                elif "%" in value_str:
+                                    results_summary_dict[key] = safe_float_convert(value_str.replace("%", ""))
+                                else:
+                                    results_summary_dict[key] = value_str
 
-                    if key:
-                        cleaned_key = key.replace("(", "").replace(")", "").replace("/", "_").replace("-", "_").replace("__", "_").strip()
-                        # Specific handling for "won %" in key names
-                        if "won_" in cleaned_key and "won_%" not in cleaned_key:
-                            cleaned_key = cleaned_key.replace("won_", "won_%")
-
-                        try:
-                            if '%' in value_str:
-                                results_summary_dict[cleaned_key] = float(value_str.replace('%', ''))
-                            elif '(' in value_str and ')' in value_str: # e.g., "0.00 (0.00%)"
-                                num_part = value_str.split('(')[0].strip()
-                                results_summary_dict[cleaned_key] = safe_float_convert(num_part)
-                            else:
-                                results_summary_dict[cleaned_key] = safe_float_convert(value_str)
-                        except ValueError:
-                            results_summary_dict[cleaned_key] = value_str # Keep as string if cannot convert
-                        except Exception as e_parse:
-                            st.warning(f"Could not parse results summary item '{part}': {e_parse}")
-                            results_summary_dict[cleaned_key] = value_str
+                if "Average consecutive losses" in line_stripped:
+                    break
 
         dfs_output['balance_summary'] = balance_summary_dict
         dfs_output['results_summary'] = results_summary_dict
 
         return dfs_output
-
-    # --- ฟังก์ชันสำหรับบันทึก Deals ลงในชีท ActualTrades ---
-    def save_deals_to_actual_trades(df_deals, portfolio_id, portfolio_name, source_file_name="N/A"):
-        gc = get_gspread_client()
-        if not gc: return False
-        try:
-            sh = gc.open(GOOGLE_SHEET_NAME)
-            ws = sh.worksheet(WORKSHEET_ACTUAL_TRADES)
-            expected_headers = [
-                "Time", "Deal", "Symbol", "Type", "Direction", "Volume", "Price", "Order",
-                "Commission", "Fee", "Swap", "Profit", "Balance", "Comment",
-                "PortfolioID", "PortfolioName", "SourceFile"
-            ]
-            
-            current_headers = []
-            if ws.row_count > 0: current_headers = ws.row_values(1)
-            if not current_headers or all(h == "" for h in current_headers): ws.append_row(expected_headers)
-
-            rows_to_append = []
-            for index, row in df_deals.iterrows():
-                row_data = {
-                    "Time": row.get("Time", ""),
-                    "Deal": row.get("Deal", ""),
-                    "Symbol": row.get("Symbol", ""),
-                    "Type": row.get("Type", ""),
-                    "Direction": row.get("Direction", ""),
-                    "Volume": row.get("Volume", ""),
-                    "Price": row.get("Price", ""),
-                    "Order": row.get("Order", ""),
-                    "Commission": row.get("Commission", ""),
-                    "Fee": row.get("Fee", ""),
-                    "Swap": row.get("Swap", ""),
-                    "Profit": row.get("Profit", ""),
-                    "Balance": row.get("Balance", ""),
-                    "Comment": row.get("Comment", ""),
-                    "PortfolioID": portfolio_id,
-                    "PortfolioName": portfolio_name,
-                    "SourceFile": source_file_name
-                }
-                rows_to_append.append([str(row_data.get(h, "")) for h in expected_headers])
-            if rows_to_append: ws.append_rows(rows_to_append, value_input_option='USER_ENTERED'); return True
-            return False
-        except gspread.exceptions.WorksheetNotFound:
-            st.error(f"❌ ไม่พบ Worksheet '{WORKSHEET_ACTUAL_TRADES}'. กรุณาสร้างและใส่ Headers: {', '.join(expected_headers)}")
-            return False
-        except Exception as e: st.error(f"❌ เกิดข้อผิดพลาดในการบันทึก Deals: {e}"); return False
 
     # --- ฟังก์ชันสำหรับบันทึก Positions ลงในชีท ActualPositions ---
     def save_positions_to_gsheets(df_positions, portfolio_id, portfolio_name, source_file_name="N/A"):
@@ -1386,7 +1264,7 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
                     "T_P": row.get("T_P", ""),
                     "Close_Time": row.get("Close_Time", ""), # Use new clean name
                     "State": row.get("State", ""),
-                    "Comment": row.get("Comment", ""), # Ensure this maps to the cleaned 'Comment' column
+                    "Comment": row.get("Comment", ""),
                     "PortfolioID": portfolio_id,
                     "PortfolioName": portfolio_name,
                     "SourceFile": source_file_name
@@ -1415,8 +1293,8 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
                 "Balance_Drawdown_Absolute", "Balance_Drawdown_Maximal", 
                 "Balance_Drawdown_Maximal_Percent", "Balance_Drawdown_Relative", 
                 "Balance_Drawdown_Relative_Percent", "Total_Trades", 
-                "Short_Trades", "Short_Trades_won_Percent", "Long_Trades", # Corrected "won %"
-                "Long_Trades_won_Percent", "Profit_Trades", "Profit_Trades_Percent_of_total", # Corrected "won %"
+                "Short_Trades", "Short_Trades_won_%", "Long_Trades", 
+                "Long_Trades_won_%", "Profit_Trades", "Profit_Trades_Percent_of_total", 
                 "Loss_Trades", "Loss_Trades_Percent_of_total", "Largest_profit_trade", 
                 "Largest_loss_trade", "Average_profit_trade", "Average_loss_trade", 
                 "Maximum_consecutive_wins_Count", "Maximum_consecutive_wins_Profit", 
@@ -1440,22 +1318,11 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
             # Add all summary items from the dictionary
             for key, value in summary_dict.items():
                 # Clean up key names to match expected_headers (replace spaces, etc.)
-                cleaned_key = key.replace(" ", "_").replace("%", "Percent").replace("(won_%)", "won_Percent").replace("__", "_").strip()
-                # Special handling for keys like 'Short_Trades_won_%'
-                if cleaned_key == "Short_Trades_won_%": cleaned_key = "Short_Trades_won_Percent"
-                if cleaned_key == "Long_Trades_won_%": cleaned_key = "Long_Trades_won_Percent"
-                if cleaned_key == "Profit_Trades_Percent_of_total": cleaned_key = "Profit_Trades_Percent_of_total"
-
-
+                cleaned_key = key.replace(" ", "_").replace("%", "Percent").replace("(won_%)", "won_%").replace("__", "_")
                 if cleaned_key in expected_headers:
                     row_data[cleaned_key] = value
-                # else:
-                #     st.warning(f"Key '{cleaned_key}' from summary not found in expected headers for StatementSummaries.")
             
-            # Fill any missing expected headers with empty string to maintain column integrity
-            final_row_data = [str(row_data.get(h, "")) for h in expected_headers]
-
-            rows_to_append.append(final_row_data)
+            rows_to_append.append([str(row_data.get(h, "")) for h in expected_headers])
             
             if rows_to_append: ws.append_rows(rows_to_append, value_input_option='USER_ENTERED'); return True
             return False
@@ -1496,10 +1363,7 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
                 for section_name, data_item in extracted_sections.items():
                     st.write(f"#### {section_name.replace('_',' ').title()}")
                     if isinstance(data_item, pd.DataFrame):
-                        if not data_item.empty:
-                            st.dataframe(data_item)
-                        else:
-                            st.info(f"DataFrame for {section_name.replace('_',' ').title()} is empty.")
+                        st.dataframe(data_item)
                     else: # For balance_summary and results_summary (dictionaries)
                         st.json(data_item)
 
@@ -1535,7 +1399,7 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
                 # Results Summary
                 if extracted_sections.get('results_summary'):
                     if save_results_summary_to_gsheets(extracted_sections['results_summary'], active_portfolio_id_for_actual, active_portfolio_name_for_actual, file_name_for_saving):
-                        st.success("บันทึก Results Summary ไปยังชีต 'StatementSummaries' สำเร็จ!")
+                        st.success("บันทึก Results Summary ไปยังชีท 'StatementSummaries' สำเร็จ!")
                     else: st.error("บันทึก Results Summary ไม่สำเร็จ.")
                 else: st.warning("ไม่พบข้อมูล Results Summary ใน Statement.")
 
@@ -1580,7 +1444,7 @@ def load_data_for_dashboard(): # Function to select data source for dashboard
         if gc_dash:
             try:
                 sh_dash = gc_dash.open(GOOGLE_SHEET_NAME)
-                ws_dash_logs = sh_dash.worksheet(WORKSHESET_PLANNED_LOGS)
+                ws_dash_logs = sh_dash.worksheet(WORKSHEET_PLANNED_LOGS)
                 records_dash = ws_dash_logs.get_all_records()
                 if records_dash:
                     df_dashboard_data = pd.DataFrame(records_dash)
