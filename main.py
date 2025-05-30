@@ -20,6 +20,8 @@ GOOGLE_SHEET_NAME = "TradeLog"
 WORKSHEET_PORTFOLIOS = "Portfolios"
 WORKSHEET_PLANNED_LOGS = "PlannedTradeLogs"
 WORKSHEET_UPLOADED_STATEMENTS = "Uploaded Statements"
+WORKSHEET_ACTUAL_TRADES = "ActualTrades"
+
 
 # ฟังก์ชันสำหรับเชื่อมต่อ gspread (ยังคงเดิม)
 def get_gspread_client():
@@ -922,136 +924,193 @@ with st.expander("🤖 AI Assistant", expanded=True):
             else: st.info(msg)
 
 # ===================== SEC 7: MAIN AREA - STATEMENT IMPORT & PROCESSING =======================
-# (This section corresponds to the expander "📂 SEC 7: Ultimate Statement Import & Auto-Mapping")
-with st.expander("📂 SEC 7: Ultimate Statement Import & Auto-Mapping", expanded=True):
+# (This section corresponds to the expander "📂 SEC 7: Ultimate Statement Import & Processing")
+with st.expander("📂 SEC 7: Ultimate Statement Import & Processing", expanded=True):
     st.markdown("### 📊 จัดการ Statement และข้อมูลดิบ")
 
-    if 'all_statement_data' not in st.session_state:
-        st.session_state.all_statement_data = {} # To store various DFs from statement
-        st.session_state.df_stmt_deals = pd.DataFrame() # Specifically for deals, used by dashboard
+    # ฟังก์ชันสำหรับอ่านข้อมูลจากชีท Uploaded Statements
+    @st.cache_data(ttl=300) # Cache for 5 minutes
+    def load_uploaded_statements_from_gsheets():
+        gc = get_gspread_client()
+        if gc is None:
+            return pd.DataFrame()
+        try:
+            sh = gc.open(GOOGLE_SHEET_NAME)
+            worksheet = sh.worksheet(WORKSHEET_UPLOADED_STATEMENTS)
+            records = worksheet.get_all_records()
+            if not records:
+                st.info(f"Worksheet '{WORKSHEET_UPLOADED_STATEMENTS}' ว่างเปล่า. กรุณาอัปโหลด Statement เข้าไปก่อน.")
+                return pd.DataFrame()
+
+            df_uploaded_stmt = pd.DataFrame(records)
+            # Ensure Timestamp is datetime
+            if 'Timestamp' in df_uploaded_stmt.columns:
+                df_uploaded_stmt['Timestamp'] = pd.to_datetime(df_uploaded_stmt['Timestamp'], errors='coerce')
+            return df_uploaded_stmt
+        except gspread.exceptions.WorksheetNotFound:
+            st.error(f"❌ ไม่พบ Worksheet ชื่อ '{WORKSHEET_UPLOADED_STATEMENTS}'.")
+            st.info(f"กรุณาสร้าง Worksheet ชื่อ '{WORKSHEET_UPLOADED_STATEMENTS}' ใน Google Sheet ของคุณ")
+            return pd.DataFrame()
+        except Exception as e:
+            st.error(f"❌ เกิดข้อผิดพลาดในการโหลดข้อมูลจาก '{WORKSHEET_UPLOADED_STATEMENTS}': {e}")
+            return pd.DataFrame()
+
+    # --- ฟังก์ชันสำหรับแยกข้อมูล Deals, Orders, Positions จาก DataFrame ของ Statement (ที่โหลดมาจาก Google Sheets) ---
+    # ฟังก์ชันนี้ถูกปรับปรุงให้รับ DataFrame ที่โหลดมาจาก Google Sheets โดยตรง
+    def extract_data_from_statement_df(statement_df):
+        extracted_data = {}
+
+        # Heuristic: ตรวจสอบว่า DataFrame มีคอลัมน์ที่คาดว่าจะเป็นของ Deals ครบถ้วนหรือไม่
+        # จาก Screenshot ของคุณ ชีท 'Uploaded Statements' ดูเหมือนมีข้อมูล Deals อยู่แล้ว
+        expected_deals_cols = ['Timestamp', 'Deal', 'Symbol', 'Type', 'Volume', 'Price', 'Profit', 'Balance']
+
+        # ตรวจสอบว่าคอลัมน์ที่คาดหวังมีอยู่ใน DataFrame
+        if all(col in statement_df.columns for col in expected_deals_cols):
+            # ถ้ามีครบ ถือว่า DataFrame ทั้งหมดคือ Deals (ตามโครงสร้างใน screenshot ของคุณ)
+            extracted_data['deals'] = statement_df.copy()
+            # ทำความสะอาดชื่อคอลัมน์ (ตัดช่องว่าง, แทนที่ / ด้วย _) เพื่อความสอดคล้อง
+            extracted_data['deals'].columns = extracted_data['deals'].columns.str.strip().str.replace(' / ', '_', regex=False).str.replace(' ', '_', regex=False)
+            st.success(" detected 'Deals' section directly from `Uploaded Statements` worksheet.")
+        else:
+            st.warning("Could not automatically identify 'Deals' section from `Uploaded Statements` columns. Please ensure correct headers." \
+                       " Expected columns like 'Timestamp', 'Deal', 'Symbol', 'Type', 'Volume', 'Price', 'Profit', 'Balance'.")
+            extracted_data['deals'] = pd.DataFrame() # ส่งคืน DataFrame ว่างเปล่าหากไม่พบ
+
+        # ส่วนสำหรับ Orders และ Positions:
+        # ถ้า Statement ของคุณมีส่วน Orders และ Positions แยกต่างหากในชีท 'Uploaded Statements'
+        # (เช่น โดยมีบรรทัดคั่น หรืออยู่คนละช่วงของชีท) คุณจะต้องเพิ่ม Logic การแยกส่วนตรงนี้
+        # สำหรับตอนนี้ เราจะส่งคืนเป็น DataFrame ว่างเปล่าไปก่อน
+        extracted_data['orders'] = pd.DataFrame()
+        extracted_data['positions'] = pd.DataFrame()
+        extracted_data['balance_summary'] = {} # หาก Balance Summary เป็นตารางแยก ต้องมี logic เพิ่มเติม
+
+        return extracted_data
+
+    # --- ฟังก์ชันสำหรับบันทึก Deals ลงในชีท ActualTrades ---
+    def save_deals_to_actual_trades(df_deals, portfolio_id, portfolio_name, source_file_name="N/A"):
+        gc = get_gspread_client()
+        if not gc:
+            st.error("ไม่สามารถเชื่อมต่อ Google Sheets Client เพื่อบันทึก Deals ได้")
+            return False
+        try:
+            sh = gc.open(GOOGLE_SHEET_NAME)
+            ws_actual = sh.worksheet(WORKSHEET_ACTUAL_TRADES)
+
+            # กำหนดหัวคอลัมน์ที่คาดหวังสำหรับ ActualTrades worksheet
+            # ต้องตรงกับที่คุณตั้งใน Google Sheet เป๊ะๆ
+            expected_actual_headers = [
+                "Timestamp", "Deal", "Symbol", "Type", "Direction", "Volume", "Price",
+                "Order", "Commission", "Fee", "Swap", "Profit", "Balance", "Comment",
+                "PortfolioID", "PortfolioName", "SourceFile"
+            ]
+
+            # ตรวจสอบและเพิ่ม Headers หาก Worksheet ว่างเปล่า
+            current_headers_actual = []
+            if ws_actual.row_count > 0:
+                try:
+                    current_headers_actual = ws_actual.row_values(1)
+                except Exception:
+                    current_headers_actual = []
+
+            if not current_headers_actual or all(h == "" for h in current_headers_actual):
+                ws_actual.append_row(expected_actual_headers, value_input_option='USER_ENTERED')
+            elif set(current_headers_actual) != set(expected_actual_headers) and any(h!="" for h in current_headers_actual):
+                st.warning(f"Worksheet '{WORKSHEET_ACTUAL_TRADES}' มีหัวคอลัมน์ไม่ถูกต้อง. โปรดตรวจสอบให้ตรงกับ: {', '.join(expected_actual_headers)}")
+                # คุณอาจเลือกที่จะ return False ตรงนี้ได้หากต้องการให้ผู้ใช้แก้ไข Header ก่อน
+                # return False
+
+            rows_to_append = []
+            # ตรวจสอบว่า df_deals มีคอลัมน์ที่จำเป็นทั้งหมดหรือไม่ก่อนที่จะ append
+            for header in expected_actual_headers:
+                if header not in df_deals.columns and header not in ["PortfolioID", "PortfolioName", "SourceFile"]:
+                    st.warning(f"คอลัมน์ '{header}' ที่คาดหวังใน 'ActualTrades' ไม่พบในข้อมูล Deals ที่กำลังจะบันทึก อาจทำให้เกิดช่องว่างในชีต.")
+
+            for index, row in df_deals.iterrows():
+                row_data = {}
+                for h in expected_actual_headers:
+                    if h == "PortfolioID":
+                        row_data[h] = portfolio_id
+                    elif h == "PortfolioName":
+                        row_data[h] = portfolio_name
+                    elif h == "SourceFile":
+                        row_data[h] = source_file_name
+                    else:
+                        row_data[h] = row.get(h, "") # ดึงค่าจาก DataFrame หรือเป็นค่าว่างหากไม่มีคอลัมน์นั้น
+
+                # แปลงค่าทั้งหมดเป็น String เพื่อป้องกันปัญหาเรื่องประเภทข้อมูลเมื่อบันทึกด้วย gspread
+                rows_to_append.append([str(row_data.get(h, "")) for h in expected_actual_headers])
+
+            if rows_to_append:
+                ws_actual.append_rows(rows_to_append, value_input_option='USER_ENTERED')
+                return True
+            return False
+        except gspread.exceptions.WorksheetNotFound:
+            st.error(f"❌ ไม่พบ Worksheet ชื่อ '{WORKSHEET_ACTUAL_TRADES}'. กรุณาสร้างและใส่ Headers: {', '.join(expected_actual_headers)}")
+            return False
+        except Exception as e:
+            st.error(f"❌ เกิดข้อผิดพลาดในการบันทึก Deals ไปยัง Google Sheets: {e}")
+            return False
 
     st.markdown("---")
-    st.subheader("📤 อัปโหลด Statement (CSV/XLSX) เพื่อประมวลผลและบันทึก")
-    
-    uploaded_files_stmt = st.file_uploader( # Renamed to avoid conflict
-        "ลากและวางไฟล์ Statement ที่นี่ หรือคลิกเพื่อเลือกไฟล์",
-        type=["xlsx", "csv"],
-        accept_multiple_files=True,
-        key="stmt_uploader"
-    )
+    st.subheader("📥 โหลด Statement จาก Google Sheet เพื่อประมวลผล")
+
+    # โหลดข้อมูลจาก Uploaded Statements worksheet
+    df_gs_uploaded_stmt = load_uploaded_statements_from_gsheets()
 
     st.checkbox("⚙️ เปิดโหมด Debug (แสดงตารางข้อมูลทั้งหมดที่แยกได้)", key="debug_statement_import")
-    
-    # Simplified extract_data_from_report (original was complex and had issues)
-    # This is a placeholder, actual parsing logic for MT4/MT5 statements is non-trivial
-    # and depends heavily on the exact statement format.
-    def extract_data_from_mt_report(file_buffer):
-        st.warning("ฟังก์ชัน `extract_data_from_mt_report` เป็นเพียงโครงร่าง ควรพัฒนาเพิ่มเติมให้รองรับ Format ของ Statement จริง")
-        # Placeholder: Tries to find sections common in MT4/MT5 HTML reports
-        # This is highly simplified and likely needs significant refinement for real HTML reports.
-        extracted_dfs = {}
-        try:
-            file_buffer.seek(0)
-            content = file_buffer.read()
-            
-            # Try decoding (assuming HTML report might be utf-8 or cp1252 etc.)
-            try:
-                html_content = content.decode('utf-8')
-            except UnicodeDecodeError:
-                try:
-                    html_content = content.decode('cp1251') # Common for Cyrillic, MT often uses this region's defaults
-                except UnicodeDecodeError:
-                    html_content = content.decode('latin1', errors='ignore') # Fallback
 
-            from bs4 import BeautifulSoup
-            soup = BeautifulSoup(html_content, 'html.parser')
-            
-            # Attempt to find tables - this is very generic
-            tables = soup.find_all('table')
-            
-            # Heuristic to find "Deals" table (common in MT reports)
-            # This needs to be adapted to your specific statement structure.
-            # Keywords might be in table headers or preceding text.
-            
-            deals_table = None
-            for table_idx, table in enumerate(tables):
-                # Look for distinctive headers of a deals table like 'Order', 'Time', 'Type', 'Symbol', 'Price', 'S/L', 'T/P', 'Profit'
-                # This is a common pattern but can vary.
-                header_texts = [th.get_text(strip=True).lower() for th in table.find_all('th')]
-                if any(kw in " ".join(header_texts) for kw in ['order', 'time', 'type', 'symbol', 'profit', 'deal']):
-                    try:
-                        df_deals = pd.read_html(str(table), flavor='bs4')[0] # read_html returns a list of DFs
-                        # Clean column names (often multi-level from HTML)
-                        if isinstance(df_deals.columns, pd.MultiIndex):
-                            df_deals.columns = ['_'.join(map(str, col)).strip() for col in df_deals.columns.values]
-                        else:
-                            df_deals.columns = [str(col).strip() for col in df_deals.columns]
-                        
-                        # Add a Portfolio column - this needs to be derived, e.g., from filename or a field in statement
-                        account_number_stmt = f"Portfolio_{file_buffer.name[:15]}" # Placeholder
-                        # Try to find account number in the soup text (very heuristic)
-                        body_text = soup.get_text(" ", strip=True)
-                        import re
-                        match = re.search(r'(Account:|Login:)\s*(\d+)', body_text, re.IGNORECASE)
-                        if match:
-                            account_number_stmt = match.group(2)
-                        
-                        df_deals['Portfolio'] = account_number_stmt
-                        extracted_dfs['deals'] = df_deals
-                        st.success(f"พบตารางที่อาจเป็น 'Deals' (ตารางที่ {table_idx+1}) มี {len(df_deals)} แถว.")
-                        break # Found a likely deals table
-                    except Exception as e_read_html:
-                        st.warning(f"ไม่สามารถอ่านตารางที่ {table_idx+1} เป็น DataFrame: {e_read_html}")
-            
-            if not deals_table and tables:
-                 st.info(f"พบ {len(tables)} ตาราง แต่ไม่สามารถระบุตาราง 'Deals' โดยอัตโนมัติได้. อาจจะต้องปรับปรุง Logic การค้นหา.")
-            elif not tables:
-                st.info("ไม่พบตารางในไฟล์ Statement.")
+    active_portfolio_id_for_actual = st.session_state.get('active_portfolio_id_gs', None)
+    active_portfolio_name_for_actual = st.session_state.get('active_portfolio_name_gs', None)
 
-        except Exception as e:
-            st.error(f"เกิดข้อผิดพลาดในการประมวลผลไฟล์ Statement: {e}")
-            return None
-        
-        return extracted_dfs if extracted_dfs else None
+    # UI เพื่อให้ผู้ใช้กดประมวลผล
+    if st.button("🚀 ประมวลผลและบันทึก Deals ไปยัง 'ActualTrades'"):
+        if df_gs_uploaded_stmt.empty:
+            st.warning("ไม่พบข้อมูลในชีต 'Uploaded Statements' โปรดตรวจสอบหรืออัปโหลด Statement เข้าไปก่อน.")
+        elif not active_portfolio_id_for_actual:
+            st.error("กรุณาเลือกพอร์ตที่ใช้งาน (Active Portfolio) ก่อนประมวลผล Statement.")
+        else:
+            with st.spinner("กำลังประมวลผลข้อมูล Statement..."):
+                # ใช้ฟังก์ชัน extract_data_from_statement_df ที่เพิ่งสร้าง
+                extracted_sections_from_gs = extract_data_from_statement_df(df_gs_uploaded_stmt.copy()) # ใช้ .copy() ป้องกันการแก้ไข df ต้นฉบับใน cache
 
-    if uploaded_files_stmt:
-        for uploaded_file in uploaded_files_stmt:
-            st.info(f"กำลังประมวลผลไฟล์: {uploaded_file.name}")
-            with st.spinner(f"กำลังแยกส่วนข้อมูลจาก {uploaded_file.name}..."):
-                extracted_sections = extract_data_from_mt_report(uploaded_file) # Use the new simplified parser
-                
-                if extracted_sections and 'deals' in extracted_sections:
-                    st.success(f"ประมวลผล '{uploaded_file.name}' สำเร็จ! พบข้อมูล 'Deals'.")
-                    st.session_state.df_stmt_deals = extracted_sections['deals'].copy()
-                    # You might want to store other sections if your parser extracts them
-                    # For now, focusing on 'deals' for the dashboard
-                    st.session_state.all_statement_data['deals'] = extracted_sections['deals'].copy() # For debug view
-                elif extracted_sections:
-                     st.warning(f"ประมวลผล '{uploaded_file.name}' แต่ไม่พบส่วน 'Deals' ที่ชัดเจน.")
+                if extracted_sections_from_gs and not extracted_sections_from_gs.get('deals', pd.DataFrame()).empty:
+                    df_deals_to_save = extracted_sections_from_gs['deals']
+
+                    # สำหรับ source_file_name: ถ้าข้อมูล Statement มาจาก Google Sheet โดยตรง
+                    # คุณอาจจะต้องเพิ่มคอลัมน์ "Source File" ในชีท "Uploaded Statements" ด้วย
+                    # หรือใช้ชื่อชีท / วันที่อัปโหลด แทน
+                    source_file_info = f"From_GS_Uploaded_Stmt_{datetime.now().strftime('%Y%m%d%H%M%S')}"
+
+                    if save_deals_to_actual_trades(df_deals_to_save, active_portfolio_id_for_actual, active_portfolio_name_for_actual, source_file_info):
+                        st.success(f"ประมวลผลและบันทึก Deals จำนวน {len(df_deals_to_save)} รายการ ไปยังชีต 'ActualTrades' สำเร็จ!")
+                        st.balloons()
+                        st.session_state.df_stmt_deals = df_deals_to_save.copy() # อัปเดต session state สำหรับ Dashboard
+                    else:
+                        st.error("บันทึก Deals ไปยังชีต 'ActualTrades' ไม่สำเร็จ.")
                 else:
-                    st.warning(f"ไม่สามารถแยกส่วนข้อมูลที่ต้องการจากไฟล์ {uploaded_file.name} ได้.")
+                    st.warning("ไม่สามารถแยกส่วน 'Deals' ที่ต้องการจากข้อมูลในชีต 'Uploaded Statements' ได้. โปรดตรวจสอบรูปแบบข้อมูล.")
 
-            if st.session_state.get("debug_statement_import", False) and 'all_statement_data' in st.session_state:
-                for section_name, df_section_debug in st.session_state.all_statement_data.items():
-                    if not df_section_debug.empty:
-                        st.write(f"### 📄 ข้อมูลส่วน (Debug): {section_name.title()}")
-                        st.dataframe(df_section_debug)
-    else:
-        st.info("ยังไม่มีไฟล์ Statement อัปโหลดสำหรับส่วนนี้")
-
+    # แสดงข้อมูลที่โหลดจาก Uploaded Statements สำหรับการตรวจสอบ
     st.markdown("---")
-    st.subheader("📁 ข้อมูล Statement 'Deals' ที่โหลดล่าสุด")
-    if not st.session_state.get('df_stmt_deals', pd.DataFrame()).empty:
-        st.dataframe(st.session_state.df_stmt_deals)
+    st.subheader("📁 ข้อมูล Statement ที่โหลดจาก 'Uploaded Statements' (สำหรับตรวจสอบ)")
+    if not df_gs_uploaded_stmt.empty:
+        st.dataframe(df_gs_uploaded_stmt, use_container_width=True)
     else:
-        st.info("ยังไม่มีข้อมูล Deals จาก Statement ที่โหลด")
+        st.info("ไม่พบข้อมูลในชีต 'Uploaded Statements'.")
 
-    if st.button("🗑️ ล้างข้อมูล Statement ที่โหลดทั้งหมด", key="clear_stmt_data"):
-        st.session_state.all_statement_data = {}
-        st.session_state.df_stmt_deals = pd.DataFrame()
-        st.success("ล้างข้อมูล Statement ที่โหลดทั้งหมดแล้ว")
-        st.rerun()
-
+    if st.button("🗑️ ล้างข้อมูลในชีต 'Uploaded Statements'", key="clear_uploaded_gs_data"):
+        gc = get_gspread_client()
+        if gc:
+            try:
+                sh = gc.open(GOOGLE_SHEET_NAME)
+                ws = sh.worksheet(WORKSHEET_UPLOADED_STATEMENTS)
+                ws.clear() # ล้างข้อมูลทั้งหมดในชีท
+                # คุณอาจจะต้องการเพิ่ม Headers กลับเข้าไปใหม่หลังจาก clear() ถ้ามันหายไป
+                st.success("ล้างข้อมูลในชีต 'Uploaded Statements' ทั้งหมดแล้ว")
+                st.cache_data.clear() # ล้าง cache ของ Streamlit สำหรับฟังก์ชันที่เกี่ยวข้อง
+                st.rerun()
+            except Exception as e:
+                st.error(f"❌ เกิดข้อผิดพลาดในการล้างชีต: {e}")
 # ===================== SEC 8: MAIN AREA - PERFORMANCE DASHBOARD =======================
 def load_data_for_dashboard(): # Function to select data source for dashboard
     source_option = st.selectbox(
