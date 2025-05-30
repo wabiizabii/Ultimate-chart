@@ -889,6 +889,9 @@ def extract_data_from_report_content(file_content):
 
     section_order = ["Positions", "Orders", "Deals"]
 
+    # … ต่อด้วยโค้ดเดิมของคุณ …
+
+
     # … โค้ดเดิมที่เหลือของคุณต่อจากนี้ …
 
         
