@@ -969,9 +969,9 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
 
         # Define raw headers from the CSV report for identification
         section_raw_headers = {
-            "Positions": "Time,Position,Symbol,Type,Volume,Price,S / L,T / P,Time,Price,Commission,Swap,Profit,", [cite: 1]
-            "Orders": "Open Time,Order,Symbol,Type,Volume,Price,S / L,T / P,Time,State,,Comment,,", [cite: 1]
-            "Deals": "Time,Deal,Symbol,Type,Direction,Volume,Price,Order,Commission,Fee,Swap,Profit,Balance,Comment", [cite: 1]
+            "Positions": "Time,Position,Symbol,Type,Volume,Price,S / L,T / P,Time,Price,Commission,Swap,Profit,",
+            "Orders": "Open Time,Order,Symbol,Type,Volume,Price,S / L,T / P,Time,State,,Comment,,",
+            "Deals": "Time,Deal,Symbol,Type,Direction,Volume,Price,Order,Commission,Fee,Swap,Profit,Balance,Comment",
         }
         
         # Define expected column names for each section (after cleaning and matching with GSheet headers)
@@ -1037,7 +1037,12 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
                     
                     if is_header_line and not header_line_found:
                         # Use csv.reader to correctly split the line (handles commas in data, quoted strings)
-                        current_line_parts = list(csv.reader(io.StringIO(line_val)))[0]
+                        try:
+                            current_line_parts = list(csv.reader(io.StringIO(line_val)))[0]
+                        except Exception as e_csv_header:
+                            st.warning(f"Skipping malformed header line in {section_name}: '{line_val_stripped}' ({e_csv_header})")
+                            continue # Skip this problematic header line
+
                         header_template_parts_count = len(section_raw_headers[section_name].split(','))
                         
                         if len(current_line_parts) > header_template_parts_count:
@@ -1063,18 +1068,27 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
                         # Add actual data row, splitting correctly with csv.reader
                         try:
                             data_row_parts = list(csv.reader(io.StringIO(line_val)))[0]
-                            parsed_rows.append(data_row_parts)
+                            table_rows_for_parsing.append(','.join(data_row_parts)) # Join back with comma for pandas
                         except Exception as e_csv_reader:
-                            st.warning(f"Skipping malformed row in {section_name}: {line_val_stripped} ({e_csv_reader})")
+                            st.warning(f"Skipping malformed data row in {section_name}: '{line_val_stripped}' ({e_csv_reader})")
 
 
-                # DEBUG: Display parsed rows before DataFrame creation
-                # st.write(f"DEBUG: Parsed rows for {section_name}:")
-                # st.code(str(parsed_rows[:5])) # Show first 5 rows
+                csv_string_data_to_parse = "\n".join(table_rows_for_parsing)
 
-                if parsed_rows:
+                # DEBUG: Add this to see the CSV string being passed to pandas
+                st.write(f"DEBUG: CSV string for {section_name} (before pandas):")
+                st.code(csv_string_data_to_parse)
+
+                if csv_string_data_to_parse.strip():
                     try:
-                        df = pd.DataFrame(parsed_rows, columns=expected_cleaned_columns[section_name])
+                        # Use pandas to read the now-clean data rows
+                        df = pd.read_csv(io.StringIO(csv_string_data_to_parse),
+                                         sep=',',
+                                         names=expected_cleaned_columns[section_name], # Provide names explicitly
+                                         header=None, # No header row in the input string
+                                         skipinitialspace=True,
+                                         on_bad_lines='warn', # Warn but don't skip rows with errors
+                                         engine='python') # Use Python engine for more flexibility
                         
                         # Remove 'Empty' columns if they exist (from Orders section)
                         df = df.loc[:, ~df.columns.str.startswith('Empty')]
@@ -1407,7 +1421,7 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
     # if not df_gs_uploaded_stmt.empty:
     #     st.dataframe(df_gs_uploaded_stmt, use_container_width=True)
     # else:
-    #     st.info("ไม่พบข้อมูลในชีต 'Uploaded Statements'.")
+    #     st.info("ไม่พบข้อมูลในชีท 'Uploaded Statements'.")
 
     # ปุ่มล้างข้อมูลในชีท 'Uploaded Statements' อาจจะยังเก็บไว้ถ้าคุณต้องการใช้ชีทนั้นเพื่อวัตถุประสงค์อื่น
     # หรือถ้าต้องการเคลียร์มันเป็นประจำ
