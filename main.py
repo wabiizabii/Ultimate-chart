@@ -1076,8 +1076,11 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Processing", expanded=
 
                 if csv_string_data.strip(): # Only try to read if there's data
                     try:
-                        # pd.read_csv will automatically use the first line in StringIO as header
-                        df = pd.read_csv(io.StringIO(csv_string_data), skipinitialspace=True)
+                        # Use io.StringIO to create a file-like object from the string data
+                        # Specify separator as comma, header is the first row (index 0)
+                        # on_bad_lines='skip' will skip rows that cause parsing errors
+                        # engine='python' can sometimes handle complex CSVs better than 'c'
+                        df = pd.read_csv(io.StringIO(csv_string_data), sep=',', header=0, skipinitialspace=True, on_bad_lines='skip', engine='python')
                         
                         # Clean column names (strip spaces, replace ' / ' with '_')
                         df.columns = df.columns.str.strip().str.replace(' / ', '_', regex=False).str.replace(' ', '_', regex=False)
