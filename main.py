@@ -1047,7 +1047,7 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Processing", expanded=
             # ต้องตรงกับที่คุณตั้งใน Google Sheet เป๊ะๆ
             expected_actual_headers = [
                 "Timestamp", "Deal", "Symbol", "Type", "Direction", "Volume", "Price",
-                "Order", "Commission", "Fee", "Swap", "Profit", "Balance", "Comment",
+                "Commission", "Fee", "Swap", "Profit", "Balance", "Comment",
                 "PortfolioID", "PortfolioName", "SourceFile"
             ]
 
