@@ -944,14 +944,18 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
             data_start_from_raw_block_idx = 0 # default
             if section_name == "Orders":
                 # ตรวจสอบว่าบรรทัด header_idx เป็นบรรทัด "Orders,,,," หรือไม่
-                # และมีบรรทัดถัดไปให้ประมวลผลหรือไม่ (เพื่อหลีกเลี่ยง IndexError ใน raw_section_lines_block[1])
-                if raw_section_lines_block[0].strip().startswith("Orders,,,,,,,,") and len(raw_section_lines_block) > 1:
-                    data_start_from_raw_block_idx = 1 # ถ้าใช่ ให้เริ่มประมวลผลข้อมูลจากบรรทัดถัดไป
-                elif raw_section_lines_block[0].strip().startswith("Orders,,,,,,,,") and len(raw_section_lines_block) == 1:
-                    # ถ้ามีแค่บรรทัด Orders,,,,,, แล้วไม่มีข้อมูลเลย
-                    st.warning(f"No data found after section header for '{section_name}'. Skipping.")
-                    dfs_output[section_key_lower] = pd.DataFrame()
-                    continue
+                # In main.py, around line 948
+if raw_section_lines_block:  # Check if the list is not empty
+    if raw_section_lines_block[0].strip().startswith("Orders,,,,,,,,") and len(raw_section_lines_block) > 1:
+        # Your existing logic
+        pass
+else:
+    # Handle the case where raw_section_lines_block is empty
+    # You might want to:
+    # - Log a warning: print("Warning: raw_section_lines_block is empty. Cannot process 'Orders' section.")
+    # - Skip processing this section.
+    # - Raise a more specific error if an empty section is unexpected.
+    print("Debug: raw_section_lines_block was empty when trying to access [0]")
 
             # เพิ่มการตรวจสอบว่ามีบรรทัดข้อมูลอยู่จริงก่อนที่จะเข้าถึง (อาจจะซ้ำกับด้านบนแต่เพื่อความปลอดภัย)
             if not raw_section_lines_block[data_start_from_raw_block_idx:]:
