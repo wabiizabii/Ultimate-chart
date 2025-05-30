@@ -68,8 +68,8 @@ def load_portfolios_from_gsheets():
     except gspread.exceptions.APIError as e:
         st.sidebar.error(f"❌ เกิดข้อผิดพลาดในการโหลด Portfolios (Google Sheets API Error): {e}")
         st.sidebar.info("⚠️ อาจเกิดจากการเรียกใช้ API บ่อยเกินไป. กรุณารอสักครู่แล้วลองโหลดหน้าใหม่.")
-        time.sleep(5)
-        st.experimental_rerun()
+        time.sleep(5) # หยุดพัก 5 วินาที
+        st.experimental_rerun() # ลอง rerun ใหม่
         return pd.DataFrame()
     except Exception as e:
         st.sidebar.error(f"❌ เกิดข้อผิดพลาดที่ไม่คาดคิดในการโหลด Portfolios: {e}")
@@ -904,13 +904,15 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
 
                 # ตรวจสอบการ match ของ header
                 # สำหรับ "Orders" ให้ตรวจสอบว่าบรรทัดก่อนหน้าเป็น "Orders," ด้วย (เพื่อระบุ Header จริงๆ)
-                if section_name == "Orders" and i > 0 and lines[i-1].strip().startswith("Orders,,,,,,,,"):
-                    if line_to_match.startswith(header_template_clean.split(',')[0]) and \
-                       len(line_to_match.split(',')) >= (len(header_template_clean.split(',')) - 2) and \
-                       len(line_to_match.split(',')) <= (len(header_template_clean.split(',')) + 3): # เพิ่ม 3 สำหรับ Comment ที่อาจมีคอมม่าหลายตัว
-                        section_start_indices[section_name] = i
-                        break
-                elif section_name != "Orders": # For other sections, use existing logic
+                if section_name == "Orders":
+                    # ตรวจสอบว่าบรรทัดปัจจุบันตรงกับ header_template และบรรทัดก่อนหน้าเป็นชื่อ Section
+                    if i > 0 and lines[i-1].strip().startswith("Orders,,,,,,,,"):
+                        if line_to_match.startswith(header_template_clean.split(',')[0]) and \
+                           len(line_to_match.split(',')) >= (len(header_template_clean.split(',')) - 2) and \
+                           len(line_to_match.split(',')) <= (len(header_template_clean.split(',')) + 3):
+                            section_start_indices[section_name] = i
+                            break
+                else: # For other sections, use existing logic
                     if line_to_match.startswith(header_template_clean.split(',')[0]) and \
                        len(line_to_match.split(',')) >= (len(header_template_clean.split(',')) - 2) and \
                        len(line_to_match.split(',')) <= (len(header_template_clean.split(',')) + 3):
@@ -937,6 +939,14 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
             
             raw_section_lines_block = lines[header_idx : end_idx]
             
+            # ************ การแก้ไข IndexError: list index out of range ************
+            # ตรวจสอบว่า raw_section_lines_block ไม่ว่างเปล่าก่อนที่จะเข้าถึง index 0
+            if not raw_section_lines_block:
+                st.warning(f"Raw section lines block is empty for '{section_name}'. Skipping.")
+                dfs_output[section_key_lower] = pd.DataFrame()
+                continue
+            # *******************************************************************
+            
             table_data_lines_raw = [] # เก็บเฉพาะบรรทัดข้อมูลดิบที่จะนำไปประมวลผล
             
             # สำหรับ Orders: บรรทัดแรกของ block อาจจะเป็นแค่ชื่อ Section "Orders,,,,,,,,,,,,,""Open Time,Order,Symbol..."
@@ -944,10 +954,16 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
             data_start_from_raw_block_idx = 0 # default
             if section_name == "Orders":
                 # ตรวจสอบว่าบรรทัด header_idx เป็นบรรทัด "Orders,,,," หรือไม่
-                if raw_section_lines_block[0].strip().startswith("Orders,,,,,,,,"):
+                # และมีบรรทัดถัดไปให้ประมวลผลหรือไม่ (เพื่อหลีกเลี่ยง IndexError ใน raw_section_lines_block[1])
+                if raw_section_lines_block[0].strip().startswith("Orders,,,,,,,,") and len(raw_section_lines_block) > 1:
                     data_start_from_raw_block_idx = 1 # ถ้าใช่ ให้เริ่มประมวลผลข้อมูลจากบรรทัดถัดไป
-            
-            # เพิ่มการตรวจสอบว่ามีบรรทัดข้อมูลอยู่จริงก่อนที่จะเข้าถึง
+                elif raw_section_lines_block[0].strip().startswith("Orders,,,,,,,,") and len(raw_section_lines_block) == 1:
+                    # ถ้ามีแค่บรรทัด Orders,,,,,, แล้วไม่มีข้อมูลเลย
+                    st.warning(f"No data found after section header for '{section_name}'. Skipping.")
+                    dfs_output[section_key_lower] = pd.DataFrame()
+                    continue
+
+            # เพิ่มการตรวจสอบว่ามีบรรทัดข้อมูลอยู่จริงก่อนที่จะเข้าถึง (อาจจะซ้ำกับด้านบนแต่เพื่อความปลอดภัย)
             if not raw_section_lines_block[data_start_from_raw_block_idx:]:
                 st.warning(f"No valid data rows found for '{section_name}' section starting from expected data index.")
                 dfs_output[section_key_lower] = pd.DataFrame()
