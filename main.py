@@ -986,29 +986,42 @@ with st.expander("📂 SEC 7: Ultimate Statement Import & Processing", expanded=
             st.error(f"❌ เกิดข้อผิดพลาดในการโหลดข้อมูลจาก '{WORKSHEET_UPLOADED_STATEMENTS}': {e}")
             return pd.DataFrame()
 
-    # --- ฟังก์ชันสำหรับแยกข้อมูล Deals, Orders, Positions จาก DataFrame ของ Statement (ที่โหลดมาจาก Google Sheets) ---
+   # --- ฟังก์ชันสำหรับแยกข้อมูล Deals, Orders, Positions จาก DataFrame ของ Statement (ที่โหลดมาจาก Google Sheets) ---
     # ฟังก์ชันนี้ถูกปรับปรุงให้รับ DataFrame ที่โหลดมาจาก Google Sheets โดยตรง
-def extract_data_from_statement_df(statement_df): # เยื้อง 0 ช่องว่าง
-    extracted_data = {} # <<<< บรรทัดนี้ต้องเยื้อง 4 ช่องว่างจาก def
-    # --- DEBUGGING: เพิ่มโค้ด 2 บรรทัดนี้เพื่อดู DataFrame ที่เข้ามา ---
-    st.write("DEBUG: DataFrame received by extract_data_from_statement_df:") # <<<< บรรทัดนี้ต้องเยื้อง 8 ช่องว่าง (4 จาก extracted_data)
-    st.dataframe(statement_df) # <<<< บรรทัดนี้ต้องเยื้อง 8 ช่องว่าง
-    # --- END DEBUGGING ---
-    # ... (โค้ดที่เหลือภายในฟังก์ชันจะเยื้อง 4 ช่องว่างจาก extracted_data หรือ 8 ช่องว่างจาก def)
+    def extract_data_from_statement_df(statement_df): # บรรทัดนี้คือจุดเริ่มต้นของฟังก์ชัน (เยื้อง 4 ช่องว่างจาก with st.expander...)
+        extracted_data = {} # บรรทัดนี้ต้องเยื้อง 4 ช่องว่างจาก def (รวมเป็น 8 ช่องว่างจากซ้ายสุด)
+
+        # --- DEBUGGING: เพิ่มโค้ด 2 บรรทัดนี้เพื่อดู DataFrame ที่เข้ามา ---
+        st.write("DEBUG: DataFrame received by extract_data_from_statement_df:") # เยื้อง 8 ช่องว่าง
+        st.dataframe(statement_df) # เยื้อง 8 ช่องว่าง
+        # --- END DEBUGGING ---
+
+        # Heuristic: ตรวจสอบว่า DataFrame มีคอลัมน์ที่คาดว่าจะเป็นของ Deals ครบถ้วนหรือไม่
         # จาก Screenshot ของคุณ ชีท 'Uploaded Statements' ดูเหมือนมีข้อมูล Deals อยู่แล้ว
-        expected_deals_cols = ['Timestamp', 'Deal', 'Symbol', 'Type', 'Volume', 'Price', 'Profit', 'Balance']
+        expected_deals_cols = ['Timestamp', 'Deal', 'Symbol', 'Type', 'Volume', 'Price', 'Profit', 'Balance'] # เยื้อง 8 ช่องว่าง
 
         # ตรวจสอบว่าคอลัมน์ที่คาดหวังมีอยู่ใน DataFrame
-        if all(col in statement_df.columns for col in expected_deals_cols):
+        if all(col in statement_df.columns for col in expected_deals_cols): # เยื้อง 8 ช่องว่าง
             # ถ้ามีครบ ถือว่า DataFrame ทั้งหมดคือ Deals (ตามโครงสร้างใน screenshot ของคุณ)
-            extracted_data['deals'] = statement_df.copy()
+            extracted_data['deals'] = statement_df.copy() # เยื้อง 12 ช่องว่าง
             # ทำความสะอาดชื่อคอลัมน์ (ตัดช่องว่าง, แทนที่ / ด้วย _) เพื่อความสอดคล้อง
-            extracted_data['deals'].columns = extracted_data['deals'].columns.str.strip().str.replace(' / ', '_', regex=False).str.replace(' ', '_', regex=False)
-            st.success(" detected 'Deals' section directly from `Uploaded Statements` worksheet.")
-        else:
+            extracted_data['deals'].columns = extracted_data['deals'].columns.str.strip().str.replace(' / ', '_', regex=False).str.replace(' ', '_', regex=False) # เยื้อง 12 ช่องว่าง
+            st.success(" detected 'Deals' section directly from `Uploaded Statements` worksheet.") # เยื้อง 12 ช่องว่าง
+        else: # เยื้อง 8 ช่องว่าง
             st.warning("Could not automatically identify 'Deals' section from `Uploaded Statements` columns. Please ensure correct headers." \
-                       " Expected columns like 'Timestamp', 'Deal', 'Symbol', 'Type', 'Volume', 'Price', 'Profit', 'Balance'.")
+                       " Expected columns like 'Timestamp', 'Deal', 'Symbol', 'Type', 'Volume', 'Price', 'Profit', 'Balance'.") # เยื้อง 12 ช่องว่าง
             extracted_data['deals'] = pd.DataFrame() # ส่งคืน DataFrame ว่างเปล่าหากไม่พบ
+
+        # ส่วนสำหรับ Orders และ Positions:
+        # ถ้า Statement ของคุณมีส่วน Orders และ Positions แยกต่างหากในชีท 'Uploaded Statements'
+        # (เช่น โดยมีบรรทัดคั่น หรืออยู่คนละช่วงของชีท) คุณจะต้องเพิ่ม Logic การแยกส่วนตรงนี้
+        # สำหรับตอนนี้ เราจะส่งคืนเป็น DataFrame ว่างเปล่าไปก่อน
+        extracted_data['orders'] = pd.DataFrame() # เยื้อง 8 ช่องว่าง
+        extracted_data['positions'] = pd.DataFrame() # เยื้อง 8 ช่องว่าง
+        extracted_data['balance_summary'] = {} # หาก Balance Summary เป็นตารางแยก ต้องมี logic เพิ่มเติม (เยื้อง 8 ช่องว่าง)
+        extracted_data['results_summary'] = {} # เพิ่มบรรทัดนี้เพื่อ ensure ว่า results_summary มีค่าเริ่มต้น (เยื้อง 8 ช่องว่าง)
+
+        return extracted_data # เยื้อง 8 ช่องว่าง
 
         # ส่วนสำหรับ Orders และ Positions:
         # ถ้า Statement ของคุณมีส่วน Orders และ Positions แยกต่างหากในชีท 'Uploaded Statements'
