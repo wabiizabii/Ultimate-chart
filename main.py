@@ -22,7 +22,7 @@ WORKSHEET_PORTFOLIOS = "Portfolios"
 WORKSHEET_PLANNED_LOGS = "PlannedTradeLogs"
 WORKSHEET_ACTUAL_TRADES = "ActualTrades"
 WORKSHEET_ACTUAL_ORDERS = "ActualOrders"
-WORKSHEET_ACTUAL_POSITIONS = "ActualPositions"
+WORKSHEET_ACTUAL_POSITIONS = "ActualPOSITIONS"
 WORKSHEET_STATEMENT_SUMMARIES = "StatementSummaries" 
 
 # ฟังก์ชันสำหรับเชื่อมต่อ gspread
@@ -65,11 +65,11 @@ def load_portfolios_from_gsheets():
         st.sidebar.error(f"❌ ไม่พบ Worksheet ชื่อ '{WORKSHEET_PORTFOLIOS}' ใน Google Sheet '{GOOGLE_SHEET_NAME}'.")
         st.sidebar.info(f"กรุณาสร้าง Worksheet ชื่อ '{WORKSHEET_PORTFOLIOS}' และใส่หัวคอลัมน์พร้อมข้อมูลตัวอย่าง")
         return pd.DataFrame()
-    except gspread.exceptions.APIError as e: # ดักจับ APIError (รวมถึง Quota Exceeded)
+    except gspread.exceptions.APIError as e:
         st.sidebar.error(f"❌ เกิดข้อผิดพลาดในการโหลด Portfolios (Google Sheets API Error): {e}")
         st.sidebar.info("⚠️ อาจเกิดจากการเรียกใช้ API บ่อยเกินไป. กรุณารอสักครู่แล้วลองโหลดหน้าใหม่.")
-        time.sleep(5) # หยุดพัก 5 วินาที
-        st.experimental_rerun() # ลอง rerun ใหม่
+        time.sleep(5)
+        st.experimental_rerun()
         return pd.DataFrame()
     except Exception as e:
         st.sidebar.error(f"❌ เกิดข้อผิดพลาดที่ไม่คาดคิดในการโหลด Portfolios: {e}")
@@ -487,7 +487,7 @@ df_planned_logs_for_scaling = pd.DataFrame()
 gc_scaling = get_gspread_client()
 if gc_scaling:
     try:
-        sh_scaling = gc_scaling.open(GOOGLE_SHEET_NAME)
+        sh_scaling = gc.open(GOOGLE_SHEET_NAME)
         ws_planned_logs = sh_scaling.worksheet(WORKSHEET_PLANNED_LOGS)
         records_scaling = ws_planned_logs.get_all_records()
         if records_scaling:
@@ -874,14 +874,14 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
         # ปรับ Orders header ให้ตรงกับรูปแบบ MT4/5 ที่มี Comment อยู่ท้ายสุด และไม่มีคอมม่าที่ไม่จำเป็น
         section_raw_headers = {
             "Positions": "Time,Position,Symbol,Type,Volume,Price,S / L,T / P,Time,Price,Commission,Swap,Profit",
-            "Orders": "Open Time,Order,Symbol,Type,Volume,Price,S / L,T / P,Time,State,Comment", 
+            "Orders": "Open Time,Order,Symbol,Type,Volume,Price,S / L,T / P,Time,State,,Comment", # ปรับให้มีคอมม่าสองตัวก่อน Comment เหมือนใน Report History
             "Deals": "Time,Deal,Symbol,Type,Direction,Volume,Price,Order,Commission,Fee,Swap,Profit,Balance,Comment",
         }
         
         # Define expected clean column names for each section (Hardcoded for robust parsing)
         expected_cleaned_columns = {
             "Positions": ["Time", "Position", "Symbol", "Type", "Volume", "Price", "S_L", "T_P", "Close_Time", "Close_Price", "Commission", "Swap", "Profit"],
-            "Orders": ["Open_Time", "Order", "Symbol", "Type", "Volume", "Price", "S_L", "T_P", "Close_Time", "State", "Comment"], # ปรับให้มีแค่ Comment เดียว
+            "Orders": ["Open_Time", "Order", "Symbol", "Type", "Volume", "Price", "S_L", "T_P", "Close_Time", "State", "Comment1", "Comment2", "Comment3"], # เพิ่ม Comment1, Comment2, Comment3 เพื่อให้ Pandas อ่านได้
             "Deals": ["Time", "Deal", "Symbol", "Type", "Direction", "Volume", "Price", "Order", "Commission", "Fee", "Swap", "Profit", "Balance", "Comment"],
         }
 
@@ -895,9 +895,10 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
             for i, line in enumerate(lines):
                 line_stripped = line.strip()
                 # ตรวจสอบการ match ของ header โดยใช้ `startswith` และความยาวที่ใกล้เคียง
-                if line_stripped.startswith(header_template.split(',')[0]) and \
+                # ใช้ .replace(" / ", "/") เพื่อให้ยืดหยุ่นกับ "S / L" vs "S/L"
+                if line_stripped.replace(" / ", "/").startswith(header_template.replace(" / ", "/").split(',')[0]) and \
                    len(line_stripped.split(',')) >= (len(header_template.split(',')) - 2) and \
-                   len(line_stripped.split(',')) <= (len(header_template.split(',')) + 2):
+                   len(line_stripped.split(',')) <= (len(header_template.split(',')) + 3): # เพิ่ม 3 สำหรับ Comment ที่อาจมีคอมม่าหลายตัว
                     section_start_indices[section_name] = i
                     break
         
@@ -921,7 +922,11 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
                 if raw_section_lines_block:
                     first_line_of_block = raw_section_lines_block[0]
                     
-                    # ใช้ `csv.reader` เพื่อแยกบรรทัดแรกอย่างแม่นยำ (เพื่อจัดการ Quote, Comma ใน data)
+                    if st.session_state.get("debug_statement_processing", False):
+                        st.write(f"DEBUG: Processing first line of block for {section_name}:")
+                        st.code(first_line_of_block)
+
+                    # ใช้ `csv.reader` เพื่อแยกบรรทัดแรกอย่างแม่นยำ
                     try:
                         current_line_parts_raw = list(csv.reader(io.StringIO(first_line_of_block)))[0]
                     except Exception as e_csv_reader_first_line:
@@ -929,17 +934,24 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
                         dfs_output[section_key_lower] = pd.DataFrame()
                         continue
 
+                    if st.session_state.get("debug_statement_processing", False):
+                        st.write(f"DEBUG: current_line_parts_raw for {section_name}:")
+                        st.code(current_line_parts_raw)
+
                     header_template_parts_count = len(section_raw_headers[section_name].split(','))
 
                     if len(current_line_parts_raw) > header_template_parts_count:
-                        # ถ้ายาวกว่า header template แสดงว่ามี data ติดมาด้วย
+                        # ถ้าบรรทัดแรกมีข้อมูลติดมาด้วย
                         first_data_row_extracted = current_line_parts_raw[header_template_parts_count:]
-                        if any(p.strip() for p in first_data_row_extracted):
-                            # ตรวจสอบ Orders และ Deals เพื่อรวม Comment ที่มีคอมม่าภายใน
+                        
+                        if any(p.strip() for p in first_data_row_extracted): # เช็คว่ามีข้อมูลจริงๆ ไม่ใช่แค่คอมม่าว่างๆ
+                            # สร้างบรรทัดข้อมูล CSV ใหม่ โดยรวมส่วนที่เกินมาเข้าเป็น Comment
                             if section_name in ["Orders", "Deals"]:
-                                # สร้าง String ที่มี quote สำหรับ Comment
+                                # นำส่วน Header มารวมกัน (ส่วนที่ตรงกับ header_template)
+                                header_part_str = ','.join(current_line_parts_raw[:header_template_parts_count])
+                                # นำส่วน Comment ที่เกินมามารวมกันและใส่ quote
                                 quoted_comment = '"' + ' '.join(first_data_row_extracted).replace('"', '""') + '"'
-                                table_data_lines.append(','.join(current_line_parts_raw[:header_template_parts_count]) + ',' + quoted_comment)
+                                table_data_lines.append(header_part_str + ',' + quoted_comment)
                             else:
                                 table_data_lines.append(','.join(first_data_row_extracted))
                     
@@ -955,6 +967,8 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
                         if section_name in ["Orders", "Deals"]:
                             try:
                                 parts = list(csv.reader(io.StringIO(line_val_stripped)))[0]
+                                # expected_count_without_comment คือจำนวนคอลัมน์ที่ไม่ใช่ Comment
+                                # ซึ่งเท่ากับ expected_cleaned_columns[section_name] - 1
                                 expected_count_without_comment = len(expected_cleaned_columns[section_name]) - 1 
                                 
                                 if len(parts) > expected_count_without_comment:
@@ -988,6 +1002,16 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
                         
                         df = df.dropna(axis=1, how='all')
                         df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
+
+                        # สำหรับ Orders: รวม Comment1, Comment2, Comment3 เป็น Comment เดียว
+                        if section_name == "Orders":
+                            comment_cols = [col for col in df.columns if col.startswith('Comment') and col != 'Comment']
+                            if comment_cols:
+                                # รวม Comment strings และลบคอลัมน์ Comment1, Comment2, Comment3
+                                df['Comment'] = df[comment_cols].fillna('').agg(' '.join, axis=1).str.strip()
+                                df.drop(columns=comment_cols, inplace=True, errors='ignore')
+                            if 'Comment' not in df.columns: # สร้าง Comment คอลัมน์เปล่าถ้าไม่มีเลย
+                                df['Comment'] = ''
 
                         # จัดเรียงคอลัมน์ใหม่ตามที่ expected_cleaned_columns กำหนด
                         for col_name in expected_cleaned_columns[section_name]:
@@ -1142,7 +1166,6 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
             st.error(f"❌ เกิดข้อผิดพลาดในการบันทึก Deals (Google Sheets API Error): {e}")
             st.info("⚠️ อาจเกิดจากการเรียกใช้ API บ่อยเกินไป. กรุณารอสักครู่แล้วลองโหลดหน้าใหม่.")
             time.sleep(5)
-            # st.experimental_rerun() # ไม่ต้อง rerun ที่นี่ เพราะมันบันทึกข้อมูลย่อย
             return False
         except Exception as e: st.error(f"❌ เกิดข้อผิดพลาดในการบันทึก Deals: {e}"); return False
 
@@ -1193,7 +1216,6 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
             st.error(f"❌ เกิดข้อผิดพลาดในการบันทึก Positions (Google Sheets API Error): {e}")
             st.info("⚠️ อาจเกิดจากการเรียกใช้ API บ่อยเกินไป. กรุณารอสักครู่แล้วลองโหลดหน้าใหม่.")
             time.sleep(5)
-            # st.experimental_rerun()
             return False
         except Exception as e: st.error(f"❌ เกิดข้อผิดพลาดในการบันทึก Positions: {e}"); return False
 
@@ -1242,7 +1264,6 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
             st.error(f"❌ เกิดข้อผิดพลาดในการบันทึก Orders (Google Sheets API Error): {e}")
             st.info("⚠️ อาจเกิดจากการเรียกใช้ API บ่อยเกินไป. กรุณารอสักครู่แล้วลองโหลดหน้าใหม่.")
             time.sleep(5)
-            # st.experimental_rerun()
             return False
         except Exception as e: st.error(f"❌ เกิดข้อผิดพลาดในการบันทึก Orders: {e}"); return False
 
@@ -1303,7 +1324,6 @@ with st.expander("📂 SEC 7: Ultimate Chart Dashboard Import & Processing", exp
             st.error(f"❌ เกิดข้อผิดพลาดในการบันทึก Statement Summaries (Google Sheets API Error): {e}")
             st.info("⚠️ อาจเกิดจากการเรียกใช้ API บ่อยเกินไป. กรุณารอสักครู่แล้วลองโหลดหน้าใหม่.")
             time.sleep(5)
-            # st.experimental_rerun()
             return False
         except Exception as e: st.error(f"❌ เกิดข้อผิดพลาดในการบันทึก Statement Summaries: {e}"); return False
 
@@ -1407,7 +1427,6 @@ def load_data_for_dashboard(source_option_param):
                 st.warning(f"ไม่สามารถโหลด Planned Trades สำหรับ Dashboard (Google Sheets API Error): {e}")
                 st.info("⚠️ อาจเกิดจากการเรียกใช้ API บ่อยเกินไป. กรุณารอสักครู่แล้วลองโหลดหน้าใหม่.")
                 time.sleep(5)
-                # st.experimental_rerun() # ไม่ต้อง rerun ที่นี่ เพราะเป็นส่วนของ load_data
             except Exception as e:
                 st.warning(f"ไม่สามารถโหลด Planned Trades สำหรับ Dashboard: {e}")
         st.caption("ข้อมูลจากชีต 'PlannedTradeLogs'")
@@ -1441,15 +1460,14 @@ def load_data_for_dashboard(source_option_param):
 
 
 with st.expander("📊 Performance Dashboard", expanded=True):
-    # ย้าย st.selectbox มาไว้ที่นี่ (นอกฟังก์ชัน load_data_for_dashboard)
     source_option = st.selectbox(
         "เลือกแหล่งข้อมูลสำหรับแดชบอร์ด:",
         ["Planned Trades (Google Sheets)", "Actual Trades (Statement Import)"],
         index=0,
-        key="dashboard_source_selector" # ต้องมี key ที่ไม่ซ้ำ
+        key="dashboard_source_selector"
     )
     
-    df_data_dash = load_data_for_dashboard(source_option) # ส่ง source_option ที่เลือกเข้าไป
+    df_data_dash = load_data_for_dashboard(source_option)
 
     if df_data_dash.empty:
         st.info("ยังไม่มีข้อมูลสำหรับ Dashboard หรือไม่สามารถโหลดข้อมูลได้")
@@ -1503,7 +1521,6 @@ with st.expander("📊 Performance Dashboard", expanded=True):
         st.markdown("---")
 
         tab_names = ["📊 Dashboard", "📈 RR Analysis", "📉 Lot Size", "🕒 Time Analysis", "🤖 AI Insight", "⬇️ Export"]
-        # Conditionally remove RR tab if RR column not present or not relevant for 'Actual Trades'
         if 'RR' not in df_data_dash.columns and source_option == "Actual Trades (Statement Import)":
             if "📈 RR Analysis" in tab_names: tab_names.remove("📈 RR Analysis")
         
@@ -1645,11 +1662,10 @@ def load_planned_trades_from_gsheets_for_viewer():
     except gspread.exceptions.WorksheetNotFound:
         st.error(f"❌ Log Viewer: ไม่พบ Worksheet '{WORKSHEET_PLANNED_LOGS}'.")
         return pd.DataFrame()
-    except gspread.exceptions.APIError as e: # ดักจับ APIError สำหรับ Log Viewer
+    except gspread.exceptions.APIError as e:
         st.error(f"❌ Log Viewer: เกิดข้อผิดพลาดในการโหลด Log (Google Sheets API Error): {e}")
         st.info("⚠️ อาจเกิดจากการเรียกใช้ API บ่อยเกินไป. กรุณารอสักครู่แล้วลองโหลดหน้าใหม่.")
         time.sleep(5)
-        # st.experimental_rerun() # ไม่ต้อง rerun ที่นี่ เพราะเป็นส่วนย่อย
         return pd.DataFrame()
     except Exception as e_log_viewer:
         st.error(f"❌ Log Viewer: เกิดข้อผิดพลาดในการโหลด Log - {e_log_viewer}")
