@@ -538,150 +538,198 @@ if st.sidebar.button("🔄 Reset Form"):
     st.rerun()
 
 # ===================== SEC 2.2: FIBO TRADE DETAILS =======================
-if mode == "FIBO":
-    col1, col2, col3 = st.sidebar.columns([2, 2, 2])
-    with col1:
-        asset = st.text_input("Asset", value=st.session_state.get("asset", "XAUUSD"), key="asset")
-    with col2:
-        risk_pct = st.number_input(
-            "Risk %",
-            min_value=0.01,
-            max_value=100.0,
-            value=st.session_state.get("risk_pct", 1.0),
-            step=0.01,
-            format="%.2f",
-            key="risk_pct"
-        )
-    with col3:
-        direction = st.radio("Direction", ["Long", "Short"], horizontal=True, key="fibo_direction")
+# <<< ลูกพี่ตั้มต้องแน่ใจว่าโค้ดส่วนนี้ถูกวางไว้ในตำแหน่งที่ถูกต้อง >>>
+# <<< คือ หลัง SEC 1 (ที่ st.session_state.current_portfolio_details ถูกกำหนด) >>>
+# <<< และ ก่อนที่จะเริ่ม SEC 2.2 หรือ SEC 2.3 >>>
 
-    col4, col5 = st.sidebar.columns(2)
-    with col4:
-        swing_high = st.text_input("High", key="swing_high")
-    with col5:
-        swing_low = st.text_input("Low", key="swing_low")
+# --- ดึงค่า InitialBalance และ CurrentRiskPercent จาก Active Portfolio ---
+active_balance_to_use = st.session_state.get('current_account_balance', 10000.0) # Fallback
+
+initial_risk_pct_from_portfolio = 1.0 # Default
+if 'current_portfolio_details' in st.session_state and st.session_state.current_portfolio_details:
+    details = st.session_state.current_portfolio_details
+    current_risk_val_str = details.get('CurrentRiskPercent') # สมมติว่าในชีต Portfolios มีคอลัมน์นี้
+    if pd.notna(current_risk_val_str) and str(current_risk_val_str).strip() != "":
+        try:
+            risk_val_float = float(current_risk_val_str)
+            if risk_val_float > 0:
+                 initial_risk_pct_from_portfolio = risk_val_float
+        except (ValueError, TypeError):
+            pass # ใช้ค่า default ถ้าแปลงไม่ได้
+
+# ===================== SEC 2.2: FIBO TRADE DETAILS =======================
+if mode == "FIBO": # mode ควรจะถูก define ใน SEC 2.1
+    col1_fibo_v2, col2_fibo_v2, col3_fibo_v2 = st.sidebar.columns([2, 2, 2])
+    with col1_fibo_v2:
+        asset_fibo_v2 = st.text_input("Asset", 
+                                   value=st.session_state.get("asset_fibo_val_v2", "XAUUSD"), 
+                                   key="asset_fibo_input_v3") # Key ใหม่
+        st.session_state.asset_fibo_val_v2 = asset_fibo_v2
+    with col2_fibo_v2:
+        risk_pct_fibo_v2 = st.number_input(
+            "Risk %",
+            min_value=0.01, max_value=100.0,
+            value=st.session_state.get("risk_pct_fibo_val_v2", initial_risk_pct_from_portfolio), # <<< ใช้ค่าจาก Active Portfolio
+            step=0.01, format="%.2f",
+            key="risk_pct_fibo_input_v3") # Key ใหม่
+        st.session_state.risk_pct_fibo_val_v2 = risk_pct_fibo_v2
+    with col3_fibo_v2:
+        # ตรวจสอบว่า key "direction_fibo_val_v2" มีใน session_state หรือยัง
+        default_direction_index = 0 # Default to "Long"
+        if "direction_fibo_val_v2" in st.session_state:
+            if st.session_state.direction_fibo_val_v2 == "Short":
+                default_direction_index = 1
+        
+        direction_fibo_v2 = st.radio("Direction", ["Long", "Short"], 
+                                  index=default_direction_index,
+                                  horizontal=True, key="fibo_direction_radio_v3") # Key ใหม่
+        st.session_state.direction_fibo_val_v2 = direction_fibo_v2
+
+    col4_fibo_v2, col5_fibo_v2 = st.sidebar.columns(2)
+    with col4_fibo_v2:
+        swing_high_fibo_v2 = st.text_input("High", 
+                                        value=st.session_state.get("swing_high_fibo_val_v2", ""),
+                                        key="swing_high_fibo_input_v3") # Key ใหม่
+        st.session_state.swing_high_fibo_val_v2 = swing_high_fibo_v2
+    with col5_fibo_v2:
+        swing_low_fibo_v2 = st.text_input("Low", 
+                                       value=st.session_state.get("swing_low_fibo_val_v2", ""),
+                                       key="swing_low_fibo_input_v3") # Key ใหม่
+        st.session_state.swing_low_fibo_val_v2 = swing_low_fibo_v2
 
     st.sidebar.markdown("**📐 Entry Fibo Levels**")
-    fibos = [0.114, 0.25, 0.382, 0.5, 0.618]
-    labels = [f"{l:.3f}" for l in fibos]
-    cols = st.sidebar.columns(len(fibos))
+    fibos_fibo_v2 = [0.114, 0.25, 0.382, 0.5, 0.618] # เปลี่ยนชื่อตัวแปร
+    labels_fibo_v2 = [f"{l:.3f}" for l in fibos_fibo_v2]
+    cols_fibo_v2 = st.sidebar.columns(len(fibos_fibo_v2))
 
-    if "fibo_flags" not in st.session_state:
-        st.session_state.fibo_flags = [True] * len(fibos)
+    if "fibo_flags_v2" not in st.session_state: # Key ใหม่
+        st.session_state.fibo_flags_v2 = [True] * len(fibos_fibo_v2)
 
-    fibo_selected_flags = []
-    for i, col in enumerate(cols):
-        checked = col.checkbox(labels[i], value=st.session_state.fibo_flags[i], key=f"fibo_cb_{i}")
-        fibo_selected_flags.append(checked)
-
-    st.session_state.fibo_flags = fibo_selected_flags
+    fibo_selected_flags_v2 = []
+    for i, col_fibo_v2_loop in enumerate(cols_fibo_v2): # เปลี่ยนชื่อตัวแปร
+        checked_fibo_v2 = col_fibo_v2_loop.checkbox(labels_fibo_v2[i], 
+                                                 value=st.session_state.fibo_flags_v2[i], 
+                                                 key=f"fibo_cb_{i}_v3") # Key ใหม่
+        fibo_selected_flags_v2.append(checked_fibo_v2)
+    st.session_state.fibo_flags_v2 = fibo_selected_flags_v2
 
     try:
-        high_val = float(swing_high) if swing_high else 0
-        low_val = float(swing_low) if swing_low else 0
-        if swing_high and swing_low and high_val <= low_val:
+        high_val_fibo_v2 = float(swing_high_fibo_v2) if swing_high_fibo_v2 else 0
+        low_val_fibo_v2 = float(swing_low_fibo_v2) if swing_low_fibo_v2 else 0
+        if swing_high_fibo_v2 and swing_low_fibo_v2 and high_val_fibo_v2 <= low_val_fibo_v2:
             st.sidebar.warning("High ต้องมากกว่า Low!")
     except ValueError:
-        if swing_high or swing_low:
+        if swing_high_fibo_v2 or swing_low_fibo_v2:
             st.sidebar.warning("กรุณาใส่ High/Low เป็นตัวเลขที่ถูกต้อง")
     except Exception:
         pass
 
-    if 'risk_pct' in st.session_state and st.session_state.risk_pct <= 0:
+    if risk_pct_fibo_v2 <= 0: # ใช้ risk_pct_fibo_v2
         st.sidebar.warning("Risk% ต้องมากกว่า 0")
 
     st.sidebar.markdown("---")
     try:
-        high_preview = float(swing_high)
-        low_preview = float(swing_low)
-        if high_preview > low_preview and any(st.session_state.fibo_flags):
+        high_preview_fibo_v2 = float(swing_high_fibo_v2)
+        low_preview_fibo_v2 = float(swing_low_fibo_v2)
+        if high_preview_fibo_v2 > low_preview_fibo_v2 and any(st.session_state.fibo_flags_v2):
             st.sidebar.markdown("**Preview (เบื้องต้น):**")
-            first_selected_fibo_index = st.session_state.fibo_flags.index(True)
-            if direction == "Long":
-                preview_entry = low_preview + (high_preview - low_preview) * fibos[first_selected_fibo_index]
+            first_selected_fibo_index_v2 = st.session_state.fibo_flags_v2.index(True)
+            if direction_fibo_v2 == "Long":
+                preview_entry_fibo_v2 = low_preview_fibo_v2 + (high_preview_fibo_v2 - low_preview_fibo_v2) * fibos_fibo_v2[first_selected_fibo_index_v2]
             else:
-                preview_entry = high_preview - (high_preview - low_preview) * fibos[first_selected_fibo_index]
-            st.sidebar.markdown(f"Entry แรกที่เลือก ≈ **{preview_entry:.2f}**")
+                preview_entry_fibo_v2 = high_preview_fibo_v2 - (high_preview_fibo_v2 - low_preview_fibo_v2) * fibos_fibo_v2[first_selected_fibo_index_v2]
+            st.sidebar.markdown(f"Entry แรกที่เลือก ≈ **{preview_entry_fibo_v2:.2f}**")
             st.sidebar.caption("Lot/TP/ผลลัพธ์เต็มอยู่ด้านล่าง (ใน Strategy Summary)")
     except Exception:
         pass
 
-    save_fibo = st.sidebar.button("💾 Save Plan (FIBO)", key="save_fibo")
+    save_fibo = st.sidebar.button("💾 Save Plan (FIBO)", key="save_fibo_v3") # Key ใหม่
 
 # ===================== SEC 2.3: CUSTOM TRADE DETAILS =======================
-elif mode == "CUSTOM":
-    col1, col2, col3 = st.sidebar.columns([2, 2, 2])
-    with col1:
-        asset = st.text_input("Asset", value=st.session_state.get("asset", "XAUUSD"), key="asset_custom")
-    with col2:
-        risk_pct = st.number_input(
+elif mode == "CUSTOM": # mode ควรจะถูก define ใน SEC 2.1
+    col1_custom_v2, col2_custom_v2, col3_custom_v2 = st.sidebar.columns([2, 2, 2])
+    with col1_custom_v2:
+        asset_custom_v2 = st.text_input("Asset", 
+                                     value=st.session_state.get("asset_custom_val_v2", "XAUUSD"), 
+                                     key="asset_custom_input_v3") # Key ใหม่
+        st.session_state.asset_custom_val_v2 = asset_custom_v2
+    with col2_custom_v2:
+        risk_pct_custom_v2 = st.number_input( 
             "Risk %",
-            min_value=0.01,
-            max_value=100.0,
-            value=st.session_state.get("risk_pct_custom", 1.00),
-            step=0.01,
-            format="%.2f",
-            key="risk_pct_custom"
-        )
-    with col3:
-        n_entry = st.number_input(
+            min_value=0.01, max_value=100.0,
+            value=st.session_state.get("risk_pct_custom_val_v2", initial_risk_pct_from_portfolio), # <<< ใช้ค่าจาก Active Portfolio
+            step=0.01, format="%.2f",
+            key="risk_pct_custom_input_v3") # Key ใหม่
+        st.session_state.risk_pct_custom_val_v2 = risk_pct_custom_v2
+    with col3_custom_v2:
+        n_entry_custom_v2 = st.number_input( 
             "จำนวนไม้",
-            min_value=1,
-            max_value=10,
-            value=st.session_state.get("n_entry_custom", 2),
+            min_value=1, max_value=10,
+            value=st.session_state.get("n_entry_custom_val_v2", 2), 
             step=1,
-            key="n_entry_custom"
-        )
+            key="n_entry_custom_input_v3") # Key ใหม่
+        st.session_state.n_entry_custom_val_v2 = n_entry_custom_v2
 
     st.sidebar.markdown("**กรอกข้อมูลแต่ละไม้**")
-    custom_inputs = []
-    current_custom_risk_pct = st.session_state.get("risk_pct_custom", 1.0)
-    risk_per_trade = current_custom_risk_pct / 100
-    risk_dollar_total = acc_balance * risk_per_trade
-    num_entries_val = st.session_state.get("n_entry_custom", 1)
-    risk_dollar_per_entry = risk_dollar_total / num_entries_val if num_entries_val > 0 else 0
+    custom_inputs_v2 = [] # เปลี่ยนชื่อตัวแปร
+    
+    current_custom_risk_pct_v2 = risk_pct_custom_v2 
+    risk_per_trade_custom_v2 = current_custom_risk_pct_v2 / 100
+    
+    # --- แก้ไขการคำนวณ risk_dollar_total ---
+    risk_dollar_total_custom_v2 = active_balance_to_use * risk_per_trade_custom_v2 # <<< ใช้ active_balance_to_use
+    
+    num_entries_val_custom_v2 = n_entry_custom_v2
+    risk_dollar_per_entry_custom_v2 = risk_dollar_total_custom_v2 / num_entries_val_custom_v2 if num_entries_val_custom_v2 > 0 else 0
 
-    for i in range(int(num_entries_val)):
+    for i in range(int(num_entries_val_custom_v2)):
         st.sidebar.markdown(f"--- ไม้ที่ {i+1} ---")
-        col_e, col_s, col_t = st.sidebar.columns(3)
-        with col_e:
-            entry = st.text_input(f"Entry {i+1}", value=st.session_state.get(f"custom_entry_{i}", "0.00"), key=f"custom_entry_{i}")
-        with col_s:
-            sl = st.text_input(f"SL {i+1}", value=st.session_state.get(f"custom_sl_{i}", "0.00"), key=f"custom_sl_{i}")
-        with col_t:
-            tp = st.text_input(f"TP {i+1}", value=st.session_state.get(f"custom_tp_{i}", "0.00"), key=f"custom_tp_{i}")
+        col_e_v2, col_s_v2, col_t_v2 = st.sidebar.columns(3)
+        entry_key_v2 = f"custom_entry_{i}_v3" # Key ใหม่
+        sl_key_v2 = f"custom_sl_{i}_v3"       # Key ใหม่
+        tp_key_v2 = f"custom_tp_{i}_v3"       # Key ใหม่
+
+        if entry_key_v2 not in st.session_state: st.session_state[entry_key_v2] = "0.00"
+        if sl_key_v2 not in st.session_state: st.session_state[sl_key_v2] = "0.00"
+        if tp_key_v2 not in st.session_state: st.session_state[tp_key_v2] = "0.00"
+
+        with col_e_v2:
+            entry_str_v2 = st.text_input(f"Entry {i+1}", value=st.session_state[entry_key_v2], key=entry_key_v2)
+        with col_s_v2:
+            sl_str_v2 = st.text_input(f"SL {i+1}", value=st.session_state[sl_key_v2], key=sl_key_v2)
+        with col_t_v2:
+            tp_str_v2 = st.text_input(f"TP {i+1}", value=st.session_state[tp_key_v2], key=tp_key_v2)
         
         try:
-            entry_val = float(entry)
-            sl_val = float(sl)
-            stop = abs(entry_val - sl_val)
-            lot = risk_dollar_per_entry / stop if stop > 0 else 0
-            lot_display = f"Lot: {lot:.2f}" if stop > 0 else "Lot: - (Invalid SL)"
-            risk_per_entry_display = f"Risk$ ต่อไม้: {risk_dollar_per_entry:.2f}"
+            entry_float_v2 = float(entry_str_v2)
+            sl_float_v2 = float(sl_str_v2)
+            stop_val_v2 = abs(entry_float_v2 - sl_float_v2)
+            lot_val_v2 = risk_dollar_per_entry_custom_v2 / stop_val_v2 if stop_val_v2 > 0 else 0
+            lot_display_str_v2 = f"Lot: {lot_val_v2:.2f}" if stop_val_v2 > 0 else "Lot: - (Invalid SL)"
+            risk_per_entry_display_str_v2 = f"Risk$ ต่อไม้: {risk_dollar_per_entry_custom_v2:.2f}"
         except ValueError:
-            lot_display = "Lot: - (Error)"
-            risk_per_entry_display = "Risk$ ต่อไม้: - (Error)"
-            stop = None
+            lot_display_str_v2 = "Lot: - (Error)"
+            risk_per_entry_display_str_v2 = "Risk$ ต่อไม้: - (Error)"
+            stop_val_v2 = None
         except Exception:
-            lot_display = "Lot: -"
-            risk_per_entry_display = "Risk$ ต่อไม้: -"
-            stop = None
+            lot_display_str_v2 = "Lot: -"
+            risk_per_entry_display_str_v2 = "Risk$ ต่อไม้: -"
+            stop_val_v2 = None
 
         try:
-            if stop is not None and stop > 0:
-                tp_rr3_info = f"Stop: {stop:.2f}"
+            if stop_val_v2 is not None and stop_val_v2 > 0:
+                tp_rr3_info_str_v2 = f"Stop: {stop_val_v2:.2f}"
             else:
-                tp_rr3_info = "TP (RR=3): - (SL Error)"
+                tp_rr3_info_str_v2 = "Stop: - (SL Error)"
         except Exception:
-            tp_rr3_info = "TP (RR=3): -"
+            tp_rr3_info_str_v2 = "Stop: -"
         
-        st.sidebar.caption(f"{lot_display} | {risk_per_entry_display} | {tp_rr3_info}")
-        custom_inputs.append({"entry": entry, "sl": sl, "tp": tp})
+        st.sidebar.caption(f"{lot_display_str_v2} | {risk_per_entry_display_str_v2} | {tp_rr3_info_str_v2}")
+        custom_inputs_v2.append({"entry": entry_str_v2, "sl": sl_str_v2, "tp": tp_str_v2})
 
-    if current_custom_risk_pct <= 0:
+    if current_custom_risk_pct_v2 <= 0:
         st.sidebar.warning("Risk% ต้องมากกว่า 0")
-    save_custom = st.sidebar.button("💾 Save Plan (CUSTOM)", key="save_custom")
-
+    save_custom = st.sidebar.button("💾 Save Plan (CUSTOM)", key="save_custom_v3") # Key ใหม่
 # ===================== SEC 3: SIDEBAR - CALCULATIONS, SUMMARY & ACTIONS =======================
 st.sidebar.markdown("---")
 st.sidebar.markdown("### 🧾 Strategy Summary")
