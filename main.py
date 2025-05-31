@@ -811,8 +811,6 @@ summary_avg_rr = 0.0
 summary_total_profit_at_primary_tp = 0.0
 custom_tp_recommendation_messages = []
 
-SPREAD_ADJUSTMENT_PRICE_UNITS = 0.20
-
 entry_data_summary_sec3 = []
 custom_entries_summary_sec3 = []
 
@@ -865,7 +863,7 @@ if mode == "FIBO":
                 if range_fibo_calc <= 1e-9:
                     st.sidebar.warning("Range ระหว่าง High และ Low ต้องมากกว่า 0 อย่างมีนัยสำคัญ")
                 else:
-                    # คำนวณ Global TP1–TP3 (ใช้ในส่วนแสดง TP Table จังหวัดอื่น)
+                    # คำนวณ Global TP1 (ใช้แสดง TP Table ด้านขวา)
                     if direction_fibo == "Long":
                         global_tp1_fibo = fibo_0_percent_level_calc + (range_fibo_calc * 0.618)
                     else:
@@ -876,7 +874,7 @@ if mode == "FIBO":
                     if selected_fibo_levels_count > 0:
                         # Risk $ ต่อ Trade ทั้งหมด (acc_balance × risk_pct / 100)
                         risk_dollar_total_fibo_plan = active_balance_to_use * (risk_pct_fibo / 100.0)
-                        # แบ่ง risk $ ให้แต่ละ fibo level
+                        # แบ่ง risk $ ให้แต่ละ fibo level ที่เลือก
                         risk_dollar_per_entry_fibo = risk_dollar_total_fibo_plan / selected_fibo_levels_count
 
                         temp_fibo_rr_to_tp1_list = []
@@ -891,38 +889,44 @@ if mode == "FIBO":
                                 # ---------- 1) ENTRY PRICE ----------
                                 if direction_fibo == "Long":
                                     entry_price_fibo = fibo_0_percent_level_calc + (range_fibo_calc * fibo_ratio_for_entry)
-                                else:
+                                else:  # Short
                                     entry_price_fibo = fibo_0_percent_level_calc - (range_fibo_calc * fibo_ratio_for_entry)
 
-                                # ---------- 2) SL PRICE ----------
+                                # ---------- 2) SL PRICE (ปรับเฉพาะกรณี fibo = 0.618) ----------
                                 if abs(fibo_ratio_for_entry - 0.114) < 1e-9 or abs(fibo_ratio_for_entry - 0.25) < 1e-9 or abs(fibo_ratio_for_entry - 0.382) < 1e-9:
                                     # สำหรับ fibo = 0.114, 0.25, 0.382:
                                     sl_price_fibo_final = (fibo_0_percent_level_calc if direction_fibo == "Long"
                                                            else fibo_100_percent_level_calc)
+
                                 elif abs(fibo_ratio_for_entry - 0.5) < 1e-9:
-                                    # สำหรับ fibo = 0.5:
+                                    # สำหรับ fibo = 0.5: SL = Low + ((0.25 + 0.382)/2) × range, หรือ High - ((0.25 + 0.382)/2) × range เมื่อเป็น Short
                                     mid_factor = (0.25 + 0.382) / 2.0
                                     if direction_fibo == "Long":
                                         sl_price_fibo_final = fibo_0_percent_level_calc + (range_fibo_calc * mid_factor)
                                     else:
                                         sl_price_fibo_final = fibo_100_percent_level_calc - (range_fibo_calc * mid_factor)
+
                                 else:
                                     # fibo == 0.618:
-                                    factor_0618 = 0.25 + (0.50 - 0.382) * 0.7  # = 0.3326
+                                    # factor_0618 = 0.25 + (0.50 - 0.382) × 0.7 = 0.25 + 0.118 × 0.7 = 0.3326
+                                    factor_0618 = 0.25 + (0.50 - 0.382) * 0.7
+                                    # **แก้ไขตรงนี้**: เมื่อเป็น Long ให้ SL = High - (range × factor_0618)
+                                    #                เมื่อเป็น Short ให้ SL = Low + (range × factor_0618)
                                     if direction_fibo == "Long":
-                                        sl_price_fibo_final = fibo_0_percent_level_calc + (range_fibo_calc * factor_0618)
-                                    else:
                                         sl_price_fibo_final = fibo_100_percent_level_calc - (range_fibo_calc * factor_0618)
+                                    else:
+                                        sl_price_fibo_final = fibo_0_percent_level_calc + (range_fibo_calc * factor_0618)
 
                                 # ---------- 3) SL (Points) ----------
-                                # (1 point = 0.01 หน่วยราคา)
+                                # 1 point = 0.01 หน่วยราคา
                                 sl_points = abs(entry_price_fibo - sl_price_fibo_final) / 0.01
 
                                 # ---------- 4) LOT SIZE ----------
                                 if sl_points > 0:
                                     raw_lot = risk_dollar_per_entry_fibo / sl_points
+                                    # floor ให้เป็นสองทศนิยม (0.01 step)
                                     floored = math.floor(raw_lot * 100) / 100.0
-                                    lot_size_fibo = max(0.01, floored)
+                                    lot_size_fibo = max(0.01, floored)  # ขั้นต่ำ 0.01
                                 else:
                                     lot_size_fibo = 0.0
 
@@ -935,7 +939,7 @@ if mode == "FIBO":
                                     rr_to_tp1_fibo = ((tp1_price - entry_price_fibo) / abs(entry_price_fibo - sl_price_fibo_final)
                                                       if abs(entry_price_fibo - sl_price_fibo_final) > 0 else 0)
                                 else:
-                                    tp1_price = fibo_100_percent_level_calc - (range_fibo_calc * 0.618)
+                                    tp1_price = fibo_0_percent_level_calc - (range_fibo_calc * 0.618)
                                     rr_to_tp1_fibo = ((entry_price_fibo - tp1_price) / abs(entry_price_fibo - sl_price_fibo_final)
                                                       if abs(entry_price_fibo - sl_price_fibo_final) > 0 else 0)
 
@@ -1082,9 +1086,6 @@ if display_summary_info:
         for msg in custom_tp_recommendation_messages:
             st.sidebar.caption(msg)
 
-
-
-# --- End of modified SEC 3 ---
 
 # ===================== SEC 3.1: SCALING MANAGER =======================
 with st.sidebar.expander("⚙️ Scaling Manager Settings", expanded=False):
