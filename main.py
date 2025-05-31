@@ -973,54 +973,82 @@ gc_scaling = get_gspread_client()
 if gc_scaling:
     try:
         sh_scaling = gc_scaling.open(GOOGLE_SHEET_NAME)
-        ws_planned_logs = sh_scaling.worksheet(WORKSHEET_PLANNED_LOGS)
+        ws_planned_logs = sh_scaling.worksheet(WORKSHEET_PLANNED_LOGS) # Make sure this worksheet name is correct
         records_scaling = ws_planned_logs.get_all_records()
         if records_scaling:
             df_planned_logs_for_scaling = pd.DataFrame(records_scaling)
-    except Exception as e:
-        pass
+            # Ensure necessary columns are correctly typed for get_performance
+            if 'Risk $' in df_planned_logs_for_scaling.columns:
+                df_planned_logs_for_scaling['Risk $'] = pd.to_numeric(df_planned_logs_for_scaling['Risk $'], errors='coerce').fillna(0)
+            if 'Timestamp' in df_planned_logs_for_scaling.columns:
+                df_planned_logs_for_scaling['Timestamp'] = pd.to_datetime(df_planned_logs_for_scaling['Timestamp'], errors='coerce')
+            # Add other necessary type conversions if get_performance depends on them
+    except gspread.exceptions.WorksheetNotFound:
+        # st.info(f"Worksheet '{WORKSHEET_PLANNED_LOGS}' not found for scaling performance. Scaling suggestions may be limited.")
+        pass # Continue without historical performance if sheet not found
+    except Exception as e_scaling_load:
+        # st.warning(f"Error loading data for scaling performance: {e_scaling_load}")
+        pass # Continue, but scaling suggestions might be affected
+
+# active_balance_to_use should be defined globally from active portfolio's initial balance
+# initial_risk_pct_from_portfolio should also be defined globally based on active portfolio's CurrentRiskPercent
 
 winrate_perf, gain_perf, total_trades_perf = get_performance(df_planned_logs_for_scaling.copy(), mode="week")
 
-current_risk_for_scaling = 1.0
+current_risk_for_scaling = initial_risk_pct_from_portfolio # Default to portfolio's risk
 if mode == "FIBO":
-    current_risk_for_scaling = st.session_state.get("risk_pct", 1.0)
+    # Use the actual current risk % from the input field (via session state)
+    current_risk_for_scaling = st.session_state.get("risk_pct_fibo_val_v2", initial_risk_pct_from_portfolio)
 elif mode == "CUSTOM":
-    current_risk_for_scaling = st.session_state.get("risk_pct_custom", 1.0)
+    current_risk_for_scaling = st.session_state.get("risk_pct_custom_val_v2", initial_risk_pct_from_portfolio)
 
-scaling_step_val = st.session_state.get('scaling_step', 0.25)
-max_risk_pct_val = st.session_state.get('max_risk_pct', 5.0)
-min_risk_pct_val = st.session_state.get('min_risk_pct', 0.5)
-current_scaling_mode = st.session_state.get('scaling_mode', 'Manual')
+scaling_step_val = st.session_state.get('scaling_step', 0.25) # From SEC 3.1 inputs
+max_risk_pct_val = st.session_state.get('max_risk_pct', 5.0)   # From SEC 3.1 inputs
+min_risk_pct_val = st.session_state.get('min_risk_pct', 0.5)   # From SEC 3.1 inputs
+current_scaling_mode = st.session_state.get('scaling_mode', 'Manual') # From SEC 3.1 inputs
 
-suggest_risk = current_risk_for_scaling
-scaling_msg = "Risk% คงที่ (ยังไม่มีข้อมูล Performance เพียงพอ หรือ Performance อยู่ในเกณฑ์)"
+suggest_risk = current_risk_for_scaling # Initialize with current risk
+scaling_msg = f"Risk% ปัจจุบัน: {current_risk_for_scaling:.2f}%. "
 
 if total_trades_perf > 0:
-    if winrate_perf > 55 and gain_perf > 0.02 * acc_balance:
+    # Use active_balance_to_use (from active portfolio) for gain threshold
+    gain_threshold = 0.02 * active_balance_to_use
+    if winrate_perf > 55 and gain_perf > gain_threshold:
         suggest_risk = min(current_risk_for_scaling + scaling_step_val, max_risk_pct_val)
-        scaling_msg = f"🎉 ผลงานดี! Winrate {winrate_perf:.1f}%, กำไร {gain_perf:.2f}. แนะนำเพิ่ม Risk% เป็น {suggest_risk:.2f}%"
-    elif winrate_perf < 45 or gain_perf < 0:
+        scaling_msg += f"🎉 ผลงานดี! Winrate {winrate_perf:.1f}%, กำไร {gain_perf:,.2f} (เป้า {gain_threshold:,.2f}). แนะนำเพิ่ม Risk% เป็น {suggest_risk:.2f}%"
+    elif winrate_perf < 45 or gain_perf < 0: # Consider if gain_perf < 0 is too strict, maybe gain_perf < -loss_threshold
         suggest_risk = max(current_risk_for_scaling - scaling_step_val, min_risk_pct_val)
-        scaling_msg = f"⚠️ ควรลด Risk%! Winrate {winrate_perf:.1f}%, กำไร {gain_perf:.2f}. แนะนำลด Risk% เป็น {suggest_risk:.2f}%"
+        scaling_msg += f"⚠️ ควรลด Risk! Winrate {winrate_perf:.1f}%, กำไร {gain_perf:,.2f}. แนะนำลด Risk% เป็น {suggest_risk:.2f}%"
     else:
-        scaling_msg = f"Risk% คงที่ (Winrate {winrate_perf:.1f}%, กำไร {gain_perf:.2f})"
+        scaling_msg += f"คง Risk% (Winrate {winrate_perf:.1f}%, กำไร {gain_perf:,.2f})"
+else:
+    scaling_msg += "ยังไม่มีข้อมูล Performance เพียงพอในสัปดาห์นี้ หรือ Performance อยู่ในเกณฑ์"
 
 st.sidebar.info(scaling_msg)
 
-if current_scaling_mode == "Manual" and abs(suggest_risk - current_risk_for_scaling) > 0.001:
-    if st.sidebar.button(f"ปรับ Risk% เป็น {suggest_risk:.2f}%"):
+# Apply suggested risk
+if abs(suggest_risk - current_risk_for_scaling) > 0.001: # Only show button or auto-apply if there's a change
+    if current_scaling_mode == "Manual":
+        if st.sidebar.button(f"ปรับ Risk% ตามคำแนะนำเป็น {suggest_risk:.2f}%"):
+            if mode == "FIBO":
+                st.session_state.risk_pct_fibo_val_v2 = suggest_risk # Update new key
+            elif mode == "CUSTOM":
+                st.session_state.risk_pct_custom_val_v2 = suggest_risk # Update new key
+            st.rerun()
+    elif current_scaling_mode == "Auto":
         if mode == "FIBO":
-            st.session_state.risk_pct = suggest_risk
+            st.session_state.risk_pct_fibo_val_v2 = suggest_risk # Update new key
         elif mode == "CUSTOM":
-            st.session_state.risk_pct_custom = suggest_risk
-        st.rerun()
-elif current_scaling_mode == "Auto":
-    if abs(suggest_risk - current_risk_for_scaling) > 0.001:
-        if mode == "FIBO":
-            st.session_state.risk_pct = suggest_risk
-        elif mode == "CUSTOM":
-            st.session_state.risk_pct_custom = suggest_risk
+            st.session_state.risk_pct_custom_val_v2 = suggest_risk # Update new key
+        # Potentially st.rerun() here if auto-adjustment needs to immediately reflect in UI inputs
+        # However, be cautious with auto-reruns to avoid infinite loops.
+        # If input widgets are bound to these session state keys, they should update on next interaction.
+        # For now, mirroring original behavior (no explicit rerun on auto-apply unless it was already there).
+        # The user's original code did not have a rerun here. Let's add a note for them.
+        if st.session_state.get(f"last_auto_suggested_risk_{mode}", 0) != suggest_risk : # Rerun only if risk actually changed by auto
+            st.session_state[f"last_auto_suggested_risk_{mode}"] = suggest_risk
+            st.toast(f"Auto Scaling: ปรับ Risk% ของโหมด {mode} เป็น {suggest_risk:.2f}%", icon="⚙️")
+            st.rerun() # Rerun to update the input field display immediately
 
 # ===================== SEC 3.2: SAVE PLAN ACTION & DRAWDOWN LOCK =======================
 def save_plan_to_gsheets(plan_data_list, trade_mode_arg, asset_name, risk_percentage, trade_direction, portfolio_id, portfolio_name):
