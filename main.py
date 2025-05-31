@@ -1,12 +1,17 @@
-# ======================= SEC 0: IMPORT & CONFIG =======================
+# mainสำรอง.py
+
 import streamlit as st
 import pandas as pd
 import numpy as np
 import os
+import math
 from datetime import datetime
 
+# -----------------------------------------------------------------------------
+# SEC 0: IMPORT & CONFIG
+# -----------------------------------------------------------------------------
 st.set_page_config(page_title="Legendary RR Planner", layout="wide")
-acc_balance = 10000  # FIX
+acc_balance = 10000  # FIX (ใช้สำหรับคำนวณทั้งระบบ)
 log_file = "trade_log.csv"
 
 # ========== Function Utility ==========
@@ -44,7 +49,9 @@ def get_performance(log_file, mode="week"):
     gain = df_period["Risk $"].astype(float).sum()
     return winrate, gain, total
 
-# ======================= SEC 1: SIDEBAR / INPUT ZONE =======================
+# -----------------------------------------------------------------------------
+# SEC 1: SIDEBAR / INPUT ZONE
+# -----------------------------------------------------------------------------
 st.sidebar.header("🗂️ Trade Planner")
 
 drawdown_limit_pct = st.sidebar.number_input(
@@ -58,7 +65,6 @@ mode = st.sidebar.radio("เลือกโหมด", ["FIBO", "CUSTOM"], horiz
 if st.sidebar.button("Clear (รีเซ็ตฟอร์ม)"):
     st.experimental_rerun()
 
-# -- Input Zone (แยก FIBO/CUSTOM) --
 # ======================= SEC 1: SIDEBAR / INPUT ZONE (FIBO) =======================
 if mode == "FIBO":
     col1, col2, col3 = st.sidebar.columns([2, 2, 2])
@@ -78,9 +84,9 @@ if mode == "FIBO":
 
     col4, col5 = st.sidebar.columns(2)
     with col4:
-        swing_high = st.text_input("High", value="2365.00")
+        swing_high = st.text_input("High", value="3308.00")
     with col5:
-        swing_low = st.text_input("Low", value="2355.00")
+        swing_low = st.text_input("Low", value="3271.00")
     
     st.sidebar.markdown("**เลือก Fibo Level:**")
     fibos = [0.114, 0.25, 0.382, 0.5, 0.618]
@@ -105,6 +111,7 @@ if mode == "FIBO":
         low = float(swing_low)
         if high > low:
             st.sidebar.markdown("**Preview (เบื้องต้น):**")
+            # แสดงตัวอย่าง Entry แรก (ใช้ Fibo 0.114)
             if direction == "Long":
                 preview_entry = low + (high - low) * fibos[0]
             else:
@@ -185,54 +192,113 @@ st.sidebar.markdown("---")
 st.sidebar.markdown("### 🧮 Summary")
 
 if mode == "FIBO":
-    # FIBO Table Logic (คืนสูตร)
+    # ===================== FIBO Table Logic (ตรงกับ Trade Plan999.xlsx) =====================
     try:
+        # แปลงตัวแปรให้เป็น float
         high = float(swing_high)
         low = float(swing_low)
+        range_ = high - low
+
+        # สร้างลิสต์ของระดับ Fibo ที่ผู้ใช้ติ๊ก "Use?"
         selected_fibo_levels = [fibos[i] for i, sel in enumerate(fibo_selected) if sel]
+        # จำนวนระดับที่เลือก
         n = len(selected_fibo_levels)
-        risk_per_trade = risk_pct / 100
-        risk_dollar_total = acc_balance * risk_per_trade
-        risk_dollar_per_entry = risk_dollar_total / n if n > 0 else 0
+
+        # คำนวณ Risk $ ต่อ Trade (เช่น 100 USD ถ้า risk_pct=1% / acc_balance=10000)
+        risk_per_trade = acc_balance * (risk_pct / 100.0)
+
         entry_data = []
-        for idx, fibo in enumerate(selected_fibo_levels):
-            if direction == "Long":
-                entry = low + (high - low) * fibo
-                if abs(fibo - 0.5) < 1e-4:
-                    sl = low + (high - low) * ((0.25 + 0.382)/2)
-                elif abs(fibo - 0.618) < 1e-4:
-                    sl = low + (high - low) * ((0.382 + 0.5)/2)
+        if n > 0:
+            # วนลูปแต่ละระดับ Fibo ที่เลือก
+            for fibo in selected_fibo_levels:
+                # ---------- 1) ENTRY PRICE ----------
+                if direction == "Long":
+                    entry_price = low + range_ * fibo
+                else:  # Short
+                    entry_price = high - range_ * fibo
+
+                # ---------- 2) SL PRICE ----------
+                # SL formula ตาม Trade Plan999.xlsx
+                if abs(fibo - 0.114) < 1e-9 or abs(fibo - 0.25) < 1e-9 or abs(fibo - 0.382) < 1e-9:
+                    # สำหรับ fibo = 0.114, 0.25, 0.382:
+                    sl_price = low if direction == "Long" else high
+
+                elif abs(fibo - 0.5) < 1e-9:
+                    # สำหรับ fibo = 0.5:
+                    mid_factor = (0.25 + 0.382) / 2.0
+                    if direction == "Long":
+                        sl_price = low + range_ * mid_factor
+                    else:
+                        sl_price = high - range_ * mid_factor
+
+                else:  # fibo == 0.618
+                    # สำหรับ fibo = 0.618:
+                    # factor = 0.25 + (0.50 - 0.382)*0.7  = 0.25 + 0.118*0.7 = 0.25 + 0.0826 = 0.3326
+                    factor_0618 = 0.25 + (0.50 - 0.382) * 0.7
+                    if direction == "Long":
+                        sl_price = low + range_ * factor_0618
+                    else:
+                        sl_price = high - range_ * factor_0618
+
+                # ---------- 3) SL (Points) ----------
+                # คำนวณจำนวน “points” ซึ่งคือ abs(entry_price - sl_price) / 0.01
+                # (เพราะใน GOLD 1 point = 0.01, จึง /0.01 ทำให้เป็นจำนวน points เต็ม)
+                sl_points = abs(entry_price - sl_price) / 0.01
+
+                # ---------- 4) LOT SIZE (ตรงกับ Excel: FLOOR((risk_per_trade / n) / sl_points, 0.01), min=0.01) ----------
+                # risk_share = risk_per_trade / n
+                risk_share = risk_per_trade / n
+
+                if sl_points > 0:
+                    raw_lot = risk_share / sl_points
+                    # floor ให้เป็นสองทศนิยม (0.01 step)
+                    floored = math.floor(raw_lot * 100) / 100.0
+                    lot_size = max(0.01, floored)  # ขั้นต่ำ 0.01
                 else:
-                    sl = low
-            else:
-                entry = high - (high - low) * fibo
-                if abs(fibo - 0.5) < 1e-4:
-                    sl = high - (high - low) * ((0.25 + 0.382)/2)
-                elif abs(fibo - 0.618) < 1e-4:
-                    sl = high - (high - low) * ((0.382 + 0.5)/2)
+                    lot_size = 0.0
+
+                # ---------- 5) RISK $ ----------
+                # risk_dollar = sl_points * lot_size
+                risk_dollar = sl_points * lot_size
+
+                # ---------- 6) RR : TP1 ----------
+                # คำนวณ TP1 price = low + 0.618 * range  (Long) หรือ high - 0.618*range (Short)
+                if direction == "Long":
+                    tp1_price = low + 0.618 * range_
+                    rr_value = (tp1_price - entry_price) / abs(entry_price - sl_price) if abs(entry_price - sl_price) > 0 else 0
                 else:
-                    sl = high
-            stop = abs(entry - sl)
-            lot = risk_dollar_per_entry / stop if stop > 0 else 0
-            risk_val = round(stop * lot, 2)
-            entry_data.append({
-                "Fibo Level": f"{fibo:.3f}",
-                "Entry": f"{entry:.2f}",
-                "SL": f"{sl:.2f}",
-                "Lot": f"{lot:.2f}",
-                "Risk $": f"{risk_val:.2f}",
-            })
-        if entry_data:
-            entry_df = pd.DataFrame(entry_data)
-            st.sidebar.write(f"**Total Lots:** {np.sum(entry_df['Lot'].astype(float)):.2f}")
-            st.sidebar.write(f"**Total Risk $:** {np.sum(entry_df['Risk $'].astype(float)):.2f}")
-    except Exception:
+                    tp1_price = high - 0.618 * range_
+                    rr_value = (entry_price - tp1_price) / abs(entry_price - sl_price) if abs(entry_price - sl_price) > 0 else 0
+
+                entry_data.append({
+                    "Fibo Level": f"{fibo:.3f}",
+                    "Entry": f"{entry_price:.2f}",
+                    "SL": f"{sl_price:.2f}",
+                    "SL (points)": f"{sl_points:.1f}",
+                    "Lot": f"{lot_size:.2f}",
+                    "Risk $": f"{risk_dollar:.2f}",
+                    "RR : TP1": f"{rr_value:.6f}"
+                })
+
+            # สรุปผลรวมใน Sidebar
+            total_lots = sum(float(row["Lot"]) for row in entry_data)
+            total_risk_dollars = sum(float(row["Risk $"]) for row in entry_data)
+            st.sidebar.write(f"**Total Lots:** {total_lots:.2f}")
+            st.sidebar.write(f"**Total Risk $:** {total_risk_dollars:.2f}")
+
+        else:
+            entry_data = []
+
+    except Exception as e:
         entry_data = []
+        st.sidebar.error(f"เกิดข้อผิดพลาดขณะคำนวณ FIBO: {e}")
+
 elif mode == "CUSTOM":
+    # ======================= CUSTOM Table Logic =======================
     try:
         n_entry = int(n_entry)
-        risk_per_trade = risk_pct / 100
-        risk_dollar_total = acc_balance * risk_per_trade
+        risk_per_trade = acc_balance * (risk_pct / 100.0)
+        risk_dollar_total = risk_per_trade
         risk_dollar_per_entry = risk_dollar_total / n_entry if n_entry > 0 else 0
         custom_entries = []
         rr_list = []
@@ -258,7 +324,7 @@ elif mode == "CUSTOM":
             st.sidebar.write(f"**Total Lots:** {np.sum(entry_df['Lot'].astype(float)):.2f}")
             st.sidebar.write(f"**Total Risk $:** {np.sum(entry_df['Risk $'].astype(float)):.2f}")
             avg_rr = np.mean(rr_list) if len(rr_list) > 0 else None
-            if avg_rr:
+            if avg_rr is not None:
                 st.sidebar.write(f"**Average RR:** {avg_rr:.2f}")
     except Exception:
         custom_entries = []
@@ -300,7 +366,7 @@ if scaling_mode == "Manual" and suggest_risk != current_risk:
 elif scaling_mode == "Auto":
     risk_pct = suggest_risk
 
-# ======================= SEC 2+3: MAIN AREA – ENTRY TABLE (FIBO/CUSTOM) =======================
+# ======================= SEC 2+3: MAIN AREA – ENTRY & TP TABLE =======================
 with st.expander("📋 Entry Table (FIBO/CUSTOM)", expanded=True):
     if mode == "FIBO":
         col1, col2 = st.columns(2)
@@ -309,26 +375,32 @@ with st.expander("📋 Entry Table (FIBO/CUSTOM)", expanded=True):
             if entry_data:
                 entry_df = pd.DataFrame(entry_data)
                 st.dataframe(entry_df, hide_index=True, use_container_width=True)
+
         with col2:
             st.markdown("### 🎯 TP Table ")
             try:
                 high = float(swing_high)
                 low = float(swing_low)
+                range_ = high - low
+
                 if direction == "Long":
-                    tp1 = low + (high - low) * 1.618
-                    tp2 = low + (high - low) * 2.618
-                    tp3 = low + (high - low) * 4.236
+                    tp1 = low + 1.618 * range_
+                    tp2 = low + 2.618 * range_
+                    tp3 = low + 4.326 * range_
                 else:
-                    tp1 = high - (high - low) * 1.618
-                    tp2 = high - (high - low) * 2.618
-                    tp3 = high - (high - low) * 4.236
+                    tp1 = high - 1.618 * range_
+                    tp2 = high - 2.618 * range_
+                    tp3 = high - 4.326 * range_
+
                 tp_df = pd.DataFrame({
                     "TP": ["TP1", "TP2", "TP3"],
                     "Price": [f"{tp1:.2f}", f"{tp2:.2f}", f"{tp3:.2f}"]
                 })
                 st.dataframe(tp_df, hide_index=True, use_container_width=True)
+
             except Exception:
                 st.warning("กรุณากรอก High/Low ให้ถูกต้องเพื่อแสดงตาราง TP")
+
     elif mode == "CUSTOM":
         st.markdown("### 📋 Entry Table ")
         if custom_entries:
@@ -343,9 +415,9 @@ with st.expander("📋 Entry Table (FIBO/CUSTOM)", expanded=True):
                 except:
                     pass
 
-# ======================= SEC 5: เชื่อมปุ่ม Save Plan กับ save_plan + Drawdown Lock =======================
+# ======================= SEC 5: SAVE PLAN & DRAWDOWN LOCK =======================
 drawdown_today = get_today_drawdown(log_file, acc_balance)
-drawdown_limit = -acc_balance * (drawdown_limit_pct / 100)
+drawdown_limit = -acc_balance * (drawdown_limit_pct / 100.0)
 
 # แสดงสถานะ drawdown วันนี้ใน sidebar
 if drawdown_today < 0:
@@ -393,9 +465,7 @@ elif mode == "CUSTOM" and 'custom_entries' in locals() and save_custom and custo
 # ======================= SEC 7: VISUALIZER (เหลือแต่กราฟ) =======================
 st.markdown("## 🟢 SEC 7: Visualizer (แสดงกราฟเท่านั้น)")
 
-# ไม่ต้องใช้ col1/col2 สองฝั่งแล้ว เอาแต่ col เดียวหรือเต็มแถวก็ได้
 plot = st.button("Plot Plan", key="plot_plan")
-
 
 if plot:
     st.markdown("#### กราฟ TradingView Widget (ลากเส้นได้, overlay plan จริง!)")
@@ -406,21 +476,21 @@ if plot:
       <script type="text/javascript">
       new TradingView.widget({
         "width": "100%",
-    "height": 600,
-    "symbol": "OANDA:XAUUSD",         // ปรับ symbol ได้
-    "interval": "15",
-    "timezone": "Asia/Bangkok",
-    "theme": "dark",
-    "style": "1",                     // เปลี่ยนเป็น 1,2,3,4 (แท่งเทียน,เส้น,bar) ได้
-    "locale": "th",
-    "toolbar_bg": "#f1f3f6",
-    "enable_publishing": true,        // เปิดปุ่ม share/snapshot
-    "withdateranges": true,           // เปิด TF, date range
-    "allow_symbol_change": true,      // เปลี่ยน symbol ได้
-    "hide_side_toolbar": false,       // โชว์เครื่องมือวาดเส้น/indicator
-    "details": true,                  // เพิ่มรายละเอียด symbol
-    "hotlist": true,                  // เพิ่ม hotlist (หุ้น/forex/crypto)
-    "calendar": true,                 // เพิ่ม economic calendar
+        "height": 600,
+        "symbol": "OANDA:XAUUSD",
+        "interval": "15",
+        "timezone": "Asia/Bangkok",
+        "theme": "dark",
+        "style": "1",
+        "locale": "th",
+        "toolbar_bg": "#f1f3f6",
+        "enable_publishing": true,
+        "withdateranges": true,
+        "allow_symbol_change": true,
+        "hide_side_toolbar": false,
+        "details": true,
+        "hotlist": true,
+        "calendar": true,
         "container_id": "tradingview_legendary"
       });
       </script>
@@ -433,8 +503,6 @@ else:
 
 st.markdown("---")
 st.markdown("Visualizer รับข้อมูลแผนเทรดจริง พร้อม plot overlay (ขยาย/ปรับ engine ได้ทันทีในอนาคต)")
-
-
 
 # ======================= SEC 8: AI SUMMARY & INSIGHT =======================
 with st.expander("🤖 SEC 8: AI Summary & Insight (Beta)", expanded=True):
@@ -513,10 +581,7 @@ with st.expander("🤖 SEC 8: AI Summary & Insight (Beta)", expanded=True):
     else:
         st.info("ยังไม่มีข้อมูล log_file สำหรับ AI Summary")
 
-
-
 # ======================= SEC 9: DASHBOARD + AI ULTIMATE (Tab Template) =======================
-
 import plotly.express as px
 
 tab_dashboard, tab_rr, tab_lot, tab_time, tab_ai, tab_export = st.tabs([
@@ -648,8 +713,6 @@ with tab_ai:
     if os.path.exists(log_file):
         try:
             df_log = pd.read_csv(log_file)
-            # ดึง insight/AI Section SEC 8 มาใส่ในนี้ได้เลย
-            # ตัวอย่างสั้น (ดึง insight จาก AI)
             st.markdown("### AI Insight & Recommendation")
             total_trades = df_log.shape[0]
             win_trades = df_log[df_log["Risk $"].astype(float) > 0].shape[0]
@@ -666,7 +729,6 @@ with tab_ai:
                 insight.append("ยังไม่พบความเสี่ยงสำคัญ")
             for msg in insight:
                 st.info(msg)
-            # ขยายเพิ่มคำแนะนำ/alert ได้
         except Exception as e:
             st.error(f"Error loading AI Recommendation: {e}")
     else:
@@ -679,13 +741,10 @@ with tab_export:
             df_log = pd.read_csv(log_file)
             st.markdown("### Export/Download Report")
             st.download_button("Download log_file (CSV)", df_log.to_csv(index=False), file_name="log_file.csv")
-            # ถ้าต้องการ export รูปภาพ chart หรือ export Excel เพิ่มเติมแจ้งได้
         except Exception as e:
             st.error(f"Error loading Export/Report: {e}")
     else:
         st.info("ยังไม่มีข้อมูล log_file สำหรับ Export/Report")
-
-
 
 # ======================= SEC 6: LOG VIEWER (ล่างสุด + EXPANDER เดียว) =======================
 with st.expander("📚 Log Viewer (คลิกเพื่อเปิด/ปิด)", expanded=False):
