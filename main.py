@@ -518,23 +518,92 @@ drawdown_limit_pct = st.sidebar.number_input(
 
 mode = st.sidebar.radio("Trade Mode", ["FIBO", "CUSTOM"], horizontal=True, key="mode")
 
+# ใน SEC 2.1: COMMON INPUTS & MODE SELECTION
+# แทนที่โค้ดส่วน if st.sidebar.button("🔄 Reset Form"): เดิมด้วยโค้ดนี้
+
 if st.sidebar.button("🔄 Reset Form"):
-    risk_keep = st.session_state.get("risk_pct", 1.0)
-    asset_keep = st.session_state.get("asset", "XAUUSD")
-    drawdown_limit_keep = st.session_state.get("drawdown_limit_pct", 2.0)
+    # ค่าที่ต้องการคงไว้หลังจากการ Reset
+    mode_to_keep = st.session_state.get("mode", "FIBO")
+    dd_limit_to_keep = st.session_state.get("drawdown_limit_pct", 2.0)
     
-    keys_to_keep = {"risk_pct", "asset", "drawdown_limit_pct", "mode", 
-                    "active_portfolio_name_gs", "active_portfolio_id_gs",
-                    "gcp_service_account"}
+    # ข้อมูล Portfolio ที่สำคัญ
+    active_portfolio_name_gs_keep = st.session_state.get('active_portfolio_name_gs', "")
+    active_portfolio_id_gs_keep = st.session_state.get('active_portfolio_id_gs', None)
+    current_portfolio_details_keep = st.session_state.get('current_portfolio_details', None)
+    current_account_balance_keep = st.session_state.get('current_account_balance', 10000.0)
+    # สถานะ UI ของการเลือกประเภทพอร์ตใน Portfolio Management
+    exp_pf_type_select_v8_key_keep = st.session_state.get("exp_pf_type_select_v8_key", "")
+    # สถานะ UI ของตัวเลือก active portfolio ใน sidebar
+    sb_active_portfolio_selector_gs_keep = st.session_state.get('sb_active_portfolio_selector_gs', "")
 
-    for k in list(st.session_state.keys()):
-        if k not in keys_to_keep:
-            del st.session_state[k]
 
-    st.session_state["risk_pct"] = risk_keep
-    st.session_state["asset"] = asset_keep
-    st.session_state["drawdown_limit_pct"] = drawdown_limit_keep
-    st.session_state["fibo_flags"] = [False] * 5
+    # ค่าที่ควรจะคงอยู่ตลอดการใช้งานแอป (เช่น gcp_service_account ถ้ามาจาก secrets)
+    keys_to_fully_preserve = {"gcp_service_account"}
+    temp_preserved_values = {}
+    for k_fp in keys_to_fully_preserve:
+        if k_fp in st.session_state:
+            temp_preserved_values[k_fp] = st.session_state[k_fp]
+
+    # ล้าง session state ส่วนใหญ่
+    for key in list(st.session_state.keys()):
+        if key not in keys_to_fully_preserve:
+            try:
+                del st.session_state[key]
+            except KeyError:
+                pass # อาจจะถูกลบไปแล้วใน loop ก่อนหน้า ถ้ามี key ซ้ำซ้อน (ไม่น่าเกิด)
+            
+    # คืนค่าที่ preserve ไว้
+    for k_fp, v_fp in temp_preserved_values.items():
+        st.session_state[k_fp] = v_fp
+
+    # คืนค่า/ตั้งค่าเริ่มต้นที่จำเป็น
+    st.session_state.mode = mode_to_keep
+    st.session_state.drawdown_limit_pct = dd_limit_to_keep
+    st.session_state.active_portfolio_name_gs = active_portfolio_name_gs_keep
+    st.session_state.active_portfolio_id_gs = active_portfolio_id_gs_keep
+    st.session_state.current_portfolio_details = current_portfolio_details_keep
+    st.session_state.current_account_balance = current_account_balance_keep
+    st.session_state.exp_pf_type_select_v8_key = exp_pf_type_select_v8_key_keep
+    if sb_active_portfolio_selector_gs_keep: # คืนค่าตัวเลือก portfolio ถ้ามี
+        st.session_state.sb_active_portfolio_selector_gs = sb_active_portfolio_selector_gs_keep
+
+
+    # คำนวณ default_risk จาก current_portfolio_details ที่คงไว้
+    default_risk = 1.0 # ค่า fallback
+    if current_portfolio_details_keep: # ใช้ current_portfolio_details_keep ที่ถูก preserve ไว้
+        risk_val_str = current_portfolio_details_keep.get('CurrentRiskPercent')
+        if pd.notna(risk_val_str) and str(risk_val_str).strip() != "":
+            try:
+                risk_val_float = float(risk_val_str)
+                if risk_val_float > 0:
+                    default_risk = risk_val_float
+            except (ValueError, TypeError):
+                pass # ใช้ default_risk ถ้าแปลงไม่ได้
+
+    st.session_state.risk_pct_fibo_val_v2 = default_risk
+    st.session_state.asset_fibo_val_v2 = "XAUUSD" # ตั้งค่า Asset เริ่มต้น
+    st.session_state.risk_pct_custom_val_v2 = default_risk
+    st.session_state.asset_custom_val_v2 = "XAUUSD" # ตั้งค่า Asset เริ่มต้น
+
+    # ตั้งค่าเริ่มต้นสำหรับ FIBO
+    st.session_state.swing_high_fibo_val_v2 = ""
+    st.session_state.swing_low_fibo_val_v2 = ""
+    # fibos_fibo_v2 ถูก define ใน SEC 2.2 ซึ่งมี 5 ตัว
+    st.session_state.fibo_flags_v2 = [True] * 5 # ตั้งค่าให้ Fibo levels ถูก check ทั้งหมด
+
+    # ตั้งค่าเริ่มต้นสำหรับ CUSTOM
+    default_n_entries = 2
+    st.session_state.n_entry_custom_val_v2 = default_n_entries
+    for i in range(default_n_entries):
+        st.session_state[f"custom_entry_{i}_v3"] = "0.00"
+        st.session_state[f"custom_sl_{i}_v3"] = "0.00"
+        st.session_state[f"custom_tp_{i}_v3"] = "0.00"
+        
+    # ล้างข้อมูล plot data ถ้ามี
+    if 'plot_data' in st.session_state:
+        del st.session_state['plot_data']
+        
+    st.toast("รีเซ็ตฟอร์มเรียบร้อยแล้ว!", icon="🔄")
     st.rerun()
 
 # ===================== SEC 2.2: FIBO TRADE DETAILS =======================
@@ -1334,32 +1403,40 @@ with st.expander("📋 Entry Table (FIBO/CUSTOM)", expanded=True):
             st.info("กรอกข้อมูล Custom ใน Sidebar เพื่อดู Entry & TP Zones (หรือยังไม่มีข้อมูลสรุป).")
 
 # ===================== SEC 5: MAIN AREA - CHART VISUALIZER =======================
-with st.expander("📈 Chart Visualizer", expanded=True):
-    asset_to_display = "OANDA:XAUUSD"
-    current_asset_input = ""
-    if mode == "FIBO":
-        current_asset_input = st.session_state.get("asset", "XAUUSD")
-    elif mode == "CUSTOM":
-        current_asset_input = st.session_state.get("asset_custom", "XAUUSD")
-    
-    if current_asset_input.upper() == "XAUUSD":
-        asset_to_display = "OANDA:XAUUSD"
-    elif current_asset_input.upper() == "EURUSD":
-        asset_to_display = "OANDA:EURUSD"
-    elif current_asset_input:
-        asset_to_display = current_asset_input.upper()
+with st.expander("📈 Chart Visualizer", expanded=False):
+    asset_to_display = "OANDA:XAUUSD" # Default asset for TradingView
+    current_asset_input_from_form = "" # จะเก็บค่า asset จาก form input ปัจจุบัน
 
-    if 'plot_data' in st.session_state and st.session_state['plot_data']:
-        asset_from_log = st.session_state['plot_data'].get('Asset', asset_to_display)
+    if mode == "FIBO":
+        current_asset_input_from_form = st.session_state.get("asset_fibo_val_v2", "XAUUSD") # ใช้ key ใหม่
+    elif mode == "CUSTOM":
+        current_asset_input_from_form = st.session_state.get("asset_custom_val_v2", "XAUUSD") # ใช้ key ใหม่
+    
+    # กำหนด asset_to_display โดยดูจาก plot_data ก่อน, ถ้าไม่มีให้ใช้จาก form input
+    if 'plot_data' in st.session_state and st.session_state['plot_data'] and st.session_state['plot_data'].get('Asset'):
+        asset_from_log = st.session_state['plot_data'].get('Asset')
+        st.info(f"กำลังแสดงกราฟ TradingView สำหรับ: {asset_from_log.upper()} (จาก Log Viewer)")
         if asset_from_log.upper() == "XAUUSD":
             asset_to_display = "OANDA:XAUUSD"
         elif asset_from_log.upper() == "EURUSD":
             asset_to_display = "OANDA:EURUSD"
-        elif asset_from_log:
+        # เพิ่มเงื่อนไขสำหรับสินทรัพย์อื่นๆ ที่ TradingView อาจจะต้องมี Prefix
+        elif ":" not in asset_from_log: # ถ้าไม่มี Prefix, ลองเดาว่าเป็น OANDA หรือ FXCM หรืออื่นๆ
+            asset_to_display = f"OANDA:{asset_from_log.upper()}" # หรือ FXCM:{asset_from_log.upper()}
+        else:
             asset_to_display = asset_from_log.upper()
-        st.info(f"แสดงกราฟ TradingView สำหรับ: {asset_to_display} (จาก Log Viewer)")
-    else:
-        st.info(f"แสดงกราฟ TradingView สำหรับ: {asset_to_display} (จาก Input ปัจจุบัน)")
+    elif current_asset_input_from_form:
+        st.info(f"กำลังแสดงกราฟ TradingView สำหรับ: {current_asset_input_from_form.upper()} (จาก Input ปัจจุบัน)")
+        if current_asset_input_from_form.upper() == "XAUUSD":
+            asset_to_display = "OANDA:XAUUSD"
+        elif current_asset_input_from_form.upper() == "EURUSD":
+            asset_to_display = "OANDA:EURUSD"
+        elif ":" not in current_asset_input_from_form:
+            asset_to_display = f"OANDA:{current_asset_input_from_form.upper()}"
+        else:
+            asset_to_display = current_asset_input_from_form.upper()
+    else: # Fallback ถ้าไม่มีข้อมูลใดๆ
+        st.info(f"กำลังแสดงกราฟ TradingView สำหรับ: {asset_to_display} (ค่าเริ่มต้น)")
 
     tradingview_html = f"""
     <div class="tradingview-widget-container">
