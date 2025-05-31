@@ -321,232 +321,141 @@ with st.expander("💼 จัดการพอร์ต (เพิ่ม/ดู
 
  # ... (โค้ดส่วนบนของฟอร์ม new_portfolio_form) ...
 
-    with st.form("new_portfolio_form_main_v3", clear_on_submit=True): # หรือ key ล่าสุดที่ลูกพี่ตั้มใช้
+with st.form("new_portfolio_form_main_v3", clear_on_submit=True):
         st.markdown("**กรอกข้อมูลพอร์ตใหม่:**")
         
         form_c1, form_c2 = st.columns(2)
         with form_c1:
-            form_new_portfolio_name = st.text_input("ชื่อพอร์ต (Portfolio Name)*", key="form_pf_name_v3") # ใช้ key เดิม
+            form_new_portfolio_name = st.text_input("ชื่อพอร์ต (Portfolio Name)*", key="form_pf_name_v3_unique") # เพิ่ม _unique เพื่อความแน่ใจ
             form_program_type_options = ["", "Personal Account", "Prop Firm Challenge", "Funded Account", "Trading Competition"]
-            # --- รับค่า Program Type ---
-            selected_program_type = st.selectbox("ประเภทพอร์ต (Program Type)*", 
-                                                 options=form_program_type_options, 
-                                                 index=0, # Default to ""
-                                                 key="form_pf_type_v3") # ใช้ key เดิม
+            selected_program_type = st.selectbox("ประเภทพอร์ต (Program Type)*", options=form_program_type_options, index=0, key="form_pf_type_v3_unique")
         with form_c2:
-            form_new_initial_balance = st.number_input("บาลานซ์เริ่มต้น (Initial Balance)*", min_value=0.01, value=10000.0, format="%.2f", key="form_pf_balance_v3") # ใช้ key เดิม
+            form_new_initial_balance = st.number_input("บาลานซ์เริ่มต้น (Initial Balance)*", min_value=0.01, value=10000.0, step=100.0, format="%.2f", key="form_pf_balance_v3_unique")
             form_status_options = ["Active", "Inactive", "Pending", "Passed", "Failed"]
-            form_new_status = st.selectbox("สถานะพอร์ต (Status)*", 
-                                           options=form_status_options, 
-                                           index=form_status_options.index("Active"), 
-                                           key="form_pf_status_v3") # ใช้ key เดิม
+            form_new_status = st.selectbox("สถานะพอร์ต (Status)*", options=form_status_options, index=form_status_options.index("Active"), key="form_pf_status_v3_unique")
         
-        # --- "ขั้นตอนการประเมิน" จะแสดงก็ต่อเมื่อเลือก "Prop Firm Challenge" ---
-        # เราจะใช้ selected_program_type ที่ได้จาก selectbox ด้านบนมาเป็นเงื่อนไข
-        form_new_evaluation_step_val = "" # กำหนดค่า default
-        if selected_program_type == "Prop Firm Challenge": # <<< ใช้ค่าจาก selectbox โดยตรง
-            form_new_evaluation_step_val = st.text_input("ขั้นตอนการประเมิน (Evaluation Step)", 
-                                                        help="เช่น Phase 1, Step 2", 
-                                                        key="form_pf_eval_step_v3_conditional") # อาจจะเปลี่ยน key เพื่อความชัดเจน
+        form_new_evaluation_step_val = ""
+        if selected_program_type == "Prop Firm Challenge":
+            form_new_evaluation_step_val = st.text_input("ขั้นตอนการประเมิน (Evaluation Step)", help="เช่น Phase 1, Step 2", key="form_pf_eval_step_v3_unique")
 
-        # --- Conditional Inputs อื่นๆ (กฎเกณฑ์เฉพาะของพอร์ต, เป้าหมายส่วนตัว, Scaling Manager) ---
-        # ค่า default สำหรับ fields ที่อาจจะไม่มี หรือยังไม่ถูกแสดง
-        form_profit_target_val = 0.0
-        # ... (กำหนดค่า default อื่นๆ เหมือนเดิม) ...
+        # --- Conditional Inputs Defaults ---
+        form_profit_target_val = 8.0
+        form_daily_loss_val = 5.0
+        form_total_stopout_val = 10.0
+        form_leverage_val = 100.0
+        form_min_days_val = 0
+        form_comp_end_date = None
+        form_comp_goal_metric = ""
+        form_pers_overall_profit_val = 0.0
+        form_pers_target_end_date = None
+        form_pers_weekly_profit_val = 0.0
+        form_pers_daily_profit_val = 0.0
+        form_pers_max_dd_overall_val = 0.0
+        form_pers_max_dd_daily_val = 0.0
+        form_enable_scaling_checkbox_val = False # ค่าจาก checkbox
+        form_scaling_freq_val = "Weekly"
+        form_su_wr_val = 55.0
+        form_su_gain_val = 2.0
+        form_su_inc_val = 0.25
+        form_sd_loss_val = -5.0
+        form_sd_wr_val = 40.0
+        form_sd_dec_val = 0.25
+        form_min_risk_val = 0.25
+        form_max_risk_val = 2.0
+        form_current_risk_val = 1.0
+        form_notes_val = ""
 
-        # --- ส่วนแสดง Input ตาม Program Type (ใช้ selected_program_type) ---
         if selected_program_type in ["Prop Firm Challenge", "Funded Account"]:
             st.markdown("**กฎเกณฑ์ Prop Firm/Funded:**")
-            # ... (Input fields สำหรับ Prop Firm/Funded โดยใช้ selected_program_type ในการตัดสินใจ) ...
-            # ตัวอย่าง:
-            # if selected_program_type == "Prop Firm Challenge":
-            #     # แสดง field ที่เกี่ยวกับ Challenge
-            # elif selected_program_type == "Funded Account":
-            #     # แสดง field ที่เกี่ยวกับ Funded
-            # (หรือใช้ in [...] เหมือนเดิมถ้ากฎเกณฑ์คล้ายกัน)
             f_pf1, f_pf2, f_pf3 = st.columns(3)
-            with f_pf1: form_profit_target_val = st.number_input("เป้าหมายกำไร %*", value=8.0, format="%.1f", key="f_pf_profit_v3_cond")
-            # ... (Input fields อื่นๆ สำหรับ Prop Firm/Funded)
+            with f_pf1: form_profit_target_val = st.number_input("เป้าหมายกำไร %*", value=form_profit_target_val, format="%.1f", key="f_pf_profit_v3_unique")
+            with f_pf2: form_daily_loss_val = st.number_input("จำกัดขาดทุนต่อวัน %*", value=form_daily_loss_val, format="%.1f", key="f_pf_dd_v3_unique")
+            with f_pf3: form_total_stopout_val = st.number_input("จำกัดขาดทุนรวม %*", value=form_total_stopout_val, format="%.1f", key="f_pf_maxdd_v3_unique")
+            f_pf_col1, f_pf_col2 = st.columns(2)
+            with f_pf_col1: form_leverage_val = st.number_input("Leverage", value=form_leverage_val, format="%.0f", key="f_pf_lev_v3_unique")
+            with f_pf_col2: form_min_days_val = st.number_input("จำนวนวันเทรดขั้นต่ำ", value=form_min_days_val, step=1, key="f_pf_mindays_v3_unique")
         
         if selected_program_type == "Trading Competition":
             st.markdown("**ข้อมูลการแข่งขัน:**")
-            # ... (Input fields สำหรับ Trading Competition) ...
-        
+            f_tc1, f_tc2 = st.columns(2)
+            with f_tc1: 
+                form_comp_end_date = st.date_input("วันสิ้นสุดการแข่งขัน", value=form_comp_end_date, key="f_tc_enddate_v3_unique")
+                form_profit_target_val = st.number_input("เป้าหมายกำไร % (Comp)", value=20.0, format="%.1f", key="f_tc_profit_v3_unique")
+            with f_tc2: 
+                form_comp_goal_metric = st.text_input("ตัวชี้วัดเป้าหมาย (Comp)", value=form_comp_goal_metric, help="เช่น %Gain, ROI", key="f_tc_goalmetric_v3_unique")
+                form_daily_loss_val = st.number_input("จำกัดขาดทุนต่อวัน % (Comp)", value=5.0, format="%.1f", key="f_tc_dd_v3_unique") # Default for competition
+                form_total_stopout_val = st.number_input("จำกัดขาดทุนรวม % (Comp)", value=10.0, format="%.1f", key="f_tc_maxdd_v3_unique") # Default for competition
+
         if selected_program_type == "Personal Account":
             st.markdown("**เป้าหมายส่วนตัว (Optional):**")
-            # ... (Input fields สำหรับ Personal Account) ...
+            f_ps1, f_ps2 = st.columns(2)
+            with f_ps1:
+                form_pers_overall_profit_val = st.number_input("เป้าหมายกำไรโดยรวม (<span class="math-inline">\)", value\=form\_pers\_overall\_profit\_val, format\="%\.2f", key\="f\_ps\_profit\_overall\_v3\_unique"\)
+form\_pers\_weekly\_profit\_val \= st\.number\_input\("เป้าหมายกำไรรายสัปดาห์ \(</span>)", value=form_pers_weekly_profit_val, format="%.2f", key="f_ps_profit_weekly_v3_unique")
+                form_pers_max_dd_overall_val = st.number_input("Max DD รวมที่ยอมรับได้ (<span class="math-inline">\)", value\=form\_pers\_max\_dd\_overall\_val, format\="%\.2f", key\="f\_ps\_dd\_overall\_v3\_unique"\)
+with f\_ps2\:
+form\_pers\_target\_end\_date \= st\.date\_input\("วันที่คาดว่าจะถึงเป้าหมายรวม", value\=form\_pers\_target\_end\_date, key\="f\_ps\_enddate\_v3\_unique"\)
+form\_pers\_daily\_profit\_val \= st\.number\_input\("เป้าหมายกำไรรายวัน \(</span>)", value=form_pers_daily_profit_val, format="%.2f", key="f_ps_profit_daily_v3_unique")
+                form_pers_max_dd_daily_val = st.number_input("Max DD ต่อวันที่ยอมรับได้ ($)", value=form_pers_max_dd_daily_val, format="%.2f", key="f_ps_dd_daily_v3_unique")
 
         st.markdown("**การตั้งค่า Scaling Manager (Optional):**")
-        form_enable_scaling = st.checkbox("เปิดใช้งาน Scaling Manager?", value=False, key="f_scale_enable_v3_cond") # key ใหม่
-        if form_enable_scaling:
-            # ... (Input fields สำหรับ Scaling Manager) ...
+        form_enable_scaling_checkbox_val = st.checkbox("เปิดใช้งาน Scaling Manager?", value=form_enable_scaling_checkbox_val, key="f_scale_enable_v3_unique") # ใช้ตัวแปรใหม่สำหรับ checkbox
+        if form_enable_scaling_checkbox_val: # <<< --- นี่คือ if ที่บรรทัด 381 (โดยประมาณ) ---
+            # --- โค้ดทั้งหมดข้างล่างนี้ จนถึง form_current_risk ต้องย่อหน้าเข้าไป ---
+            f_sc1, f_sc2, f_sc3 = st.columns(3)
+            with f_sc1:
+                form_scaling_freq_val = st.selectbox("ความถี่ตรวจสอบ Scaling", ["Weekly", "Monthly"], index=["Weekly", "Monthly"].index(form_scaling_freq_val), key="f_scale_freq_v3_unique")
+                form_su_wr_val = st.number_input("Scale Up: Min Winrate %", value=form_su_wr_val, format="%.1f", key="f_scale_su_wr_v3_unique")
+                form_sd_loss_val = st.number_input("Scale Down: Max Loss %", value=form_sd_loss_val, format="%.1f", key="f_scale_sd_loss_v3_unique")
+            with f_sc2:
+                form_min_risk_val = st.number_input("Min Risk % Allowed", value=form_min_risk_val, format="%.2f", key="f_scale_min_risk_v3_unique")
+                form_su_gain_val = st.number_input("Scale Up: Min Gain %", value=form_su_gain_val, format="%.1f", key="f_scale_su_gain_v3_unique")
+                form_sd_wr_val = st.number_input("Scale Down: Low Winrate %", value=form_sd_wr_val, format="%.1f", key="f_scale_sd_wr_v3_unique")
+            with f_sc3:
+                form_max_risk_val = st.number_input("Max Risk % Allowed", value=form_max_risk_val, format="%.2f", key="f_scale_max_risk_v3_unique")
+                form_su_inc_val = st.number_input("Scale Up: Risk Increment %", value=form_su_inc_val, format="%.2f", key="f_scale_su_inc_v3_unique")
+                form_sd_dec_val = st.number_input("Scale Down: Risk Decrement %", value=form_sd_dec_val, format="%.2f", key="f_scale_sd_dec_v3_unique")
+            form_current_risk_val = st.number_input("Current Risk % (สำหรับ Scaling)", value=form_current_risk_val, format="%.2f", key="f_scale_current_risk_v3_unique")
+        # --- สิ้นสุดบล็อก if form_enable_scaling_checkbox_val ---
 
-        form_notes = st.text_area("หมายเหตุเพิ่มเติม (Notes)", key="f_pf_notes_v3_cond") # key ใหม่
+        form_notes_val = st.text_area("หมายเหตุเพิ่มเติม (Notes)", value=form_notes_val, key="f_pf_notes_v3_unique") # บรรทัดนี้อยู่นอก if ถูกต้องแล้ว
 
-
-        # --- Submit Button ---
         submitted_add_portfolio = st.form_submit_button("💾 บันทึกพอร์ตใหม่")
         
-        # --- Logic หลังกด Submit ---
         if submitted_add_portfolio:
-            # Validation (ใช้ selected_program_type ในการ validate ถ้าจำเป็น)
             if not form_new_portfolio_name or not selected_program_type or not form_new_status or form_new_initial_balance <= 0:
                 st.warning("กรุณากรอกข้อมูลที่จำเป็น (*) ให้ครบถ้วนและถูกต้อง: ชื่อพอร์ต, ประเภทพอร์ต, สถานะพอร์ต, และยอดเงินเริ่มต้นต้องมากกว่า 0")
-            # ... (ส่วน validation อื่นๆ และการบันทึกข้อมูล) ...
+            elif not df_portfolios_gs.empty and form_new_portfolio_name in df_portfolios_gs['PortfolioName'].astype(str).values:
+                st.error(f"ชื่อพอร์ต '{form_new_portfolio_name}' มีอยู่แล้ว กรุณาใช้ชื่ออื่น")
             else:
                 new_id_value = str(uuid.uuid4())
+                
+                # --- รวบรวมข้อมูล new_portfolio_row_data ---
+                # ใช้ค่าจากตัวแปรที่ลงท้ายด้วย _val หรือ _form_val ที่เรากำหนดค่า default ไว้
                 new_portfolio_row_data = {
                     'PortfolioID': new_id_value,
                     'PortfolioName': form_new_portfolio_name, 
-                    'ProgramType': selected_program_type, # <<< ใช้ค่าจาก selectbox
-                    'EvaluationStep': form_new_evaluation_step_val if selected_program_type == "Prop Firm Challenge" else "", # <<< ใช้ค่าที่ดักไว้
+                    'ProgramType': selected_program_type, # ใช้ค่าจาก selectbox โดยตรง
+                    'EvaluationStep': form_new_evaluation_step_val, # ค่านี้จะถูก set เฉพาะถ้า program type ถูกต้อง
                     'Status': form_new_status,
-                    'InitialBalance': form_new_initial_balance,
-                    # ... (รวบรวมข้อมูลอื่นๆ ทั้งหมด โดยอ้างอิง selected_program_type สำหรับ conditional fields) ...
+                    'InitialBalance': form_new_initial_balance, 
+                    'CreationDate': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    
                     'ProfitTargetPercent': form_profit_target_val if selected_program_type in ["Prop Firm Challenge", "Funded Account", "Trading Competition"] else None,
-                    # ... (ส่วนที่เหลือของการสร้าง new_portfolio_row_data) ...
-                }
-                
-                # success_save = save_new_portfolio_to_gsheets(new_portfolio_row_data) 
-                # ... (โค้ดบันทึกและ rerun) ...
-                st.info("Placeholder: ส่วนบันทึกข้อมูล") # Placeholder
-            # ... (เรียก save_new_portfolio_to_gsheets และจัดการผลลัพธ์) ...
-
-        # Conditional Inputs
-        new_profit_target_percent_val = 0.0
-        new_daily_loss_limit_percent_val = 0.0
-        new_total_stopout_percent_val = 0.0
-        new_leverage_val = 100.0 # Default Leverage
-        new_min_trading_days_val = 0
-
-        new_competition_end_date_form_val = None # Use date type from datetime
-        new_competition_goal_metric_form_val = ""
-
-        new_overall_profit_target_val = 0.0
-        new_target_end_date_form_val = None # Use date type
-        new_weekly_profit_target_val = 0.0
-        new_daily_profit_target_val = 0.0
-        new_max_acceptable_drawdown_overall_val = 0.0
-        new_max_acceptable_drawdown_daily_val = 0.0
-
-        enable_scaling_form_val = False
-        scaling_check_frequency_form_val = "Weekly"
-        scale_up_min_win_rate_form_val = 55.0
-        scale_up_min_gain_percent_form_val = 2.0
-        scale_up_risk_increment_percent_form_val = 0.25
-        scale_down_max_loss_percent_form_val = -5.0
-        scale_down_low_win_rate_form_val = 40.0
-        scale_down_risk_decrement_percent_form_val = 0.25
-        min_risk_percent_allowed_form_val = 0.25
-        max_risk_percent_allowed_form_val = 2.0 # Default Max Risk
-        current_risk_percent_form_val = 1.0
-
-        new_notes_val = ""
-
-        if new_program_type in ["Prop Firm Challenge", "Funded Account"]:
-            st.markdown("**กฎเกณฑ์ Prop Firm/Funded:**")
-            g_pf1_f, g_pf2_f, g_pf3_f = st.columns(3) # Renamed to avoid conflict
-            with g_pf1_f: new_profit_target_percent_val = st.number_input("เป้าหมายกำไร %*", value=new_profit_target_percent_val, format="%.1f", key="form_add_main_pf_profit_target_num")
-            with g_pf2_f: new_daily_loss_limit_percent_val = st.number_input("จำกัดขาดทุนต่อวัน %*", value=new_daily_loss_limit_percent_val, format="%.1f", key="form_add_main_pf_daily_loss_num")
-            with g_pf3_f: new_total_stopout_percent_val = st.number_input("จำกัดขาดทุนรวม %*", value=new_total_stopout_percent_val, format="%.1f", key="form_add_main_pf_total_stopout_num")
-            col_lev, col_min_d = st.columns(2) # Renamed
-            with col_lev: new_leverage_val = st.number_input("Leverage", value=new_leverage_val, format="%.0f", key="form_add_main_pf_leverage_num")
-            with col_min_d: new_min_trading_days_val = st.number_input("จำนวนวันเทรดขั้นต่ำ", value=new_min_trading_days_val, step=1, key="form_add_main_pf_min_days_num")
-        
-        if new_program_type == "Trading Competition":
-            st.markdown("**ข้อมูลการแข่งขัน:**")
-            g_tc1_f, g_tc2_f = st.columns(2) # Renamed
-            with g_tc1_f: 
-                new_competition_end_date_form_val = st.date_input("วันสิ้นสุดการแข่งขัน", value=None, key="form_add_main_pf_comp_end_date_input")
-                new_profit_target_percent_val = st.number_input("เป้าหมายกำไร % (Comp)", value=20.0, format="%.1f", key="form_add_main_pf_comp_profit_target_num")
-            with g_tc2_f: 
-                new_competition_goal_metric_form_val = st.text_input("ตัวชี้วัดเป้าหมาย (Comp)", help="เช่น %Gain, ROI", key="form_add_main_pf_comp_goal_metric_input")
-                new_daily_loss_limit_percent_val = st.number_input("จำกัดขาดทุนต่อวัน % (Comp)", value=5.0, format="%.1f", key="form_add_main_pf_comp_daily_loss_num")
-                new_total_stopout_percent_val = st.number_input("จำกัดขาดทุนรวม % (Comp)", value=10.0, format="%.1f", key="form_add_main_pf_comp_total_stopout_num")
-
-        if new_program_type == "Personal Account":
-            st.markdown("**เป้าหมายส่วนตัว (Optional):**")
-            g_ps1_f, g_ps2_f = st.columns(2) # Renamed
-            with g_ps1_f:
-                new_overall_profit_target_val = st.number_input("เป้าหมายกำไรโดยรวม ($)", value=0.0, format="%.2f", key="form_add_main_pf_pers_overall_profit_num")
-                new_weekly_profit_target_val = st.number_input("เป้าหมายกำไรรายสัปดาห์ ($)", value=0.0, format="%.2f", key="form_add_main_pf_pers_weekly_profit_num")
-                new_max_acceptable_drawdown_overall_val = st.number_input("Max DD รวมที่ยอมรับได้ ($)", value=0.0, format="%.2f", key="form_add_main_pf_pers_max_dd_overall_num")
-            with g_ps2_f:
-                new_target_end_date_form_val = st.date_input("วันที่คาดว่าจะถึงเป้าหมายรวม", value=None, key="form_add_main_pf_pers_target_end_date_input")
-                new_daily_profit_target_val = st.number_input("เป้าหมายกำไรรายวัน ($)", value=0.0, format="%.2f", key="form_add_main_pf_pers_daily_profit_num")
-                new_max_acceptable_drawdown_daily_val = st.number_input("Max DD ต่อวันที่ยอมรับได้ ($)", value=0.0, format="%.2f", key="form_add_main_pf_pers_max_dd_daily_num")
-
-        st.markdown("**การตั้งค่า Scaling Manager (Optional):**")
-        enable_scaling_form_val = st.checkbox("เปิดใช้งาน Scaling Manager?", value=enable_scaling_form_val, key="form_add_main_pf_enable_scaling_check")
-        if enable_scaling_form_val:
-            sc1_f, sc2_f, sc3_f = st.columns(3) # Renamed
-            with sc1_f:
-                scaling_check_frequency_form_val = st.selectbox("ความถี่ตรวจสอบ Scaling", ["Weekly", "Monthly"], index=["Weekly", "Monthly"].index(scaling_check_frequency_form_val), key="form_add_main_pf_scaling_freq_select")
-                scale_up_min_win_rate_form_val = st.number_input("Scale Up: Min Winrate %", value=scale_up_min_win_rate_form_val, format="%.1f", key="form_add_main_pf_scaleup_wr_num")
-                scale_down_max_loss_percent_form_val = st.number_input("Scale Down: Max Loss %", value=scale_down_max_loss_percent_form_val, format="%.1f", key="form_add_main_pf_scaledown_loss_num")
-            with sc2_f:
-                min_risk_percent_allowed_form_val = st.number_input("Min Risk % Allowed", value=min_risk_percent_allowed_form_val, format="%.2f", key="form_add_main_pf_min_risk_num")
-                scale_up_min_gain_percent_form_val = st.number_input("Scale Up: Min Gain %", value=scale_up_min_gain_percent_form_val, format="%.1f", key="form_add_main_pf_scaleup_gain_num")
-                scale_down_low_win_rate_form_val = st.number_input("Scale Down: Low Winrate %", value=scale_down_low_win_rate_form_val, format="%.1f", key="form_add_main_pf_scaledown_wr_num")
-            with sc3_f:
-                max_risk_percent_allowed_form_val = st.number_input("Max Risk % Allowed", value=max_risk_percent_allowed_form_val, format="%.2f", key="form_add_main_pf_max_risk_num")
-                scale_up_risk_increment_percent_form_val = st.number_input("Scale Up: Risk Increment %", value=scale_up_risk_increment_percent_form_val, format="%.2f", key="form_add_main_pf_scaleup_inc_num")
-                scale_down_risk_decrement_percent_form_val = st.number_input("Scale Down: Risk Decrement %", value=scale_down_risk_decrement_percent_form_val, format="%.2f", key="form_add_main_pf_scaledown_dec_num")
-            current_risk_percent_form_val = st.number_input("Current Risk % (สำหรับ Scaling)", value=current_risk_percent_form_val, format="%.2f", key="form_add_main_pf_current_risk_scaling_num")
-
-        new_notes_val = st.text_area("หมายเหตุเพิ่มเติม (Notes)", value=new_notes_val, key="form_add_main_pf_notes_area")
-
-        submitted_add_portfolio = st.form_submit_button("💾 บันทึกพอร์ตใหม่")
-        
-        if submitted_add_portfolio:
-            if not new_portfolio_name or not new_program_type or not new_status or new_initial_balance <= 0:
-                st.warning("กรุณากรอกข้อมูลที่จำเป็น (*) ให้ครบถ้วนและถูกต้อง: ชื่อพอร์ต, ประเภทพอร์ต, สถานะพอร์ต, และยอดเงินเริ่มต้นต้องมากกว่า 0")
-            # ตรวจสอบชื่อซ้ำกับ df_portfolios_gs ที่โหลดมาล่าสุด
-            elif not df_portfolios_gs.empty and new_portfolio_name in df_portfolios_gs['PortfolioName'].values:
-                st.error(f"ชื่อพอร์ต '{new_portfolio_name}' มีอยู่แล้ว กรุณาใช้ชื่ออื่น")
-            else:
-                new_id_value = str(uuid.uuid4())
-                new_portfolio_row_data = {
-                    'PortfolioID': new_id_value,
-                    'PortfolioName': new_portfolio_name, 'ProgramType': new_program_type,
-                    'EvaluationStep': new_evaluation_step if new_evaluation_step else "", 'Status': new_status,
-                    'InitialBalance': new_initial_balance, 'CreationDate': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                    'ProfitTargetPercent': new_profit_target_percent_val if new_program_type in ["Prop Firm Challenge", "Funded Account", "Trading Competition"] else None,
-                    'DailyLossLimitPercent': new_daily_loss_limit_percent_val if new_program_type in ["Prop Firm Challenge", "Funded Account", "Trading Competition"] else None,
-                    'TotalStopoutPercent': new_total_stopout_percent_val if new_program_type in ["Prop Firm Challenge", "Funded Account", "Trading Competition"] else None,
-                    'Leverage': new_leverage_val if new_program_type in ["Prop Firm Challenge", "Funded Account"] else None,
-                    'MinTradingDays': new_min_trading_days_val if new_program_type in ["Prop Firm Challenge", "Funded Account"] else None,
-                    'CompetitionEndDate': new_competition_end_date_form_val.strftime("%Y-%m-%d") if new_program_type == "Trading Competition" and new_competition_end_date_form_val else None,
-                    'CompetitionGoalMetric': new_competition_goal_metric_form_val if new_program_type == "Trading Competition" and new_competition_goal_metric_form_val else None,
-                    'OverallProfitTarget': new_overall_profit_target_val if new_program_type == "Personal Account" else None,
-                    'TargetEndDate': new_target_end_date_form_val.strftime("%Y-%m-%d") if new_program_type == "Personal Account" and new_target_end_date_form_val else None,
-                    'WeeklyProfitTarget': new_weekly_profit_target_val if new_program_type == "Personal Account" else None,
-                    'DailyProfitTarget': new_daily_profit_target_val if new_program_type == "Personal Account" else None,
-                    'MaxAcceptableDrawdownOverall': new_max_acceptable_drawdown_overall_val if new_program_type == "Personal Account" else None,
-                    'MaxAcceptableDrawdownDaily': new_max_acceptable_drawdown_daily_val if new_program_type == "Personal Account" else None,
-                    'EnableScaling': enable_scaling_form_val,
-                    'ScalingCheckFrequency': scaling_check_frequency_form_val if enable_scaling_form_val else None,
-                    'ScaleUp_MinWinRate': scale_up_min_win_rate_form_val if enable_scaling_form_val else None,
-                    'ScaleUp_MinGainPercent': scale_up_min_gain_percent_form_val if enable_scaling_form_val else None,
-                    'ScaleUp_RiskIncrementPercent': scale_up_risk_increment_percent_form_val if enable_scaling_form_val else None,
-                    'ScaleDown_MaxLossPercent': scale_down_max_loss_percent_form_val if enable_scaling_form_val else None,
-                    'ScaleDown_LowWinRate': scale_down_low_win_rate_form_val if enable_scaling_form_val else None,
-                    'ScaleDown_RiskDecrementPercent': scale_down_risk_decrement_percent_form_val if enable_scaling_form_val else None,
-                    'MinRiskPercentAllowed': min_risk_percent_allowed_form_val if enable_scaling_form_val else None,
-                    'MaxRiskPercentAllowed': max_risk_percent_allowed_form_val if enable_scaling_form_val else None,
-                    'CurrentRiskPercent': current_risk_percent_form_val,
-                    'Notes': new_notes_val if new_notes_val else ""
-                }
-                
-                success_save = save_new_portfolio_to_gsheets(new_portfolio_row_data) 
-                
-                if success_save:
-                    st.success(f"เพิ่มพอร์ต '{new_portfolio_name}' (ID: {new_id_value}) สำเร็จ!")
-                    if hasattr(load_portfolios_from_gsheets, 'clear'):
-                         load_portfolios_from_gsheets.clear()
-                    st.rerun()
-                else:
-                    st.error("เกิดข้อผิดพลาดในการบันทึกพอร์ตใหม่ไปยัง Google Sheets")
+                    'DailyLossLimitPercent': form_daily_loss_val if selected_program_type in ["Prop Firm Challenge", "Funded Account", "Trading Competition"] else None,
+                    'TotalStopoutPercent': form_total_stopout_val if selected_program_type in ["Prop Firm Challenge", "Funded Account", "Trading Competition"] else None,
+                    'Leverage': form_leverage_val if selected_program_type in ["Prop Firm Challenge", "Funded Account"] else None,
+                    'MinTradingDays': form_min_days_val if selected_program_type in ["Prop Firm Challenge", "Funded Account"] else None,
+                    
+                    'CompetitionEndDate': form_comp_end_date.strftime("%Y-%m-%d") if selected_program_type == "Trading Competition" and form_comp_end_date else None,
+                    'CompetitionGoalMetric': form_comp_goal_metric if selected_program_type == "Trading Competition" else None,
+                    
+                    'OverallProfitTarget': form_pers_overall_profit_val if selected_program_type == "Personal Account" else None,
+                    'TargetEndDate': form_pers_target_end_date.strftime("%Y-%m-%d") if selected_program_type == "Personal Account" and form_pers_target_end_date else None,
+                    'WeeklyProfitTarget': form_pers_weekly_profit_val if selected_program_type == "Personal Account" else None,
+                    'DailyProfitTarget': form_pers_daily_profit_val if selected_program_type == "Personal Account" else None,
+                    'MaxAcceptableDrawdownOverall': form_pers_max_dd_overall_val if selected_program_type == "Personal Account" else None,
+                    'MaxAcceptableDrawdownDaily': form_pers_max_dd_
 
 # ==============================================================================
 # END: ส่วนจัดการ Portfolio
