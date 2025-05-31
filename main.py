@@ -11,6 +11,8 @@ import yfinance as yf
 import random
 import csv
 import io # สำคัญ: เพิ่ม import io module เพื่อใช้ io.StringIO ในการอ่าน CSV String
+import uuid
+
 
 st.set_page_config(page_title="Ultimate-Chart", layout="wide")
 acc_balance = 10000 # ยอดคงเหลือเริ่มต้นของบัญชีเทรด
@@ -649,6 +651,294 @@ if save_button_pressed and data_to_save:
                 st.sidebar.error(f"Save ({mode}) ไปยัง Google Sheets ไม่สำเร็จ.")
         except Exception as e:
             st.sidebar.error(f"Save ({mode}) ไม่สำเร็จ: {e}")
+
+# ==============================================================================
+# START: ส่วนจัดการ Portfolio (เพิ่ม/ดูพอร์ต)
+# ==============================================================================
+
+# ฟังก์ชันนี้ควรจะอยู่นอก st.expander แต่ยังอยู่ในขอบเขตที่ main.py เรียกใช้ได้
+# หรือจะวางไว้รวมกับฟังก์ชัน helper อื่นๆ ที่เกี่ยวกับ Google Sheets ก็ได้ครับ
+def save_new_portfolio_to_gsheets(portfolio_data_dict):
+    """
+    บันทึกข้อมูลพอร์ตใหม่ลงใน Google Sheets ชีต 'Portfolios'.
+    Args:
+        portfolio_data_dict (dict): Dictionary ที่มีข้อมูลของพอร์ตใหม่
+    Returns:
+        bool: True ถ้าบันทึกสำเร็จ, False ถ้าล้มเหลว
+    """
+    gc = get_gspread_client() 
+    if not gc:
+        st.error("ไม่สามารถเชื่อมต่อ Google Sheets Client เพื่อบันทึกพอร์ตได้")
+        return False
+    try:
+        sh = gc.open(GOOGLE_SHEET_NAME) 
+        ws = sh.worksheet(WORKSHEET_PORTFOLIOS)
+
+        # !!! สำคัญมาก: ปรับแก้ลำดับและชื่อคอลัมน์ให้ตรงกับชีต "Portfolios" จริงๆ ของลูกพี่ตั้ม !!!
+        expected_gsheet_headers = [
+            'PortfolioID', 'PortfolioName', 'ProgramType', 'EvaluationStep', 
+            'Status', 'InitialBalance', 'CreationDate', 
+            'ProfitTargetPercent', 'DailyLossLimitPercent', 'TotalStopoutPercent',
+            'Leverage', 'MinTradingDays',
+            'CompetitionEndDate', 'CompetitionGoalMetric',
+            'OverallProfitTarget', 'TargetEndDate', 'WeeklyProfitTarget', 'DailyProfitTarget',
+            'MaxAcceptableDrawdownOverall', 'MaxAcceptableDrawdownDaily',
+            'EnableScaling', 'ScalingCheckFrequency',
+            'ScaleUp_MinWinRate', 'ScaleUp_MinGainPercent', 'ScaleUp_RiskIncrementPercent',
+            'ScaleDown_MaxLossPercent', 'ScaleDown_LowWinRate', 'ScaleDown_RiskDecrementPercent',
+            'MinRiskPercentAllowed', 'MaxRiskPercentAllowed', 'CurrentRiskPercent',
+            'Notes' 
+            # เพิ่ม/ลด/สลับลำดับตามชีตจริงของลูกพี่ตั้มให้ครบ
+        ]
+
+        new_row_values = [str(portfolio_data_dict.get(header, "")) for header in expected_gsheet_headers]
+
+        ws.append_row(new_row_values, value_input_option='USER_ENTERED')
+        return True
+    except gspread.exceptions.WorksheetNotFound:
+        st.error(f"❌ ไม่พบ Worksheet ชื่อ '{WORKSHEET_PORTFOLIOS}'. กรุณาสร้างชีตนี้ก่อน")
+        return False
+    except Exception as e:
+        st.error(f"❌ เกิดข้อผิดพลาดในการบันทึกพอร์ตใหม่ไปยัง Google Sheets: {e}")
+        return False
+
+# --- UI ส่วนจัดการพอร์ต ---
+# ลูกพี่ตั้มสามารถวางส่วน st.expander นี้ไว้ในตำแหน่งที่ต้องการใน main.py 
+# (เช่น ใน Sidebar หรือเป็นส่วนหนึ่งของ Main Area)
+# ต้องแน่ใจว่า df_portfolios_gs (DataFrame ที่โหลดข้อมูลพอร์ต) มีอยู่ก่อนส่วนนี้
+
+# ตัวอย่างการโหลด df_portfolios_gs (ลูกพี่ตั้มอาจจะมีโค้ดส่วนนี้อยู่แล้วใน SEC 1)
+# if 'df_portfolios_gs' not in st.session_state:
+#     st.session_state.df_portfolios_gs = load_portfolios_from_gsheets() 
+# df_portfolios_gs = st.session_state.df_portfolios_gs
+
+# หรือถ้า load_portfolios_from_gsheets มี @st.cache_data ก็เรียกใช้ตรงๆ ได้
+# df_portfolios_gs = load_portfolios_from_gsheets() 
+# (ตรวจสอบให้แน่ใจว่า df_portfolios_gs ถูกโหลดมาก่อนจะถึง expander นี้)
+
+
+with st.expander("💼 จัดการพอร์ต (เพิ่ม/ดูพอร์ต)", expanded=False):
+    # สมมติว่า df_portfolios_gs ถูกโหลดมาแล้วและพร้อมใช้งาน
+    # ถ้ายัง ให้แน่ใจว่าได้เรียก load_portfolios_from_gsheets() และเก็บผลลัพธ์ไว้ใน df_portfolios_gs ก่อนหน้านี้
+    # ตัวอย่าง: 
+    # df_portfolios_gs = load_portfolios_from_gsheets() # ควรจะมีการ cache เพื่อประสิทธิภาพ
+    # if df_portfolios_gs is None:
+    #     df_portfolios_gs = pd.DataFrame() # สร้าง DataFrame ว่างถ้าโหลดไม่สำเร็จ
+
+    st.subheader("พอร์ตทั้งหมดของคุณ")
+    if 'df_portfolios_gs' not in locals() or df_portfolios_gs.empty: # ตรวจสอบว่า df_portfolios_gs มีอยู่และไม่ว่าง
+        st.info("ยังไม่มีข้อมูลพอร์ต หรือยังไม่ได้โหลดข้อมูลพอร์ต โปรดเพิ่มพอร์ตใหม่ด้านล่าง (ถ้ายังไม่มี) หรือตรวจสอบการเชื่อมต่อ Google Sheets")
+    else:
+        cols_to_display_in_table = ['PortfolioID', 'PortfolioName', 'ProgramType', 'EvaluationStep', 'Status', 'InitialBalance']
+        cols_exist = [col for col in cols_to_display_in_table if col in df_portfolios_gs.columns]
+        if cols_exist:
+            st.dataframe(df_portfolios_gs[cols_exist], use_container_width=True, hide_index=True)
+        else:
+            st.info("ไม่พบคอลัมน์ที่ต้องการแสดงในตารางพอร์ต")
+
+
+    st.markdown("---")
+    st.subheader("➕ เพิ่มพอร์ตใหม่")
+
+    with st.form("new_portfolio_form", clear_on_submit=True):
+        st.markdown("**กรอกข้อมูลพอร์ตใหม่:**")
+        
+        c1_form, c2_form = st.columns(2) # เปลี่ยนชื่อตัวแปร c1, c2 เพื่อไม่ให้ซ้ำกับที่อื่นถ้ามี
+        with c1_form:
+            new_portfolio_name = st.text_input("ชื่อพอร์ต (Portfolio Name)*", help="เช่น My Personal, FTMO Challenge Phase 1", key="form_add_pf_name_input")
+            program_type_options = ["", "Personal Account", "Prop Firm Challenge", "Funded Account", "Trading Competition"]
+            new_program_type = st.selectbox("ประเภทพอร์ต (Program Type)*", 
+                                            options=program_type_options, 
+                                            index=0,
+                                            help="เลือกประเภทของพอร์ต", 
+                                            key="form_add_pf_program_type_select")
+        with c2_form:
+            new_initial_balance = st.number_input("บาลานซ์เริ่มต้น (Initial Balance)*", 
+                                                  min_value=0.01, value=10000.0, step=100.0, format="%.2f", key="form_add_pf_initial_balance_num")
+            status_options = ["Active", "Inactive", "Pending", "Passed", "Failed"]
+            new_status = st.selectbox("สถานะพอร์ต (Status)*", 
+                                      options=status_options, 
+                                      index=status_options.index("Active"), 
+                                      help="สถานะปัจจุบันของพอร์ต", 
+                                      key="form_add_pf_status_select")
+        
+        new_evaluation_step = st.text_input("ขั้นตอนการประเมิน (Evaluation Step)", 
+                                            help="เช่น Phase 1, Step 2 (ถ้ามี)", key="form_add_pf_eval_step_input")
+
+        # --- Conditional Inputs ---
+        new_profit_target_percent_val = 0.0
+        new_daily_loss_limit_percent_val = 0.0
+        new_total_stopout_percent_val = 0.0
+        new_leverage_val = 0.0
+        new_min_trading_days_val = 0
+
+        new_competition_end_date_form_val = None
+        new_competition_goal_metric_form_val = ""
+
+        new_overall_profit_target_val = 0.0
+        new_target_end_date_form_val = None
+        new_weekly_profit_target_val = 0.0
+        new_daily_profit_target_val = 0.0
+        new_max_acceptable_drawdown_overall_val = 0.0
+        new_max_acceptable_drawdown_daily_val = 0.0
+
+        enable_scaling_form_val = False
+        scaling_check_frequency_form_val = "Weekly"
+        scale_up_min_win_rate_form_val = 55.0
+        scale_up_min_gain_percent_form_val = 2.0
+        scale_up_risk_increment_percent_form_val = 0.25
+        scale_down_max_loss_percent_form_val = -5.0
+        scale_down_low_win_rate_form_val = 40.0
+        scale_down_risk_decrement_percent_form_val = 0.25
+        min_risk_percent_allowed_form_val = 0.25
+        max_risk_percent_allowed_form_val = 5.0
+        current_risk_percent_form_val = 1.0
+
+        new_notes_val = ""
+
+        if new_program_type in ["Prop Firm Challenge", "Funded Account"]:
+            st.markdown("**กฎเกณฑ์ Prop Firm/Funded:**")
+            g_pf1_form, g_pf2_form, g_pf3_form = st.columns(3)
+            with g_pf1_form:
+                new_profit_target_percent_val = st.number_input("เป้าหมายกำไร %*", value=8.0, format="%.1f", key="form_add_pf_profit_target_num")
+            with g_pf2_form:
+                new_daily_loss_limit_percent_val = st.number_input("จำกัดขาดทุนต่อวัน %*", value=5.0, format="%.1f", key="form_add_pf_daily_loss_num")
+            with g_pf3_form:
+                new_total_stopout_percent_val = st.number_input("จำกัดขาดทุนรวม %*", value=10.0, format="%.1f", key="form_add_pf_total_stopout_num")
+            
+            col_leverage, col_min_days = st.columns(2)
+            with col_leverage:
+                new_leverage_val = st.number_input("Leverage", value=100.0, format="%.0f", key="form_add_pf_leverage_num")
+            with col_min_days:
+                new_min_trading_days_val = st.number_input("จำนวนวันเทรดขั้นต่ำ", value=0, step=1, key="form_add_pf_min_days_num")
+        
+        if new_program_type == "Trading Competition":
+            st.markdown("**ข้อมูลการแข่งขัน:**")
+            g_tc1_form, g_tc2_form = st.columns(2)
+            with g_tc1_form:
+                new_competition_end_date_form_val = st.date_input("วันสิ้นสุดการแข่งขัน", value=None, key="form_add_pf_comp_end_date_input")
+                # Reuse profit target, daily/total loss if applicable for competition
+                new_profit_target_percent_val = st.number_input("เป้าหมายกำไร % (Comp)", value=20.0, format="%.1f", key="form_add_pf_comp_profit_target_num")
+            with g_tc2_form:
+                new_competition_goal_metric_form_val = st.text_input("ตัวชี้วัดเป้าหมาย (Comp)", help="เช่น %Gain, ROI", key="form_add_pf_comp_goal_metric_input")
+                new_daily_loss_limit_percent_val = st.number_input("จำกัดขาดทุนต่อวัน % (Comp)", value=5.0, format="%.1f", key="form_add_pf_comp_daily_loss_num")
+                new_total_stopout_percent_val = st.number_input("จำกัดขาดทุนรวม % (Comp)", value=10.0, format="%.1f", key="form_add_pf_comp_total_stopout_num")
+
+        if new_program_type == "Personal Account":
+            st.markdown("**เป้าหมายส่วนตัว (Optional):**")
+            g_ps1_form, g_ps2_form = st.columns(2)
+            with g_ps1_form:
+                new_overall_profit_target_val = st.number_input("เป้าหมายกำไรโดยรวม ($)", value=0.0, format="%.2f", key="form_add_pf_pers_overall_profit_num")
+                new_weekly_profit_target_val = st.number_input("เป้าหมายกำไรรายสัปดาห์ ($)", value=0.0, format="%.2f", key="form_add_pf_pers_weekly_profit_num")
+                new_max_acceptable_drawdown_overall_val = st.number_input("Max DD รวมที่ยอมรับได้ ($)", value=0.0, format="%.2f", key="form_add_pf_pers_max_dd_overall_num")
+            with g_ps2_form:
+                new_target_end_date_form_val = st.date_input("วันที่คาดว่าจะถึงเป้าหมายรวม", value=None, key="form_add_pf_pers_target_end_date_input")
+                new_daily_profit_target_val = st.number_input("เป้าหมายกำไรรายวัน ($)", value=0.0, format="%.2f", key="form_add_pf_pers_daily_profit_num")
+                new_max_acceptable_drawdown_daily_val = st.number_input("Max DD ต่อวันที่ยอมรับได้ ($)", value=0.0, format="%.2f", key="form_add_pf_pers_max_dd_daily_num")
+
+        st.markdown("**การตั้งค่า Scaling Manager (Optional):**")
+        enable_scaling_form_val = st.checkbox("เปิดใช้งาน Scaling Manager?", value=False, key="form_add_pf_enable_scaling_check")
+        if enable_scaling_form_val:
+            sc1_form, sc2_form, sc3_form = st.columns(3)
+            with sc1_form:
+                scaling_check_frequency_form_val = st.selectbox("ความถี่ตรวจสอบ Scaling", ["Weekly", "Monthly"], key="form_add_pf_scaling_freq_select")
+                scale_up_min_win_rate_form_val = st.number_input("Scale Up: Min Winrate %", value=55.0, format="%.1f", key="form_add_pf_scaleup_wr_num")
+                scale_down_max_loss_percent_form_val = st.number_input("Scale Down: Max Loss %", value=-5.0, format="%.1f", key="form_add_pf_scaledown_loss_num")
+            with sc2_form:
+                min_risk_percent_allowed_form_val = st.number_input("Min Risk % Allowed", value=0.25, format="%.2f", key="form_add_pf_min_risk_num")
+                scale_up_min_gain_percent_form_val = st.number_input("Scale Up: Min Gain %", value=2.0, format="%.1f", key="form_add_pf_scaleup_gain_num")
+                scale_down_low_win_rate_form_val = st.number_input("Scale Down: Low Winrate %", value=40.0, format="%.1f", key="form_add_pf_scaledown_wr_num")
+            with sc3_form:
+                max_risk_percent_allowed_form_val = st.number_input("Max Risk % Allowed", value=5.0, format="%.2f", key="form_add_pf_max_risk_num")
+                scale_up_risk_increment_percent_form_val = st.number_input("Scale Up: Risk Increment %", value=0.25, format="%.2f", key="form_add_pf_scaleup_inc_num")
+                scale_down_risk_decrement_percent_form_val = st.number_input("Scale Down: Risk Decrement %", value=0.25, format="%.2f", key="form_add_pf_scaledown_dec_num")
+            
+            current_risk_percent_form_val = st.number_input("Current Risk % (สำหรับ Scaling)", value=1.0, format="%.2f", key="form_add_pf_current_risk_scaling_num")
+
+
+        new_notes_val = st.text_area("หมายเหตุเพิ่มเติม (Notes)", key="form_add_pf_notes_area")
+
+        submitted_add_portfolio = st.form_submit_button("💾 บันทึกพอร์ตใหม่")
+        
+        if submitted_add_portfolio:
+            # Validation
+            if not new_portfolio_name or not new_program_type or not new_status or new_initial_balance <= 0:
+                st.warning("กรุณากรอกข้อมูลที่จำเป็น (*) ให้ครบถ้วนและถูกต้อง: ชื่อพอร์ต, ประเภทพอร์ต, สถานะพอร์ต, และยอดเงินเริ่มต้นต้องมากกว่า 0")
+            elif ('df_portfolios_gs' in locals() and not df_portfolios_gs.empty and new_portfolio_name in df_portfolios_gs['PortfolioName'].values):
+                st.error(f"ชื่อพอร์ต '{new_portfolio_name}' มีอยู่แล้ว กรุณาใช้ชื่ออื่น")
+            else:
+                new_id_value = str(uuid.uuid4())
+
+                new_portfolio_row_data = {
+                    'PortfolioID': new_id_value,
+                    'PortfolioName': new_portfolio_name,
+                    'ProgramType': new_program_type,
+                    'EvaluationStep': new_evaluation_step if new_evaluation_step else "",
+                    'Status': new_status,
+                    'InitialBalance': new_initial_balance,
+                    'CreationDate': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    
+                    'ProfitTargetPercent': new_profit_target_percent_val if new_program_type in ["Prop Firm Challenge", "Funded Account", "Trading Competition"] else None,
+                    'DailyLossLimitPercent': new_daily_loss_limit_percent_val if new_program_type in ["Prop Firm Challenge", "Funded Account", "Trading Competition"] else None,
+                    'TotalStopoutPercent': new_total_stopout_percent_val if new_program_type in ["Prop Firm Challenge", "Funded Account", "Trading Competition"] else None,
+                    'Leverage': new_leverage_val if new_program_type in ["Prop Firm Challenge", "Funded Account"] else None,
+                    'MinTradingDays': new_min_trading_days_val if new_program_type in ["Prop Firm Challenge", "Funded Account"] else None,
+                    
+                    'CompetitionEndDate': new_competition_end_date_form_val.strftime("%Y-%m-%d") if new_program_type == "Trading Competition" and new_competition_end_date_form_val else None,
+                    'CompetitionGoalMetric': new_competition_goal_metric_form_val if new_program_type == "Trading Competition" and new_competition_goal_metric_form_val else None,
+                    
+                    'OverallProfitTarget': new_overall_profit_target_val if new_program_type == "Personal Account" else None,
+                    'TargetEndDate': new_target_end_date_form_val.strftime("%Y-%m-%d") if new_program_type == "Personal Account" and new_target_end_date_form_val else None,
+                    'WeeklyProfitTarget': new_weekly_profit_target_val if new_program_type == "Personal Account" else None,
+                    'DailyProfitTarget': new_daily_profit_target_val if new_program_type == "Personal Account" else None,
+                    'MaxAcceptableDrawdownOverall': new_max_acceptable_drawdown_overall_val if new_program_type == "Personal Account" else None,
+                    'MaxAcceptableDrawdownDaily': new_max_acceptable_drawdown_daily_val if new_program_type == "Personal Account" else None,
+
+                    'EnableScaling': enable_scaling_form_val,
+                    'ScalingCheckFrequency': scaling_check_frequency_form_val if enable_scaling_form_val else None,
+                    'ScaleUp_MinWinRate': scale_up_min_win_rate_form_val if enable_scaling_form_val else None,
+                    'ScaleUp_MinGainPercent': scale_up_min_gain_percent_form_val if enable_scaling_form_val else None,
+                    'ScaleUp_RiskIncrementPercent': scale_up_risk_increment_percent_form_val if enable_scaling_form_val else None,
+                    'ScaleDown_MaxLossPercent': scale_down_max_loss_percent_form_val if enable_scaling_form_val else None,
+                    'ScaleDown_LowWinRate': scale_down_low_win_rate_form_val if enable_scaling_form_val else None,
+                    'ScaleDown_RiskDecrementPercent': scale_down_risk_decrement_percent_form_val if enable_scaling_form_val else None,
+                    'MinRiskPercentAllowed': min_risk_percent_allowed_form_val if enable_scaling_form_val else None,
+                    'MaxRiskPercentAllowed': max_risk_percent_allowed_form_val if enable_scaling_form_val else None,
+                    'CurrentRiskPercent': current_risk_percent_form_val, # เก็บ CurrentRiskPercent เสมอ
+                    'Notes': new_notes_val if new_notes_val else ""
+                }
+                
+                # --- เรียกฟังก์ชันบันทึกลง Google Sheets ---
+                # (ตรวจสอบว่า df_portfolios_gs ถูกส่งเข้ามาใน scope หรือโหลดใหม่ภายใน expander นี้)
+                if 'df_portfolios_gs' not in locals() and 'load_portfolios_from_gsheets' in globals(): # Ensure df_portfolios_gs is defined
+                    # This is a fallback, ideally df_portfolios_gs is loaded consistently before this expander
+                    df_portfolios_gs_local = load_portfolios_from_gsheets() 
+                    if df_portfolios_gs_local.empty and new_portfolio_name in df_portfolios_gs_local['PortfolioName'].values: # Check for name duplication
+                         st.error(f"ชื่อพอร์ต '{new_portfolio_name}' มีอยู่แล้ว กรุณาใช้ชื่ออื่น (Checked again after load)")
+                         # Set submitted_add_portfolio = False or handle error to prevent saving
+                         return # or handle the error state appropriately
+
+                success_save = save_new_portfolio_to_gsheets(new_portfolio_row_data) 
+                
+                if success_save:
+                    st.success(f"เพิ่มพอร์ต '{new_portfolio_name}' (ID: {new_id_value}) สำเร็จ!")
+                    # เคลียร์ cache และ rerun
+                    if 'load_portfolios_from_gsheets' in globals() and hasattr(load_portfolios_from_gsheets, 'clear'):
+                         load_portfolios_from_gsheets.clear()
+                    # If using session_state to store df_portfolios_gs, update it or clear its specific cache key
+                    # For example, if you have st.session_state.my_portfolio_df = load_portfolios_from_gsheets()
+                    # You might need a way to signal that this should be reloaded.
+                    # A common pattern is to remove it from session_state so it gets re-fetched.
+                    if 'df_portfolios_gs_cached' in st.session_state: # Example if using a specific session state key for cache
+                        del st.session_state['df_portfolios_gs_cached']
+                    st.rerun()
+                else:
+                    st.error("เกิดข้อผิดพลาดในการบันทึกพอร์ตใหม่ไปยัง Google Sheets")
+
+# ==============================================================================
+# END: ส่วนจัดการ Portfolio
+# ==============================================================================
+
 
 # ===================== SEC 4: MAIN AREA - ENTRY PLAN DETAILS TABLE =======================
 with st.expander("📋 Entry Table (FIBO/CUSTOM)", expanded=True):
