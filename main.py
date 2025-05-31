@@ -800,231 +800,180 @@ elif mode == "CUSTOM": # mode ควรจะถูก define ใน SEC 2.1
         st.sidebar.warning("Risk% ต้องมากกว่า 0")
     save_custom = st.sidebar.button("💾 Save Plan (CUSTOM)", key="save_custom_v3") # Key ใหม่
 
-# ===================== SEC 3: SIDEBAR - CALCULATIONS, SUMMARY & ACTIONS =======================
+# ======================= SEC 3: SIDEBAR - CALCULATIONS, SUMMARY & ACTIONS =======================
 st.sidebar.markdown("---")
 st.sidebar.markdown("### 🧾 Strategy Summary")
 
-# Initialize summary variables
+# กำหนดตัวแปรที่จะเก็บผลลัพธ์
 summary_total_lots = 0.0
 summary_total_risk_dollar = 0.0
 summary_avg_rr = 0.0
 summary_total_profit_at_primary_tp = 0.0
-# custom_tp_recommendation_messages = [] # Removed as per replacement logic
+custom_tp_recommendation_messages = []
 
-entry_data_summary_sec3 = []
-custom_entries_summary_sec3 = []
-
-# active_balance_to_use is already defined globally/before this section in main.py
-# SPREAD_ADJUSTMENT_PRICE_UNITS is NOT used in the new FIBO SL logic from โลจิกคำนวน.py
+entry_data = []            # <-- ต้องใช้ชื่อนี้ เพื่อให้ส่วน SEC 2+3 ด้านนอกเรียกใช้ได้ปกติ
+custom_entries = []        # <-- ชื่อนี้ก็ต้องตรงกับส่วน CUSTOM
 
 if mode == "FIBO":
     try:
-        h_input_str_fibo = st.session_state.get("swing_high_fibo_val_v2", "")
-        l_input_str_fibo = st.session_state.get("swing_low_fibo_val_v2", "")
-        direction_fibo = st.session_state.get("direction_fibo_val_v2", "Long")
-        risk_pct_fibo = st.session_state.get("risk_pct_fibo_val_v2", 1.0)
-        
-        # Use fibos_fibo_v2 if defined, otherwise default. This should be defined before SEC 2.2.
-        if 'fibos_fibo_v2' not in locals() and 'fibos_fibo_v2' not in globals():
-             fibos_fibo_v2 = [0.114, 0.25, 0.382, 0.5, 0.618] # Fallback, ensure it's defined earlier
-        current_fibo_flags_fibo = st.session_state.get("fibo_flags_v2", [True] * len(fibos_fibo_v2))
+        # 1) อ่านค่า swing_high, swing_low, direction, risk_pct, fibo_selected จาก Sidebar
+        high_input = float(swing_high)
+        low_input  = float(swing_low)
+        direction_fibo = direction      # ค่าที่ read มาจาก st.sidebar.radio
+        risk_pct_fibo = float(risk_pct)  # read จาก st.sidebar.number_input
 
-        if not h_input_str_fibo or not l_input_str_fibo:
-            st.sidebar.info("กรอก High และ Low (FIBO) เพื่อคำนวณ Summary")
+        # 2) สร้างลิสต์ fibo ratios และตรวจสอบว่าถูกติ๊กเลือกหรือไม่
+        fibos = [0.114, 0.25, 0.382, 0.5, 0.618]
+        # fibo_selected คือ list of booleans (True/False) ตามลำดับ fibos
+        selected_fibo_levels = [fibos[i] for i, sel in enumerate(fibo_selected) if sel]
+
+        # 3) ตรวจสอบเบื้องต้น
+        if high_input <= low_input:
+            st.sidebar.warning("High ต้องมากกว่า Low!")
+            entry_data = []
+        elif risk_pct_fibo <= 0:
+            st.sidebar.warning("Risk % (FIBO) ต้องมากกว่า 0")
+            entry_data = []
         else:
-            high_fibo_input = float(h_input_str_fibo)
-            low_fibo_input = float(l_input_str_fibo)
-            
-            valid_hl_fibo = False
-            if direction_fibo == "Long" and high_fibo_input > low_fibo_input:
-                valid_hl_fibo = True
-            elif direction_fibo == "Short" and high_fibo_input > low_fibo_input: # Corrected: high still needs to be > low for range calc
-                valid_hl_fibo = True
+            range_ = high_input - low_input
+            n = len(selected_fibo_levels)  # จำนวน fibo levels ที่เลือก
+
+            if n == 0:
+                st.sidebar.info("กรุณาเลือก Fibo Level อย่างน้อย 1 ระดับ")
+                entry_data = []
             else:
-                st.sidebar.warning(f"{direction_fibo}: Swing High ที่กรอก ต้องมากกว่า Swing Low ที่กรอก!")
+                # คำนวณ Risk $ ทั้งหมด ต่อ Trade
+                risk_dollar_total = acc_balance * (risk_pct_fibo / 100.0)
+                # แบ่ง risk ให้แต่ละ fibo level ที่เลือก
+                risk_share = risk_dollar_total / n
 
-            if not valid_hl_fibo:
-                pass # Warning already shown
-            elif risk_pct_fibo <= 0:
-                st.sidebar.warning("Risk % (FIBO) ต้องมากกว่า 0")
-            else:
-                selected_fibo_levels_values = [fibos_fibo_v2[i] for i, sel in enumerate(current_fibo_flags_fibo) if sel]
-                num_selected_levels = len(selected_fibo_levels_values)
+                # วนลูปแต่ละ fibo ที่เลือกมา
+                for fibo in selected_fibo_levels:
+                    # ----- 1) ENTRY PRICE -----
+                    if direction_fibo == "Long":
+                        entry_price = low_input + range_ * fibo
+                    else:  # Short
+                        entry_price = high_input - range_ * fibo
 
-                if num_selected_levels > 0:
-                    risk_per_trade_fibo_total = risk_pct_fibo / 100.0
-                    risk_dollar_total_fibo_plan = active_balance_to_use * risk_per_trade_fibo_total
-                    risk_dollar_per_entry_fibo = risk_dollar_total_fibo_plan / num_selected_levels
-                    
-                    temp_fibo_entry_details = []
-                    calculated_total_lots_fibo = 0.0
-                    calculated_total_risk_dollar_fibo = 0.0
+                    # ----- 2) SL PRICE -----
+                    # กรณี fibo = 0.114, 0.25, 0.382
+                    if abs(fibo - 0.114) < 1e-9 or abs(fibo - 0.25) < 1e-9 or abs(fibo - 0.382) < 1e-9:
+                        sl_price = (low_input if direction_fibo == "Long" else high_input)
 
-                    for fibo_ratio in selected_fibo_levels_values:
-                        entry_price_fibo, sl_price_fibo = 0.0, 0.0
-                        
+                    # กรณี fibo = 0.5
+                    elif abs(fibo - 0.5) < 1e-9:
+                        mid_factor = (0.25 + 0.382) / 2.0
                         if direction_fibo == "Long":
-                            entry_price_fibo = low_fibo_input + (high_fibo_input - low_fibo_input) * fibo_ratio
-                            if abs(fibo_ratio - 0.5) < 1e-4:
-                                sl_price_fibo = low_fibo_input + (high_fibo_input - low_fibo_input) * ((0.25 + 0.382) / 2.0)
-                            elif abs(fibo_ratio - 0.618) < 1e-4:
-                                sl_price_fibo = low_fibo_input + (high_fibo_input - low_fibo_input) * ((0.382 + 0.5) / 2.0)
-                            else:
-                                sl_price_fibo = low_fibo_input
-                        else: # Short
-                            entry_price_fibo = high_fibo_input - (high_fibo_input - low_fibo_input) * fibo_ratio
-                            if abs(fibo_ratio - 0.5) < 1e-4:
-                                sl_price_fibo = high_fibo_input - (high_fibo_input - low_fibo_input) * ((0.25 + 0.382) / 2.0)
-                            elif abs(fibo_ratio - 0.618) < 1e-4:
-                                sl_price_fibo = high_fibo_input - (high_fibo_input - low_fibo_input) * ((0.382 + 0.5) / 2.0)
-                            else:
-                                sl_price_fibo = high_fibo_input
-                        
-                        stop_distance_fibo = abs(entry_price_fibo - sl_price_fibo)
-                        lot_size_fibo = 0.0
-                        actual_risk_dollar_fibo_entry = 0.0
+                            sl_price = low_input + range_ * mid_factor
+                        else:
+                            sl_price = high_input - range_ * mid_factor
 
-                        if stop_distance_fibo > 1e-9: # Avoid division by zero
-                            lot_size_fibo = risk_dollar_per_entry_fibo / stop_distance_fibo
-                            actual_risk_dollar_fibo_entry = stop_distance_fibo * lot_size_fibo
-                        else: # Handle case where stop distance is zero or too small
-                            actual_risk_dollar_fibo_entry = risk_dollar_per_entry_fibo # Assume planned risk if cannot calculate lot
+                    # กรณี fibo = 0.618
+                    else:
+                        # factor 0.618 = 0.25 + (0.50 - 0.382) × 0.7  → 0.3326
+                        factor_0618 = 0.25 + (0.50 - 0.382) * 0.7
+                        if direction_fibo == "Long":
+                            # **ตรงนี้ต้องใช้ High - (range × factor)**
+                            sl_price = high_input - (range_ * factor_0618)
+                        else:
+                            # **ตรงนี้ต้องใช้ Low + (range × factor)**
+                            sl_price = low_input + (range_ * factor_0618)
 
-                        calculated_total_lots_fibo += lot_size_fibo
-                        calculated_total_risk_dollar_fibo += actual_risk_dollar_fibo_entry
+                    # ----- 3) SL (points) -----
+                    # 1 point = 0.01 หน่วยราคา (เฉพาะ XAUUSD) → หารด้วย 0.01 เพื่อได้จำนวน points เต็ม
+                    sl_points = abs(entry_price - sl_price) / 0.01
 
-                        temp_fibo_entry_details.append({
-                            "Fibo Level": f"{fibo_ratio:.3f}", # Store as string for specific formatting
-                            "Entry": round(entry_price_fibo, 5), # Store as float
-                            "SL": round(sl_price_fibo, 5),       # Store as float
-                            "Lot": round(lot_size_fibo, 2),      # Store as float
-                            "Risk $": round(actual_risk_dollar_fibo_entry, 2) # Store as float
-                            # TP and RR are not part of โลจิกคำนวน.py's summary table for FIBO entries
-                        })
-                    
-                    entry_data_summary_sec3 = temp_fibo_entry_details
-                    summary_total_lots = calculated_total_lots_fibo
-                    summary_total_risk_dollar = calculated_total_risk_dollar_fibo
-                    # summary_avg_rr and summary_total_profit_at_primary_tp will remain 0.0 for FIBO
-                    # as TP/RR are not calculated per leg in this replaced logic.
-                else:
-                    st.sidebar.info("กรุณาเลือก Fibo Level สำหรับ Entry (FIBO)")
-                    
-    except ValueError:
-        if st.session_state.get("swing_high_fibo_val_v2", "") or st.session_state.get("swing_low_fibo_val_v2", ""):
-             st.sidebar.warning("กรอก High/Low (FIBO) เป็นตัวเลขที่ถูกต้อง")
-    except Exception as e_fibo_summary:
-        st.sidebar.error(f"คำนวณ FIBO Summary ไม่สำเร็จ: {e_fibo_summary}")
+                    # ----- 4) LOT SIZE -----
+                    if sl_points > 0:
+                        raw_lot = risk_share / sl_points
+                        # floor ให้เป็นสองทศนิยม
+                        floored = math.floor(raw_lot * 100) / 100.0
+                        lot_size = max(0.01, floored)  # ขั้นต่ำ 0.01
+                    else:
+                        lot_size = 0.0
+
+                    # ----- 5) RISK $ -----
+                    risk_dollar = sl_points * lot_size
+
+                    # ----- 6) RR : TP1 -----
+                    if direction_fibo == "Long":
+                        # TP1 = Low + 0.618 × range
+                        tp1_price = low_input + 0.618 * range_
+                        if abs(entry_price - sl_price) > 0:
+                            rr_value = (tp1_price - entry_price) / abs(entry_price - sl_price)
+                        else:
+                            rr_value = 0.0
+                    else:
+                        # TP1 = High - 0.618 × range
+                        tp1_price = high_input - 0.618 * range_
+                        if abs(entry_price - sl_price) > 0:
+                            rr_value = (entry_price - tp1_price) / abs(entry_price - sl_price)
+                        else:
+                            rr_value = 0.0
+
+                    # เก็บผลใน entry_data (เหมือนโค้ดเดิม)
+                    entry_data.append({
+                        "Fibo Level": f"{fibo:.3f}",
+                        "Entry":      f"{entry_price:.2f}",
+                        "SL":         f"{sl_price:.2f}",
+                        "SL (points)":f"{sl_points:.1f}",
+                        "Lot":        f"{lot_size:.2f}",
+                        "Risk $":     f"{risk_dollar:.2f}",
+                        "RR : TP1":   f"{rr_value:.6f}"
+                    })
+
+                # สรุปผลรวมสั้น ๆ ใน Sidebar
+                total_lots = sum(float(row["Lot"]) for row in entry_data)
+                total_risk_dollars = sum(float(row["Risk $"]) for row in entry_data)
+                st.sidebar.write(f"**Total Lots:** {total_lots:.2f}")
+                st.sidebar.write(f"**Total Risk $:** {total_risk_dollars:.2f}")
+
+    except Exception as e:
+        entry_data = []
+        st.sidebar.error(f"เกิดข้อผิดพลาดขณะคำนวณ FIBO: {e}")
 
 elif mode == "CUSTOM":
     try:
-        n_entry_custom = st.session_state.get("n_entry_custom_val_v2", 1)
-        risk_pct_custom = st.session_state.get("risk_pct_custom_val_v2", 1.0)
+        n = int(n_entry)
+        risk_dollar_total = acc_balance * (risk_pct / 100.0)
+        risk_dollar_per_entry = risk_dollar_total / n if n > 0 else 0.0
 
-        if risk_pct_custom <= 0:
-            st.sidebar.warning("Risk % (CUSTOM) ต้องมากกว่า 0")
-        elif n_entry_custom <=0:
-            st.sidebar.warning("จำนวนไม้ (CUSTOM) ต้องมากกว่า 0")
-        else:
-            risk_per_trade_custom_total_planned = active_balance_to_use * (risk_pct_custom / 100.0)
-            risk_dollar_per_entry_custom_planned = risk_per_trade_custom_total_planned / n_entry_custom
-            
-            temp_custom_legs_for_saving = []
-            calculated_total_lots_custom = 0.0
-            temp_custom_rr_list = []
-            calculated_total_profit_at_tp_custom = 0.0
-            
-            for i in range(int(n_entry_custom)):
-                entry_str = st.session_state.get(f"custom_entry_{i}_v3", "0.00")
-                sl_str = st.session_state.get(f"custom_sl_{i}_v3", "0.00")
-                tp_str = st.session_state.get(f"custom_tp_{i}_v3", "0.00")
+        for i in range(n):
+            entry_val = float(custom_inputs[i]["entry"])
+            sl_val    = float(custom_inputs[i]["sl"])
+            tp_val    = float(custom_inputs[i]["tp"])
 
-                entry_val_custom = float(entry_str)
-                sl_val_custom = float(sl_str)
-                tp_val_custom = float(tp_str)
+            stop = abs(entry_val - sl_val)
+            target = abs(tp_val - entry_val)
 
-                stop_custom = abs(entry_val_custom - sl_val_custom)
-                target_custom = abs(tp_val_custom - entry_val_custom)
-                lot_custom, rr_custom = 0.0, 0.0
-                profit_at_user_tp_leg = 0.0
-
-                if stop_custom > 1e-9:
-                    lot_custom = risk_dollar_per_entry_custom_planned / stop_custom # Lot based on planned risk per entry
-                    if target_custom > 1e-9 :
-                        rr_custom = target_custom / stop_custom
-                        profit_at_user_tp_leg = lot_custom * target_custom
-                    temp_custom_rr_list.append(rr_custom)
-                
-                calculated_total_lots_custom += lot_custom
-                calculated_total_profit_at_tp_custom += profit_at_user_tp_leg
-                
-                temp_custom_legs_for_saving.append({
-                    "Entry": round(entry_val_custom, 5),  # Store as float
-                    "SL": round(sl_val_custom, 5),        # Store as float
-                    "TP": round(tp_val_custom, 5),        # Store as float
-                    "Lot": round(lot_custom, 2),          # Store as float
-                    "Risk $": round(risk_dollar_per_entry_custom_planned, 2), # As per โลจิกคำนวน.py
-                    "RR": round(rr_custom, 2)             # Store as float
-                })
-            
-            custom_entries_summary_sec3 = temp_custom_legs_for_saving
-            summary_total_lots = calculated_total_lots_custom
-            summary_total_risk_dollar = risk_per_trade_custom_total_planned # Total planned risk
-            summary_total_profit_at_primary_tp = calculated_total_profit_at_tp_custom
-
-            if temp_custom_rr_list:
-                valid_rrs = [r for r in temp_custom_rr_list if isinstance(r, (float, int)) and r > 0] # Check for valid positive RRs
-                summary_avg_rr = np.mean(valid_rrs) if valid_rrs else 0.0
+            if stop > 0:
+                lot = risk_dollar_per_entry / stop
+                risk_dollar = lot * stop
+                rr = (target / stop) if target > 0 else 0.0
             else:
-                summary_avg_rr = 0.0
-                
-    except ValueError:
-        st.sidebar.warning("กรอกข้อมูล CUSTOM ไม่ถูกต้อง (ตรวจสอบตัวเลข)")
-    except Exception as e_custom_summary:
-        st.sidebar.error(f"คำนวณ CUSTOM Summary ไม่สำเร็จ: {e_custom_summary}")
+                lot = 0.0
+                risk_dollar = risk_dollar_per_entry
+                rr = 0.0
 
-# --- Display Summaries in Sidebar (largely same as original main.py, uses the new summary_... variables) ---
-display_summary_info = False
-if mode == "FIBO" and (st.session_state.get("swing_high_fibo_val_v2", "") and st.session_state.get("swing_low_fibo_val_v2", "")):
-    # For FIBO, display if lots or risk > 0. RR/Profit will be 0 with new logic for FIBO summary.
-    if summary_total_lots > 0 or summary_total_risk_dollar > 0:
-        display_summary_info = True
-elif mode == "CUSTOM" and st.session_state.get("n_entry_custom_val_v2", 0) > 0:
-     if summary_total_lots > 0 or summary_total_risk_dollar > 0 or summary_total_profit_at_primary_tp != 0 or summary_avg_rr !=0 :
-        display_summary_info = True
+            custom_entries.append({
+                "Entry":  f"{entry_val:.2f}",
+                "SL":     f"{sl_val:.2f}",
+                "TP":     f"{tp_val:.2f}",
+                "Lot":    f"{lot:.2f}",
+                "Risk $": f"{risk_dollar:.2f}",
+                "RR":     f"{rr:.2f}"
+            })
 
-if display_summary_info:
-    current_risk_display = 0.0
-    active_balance_display = active_balance_to_use 
-    if mode == "FIBO": current_risk_display = st.session_state.get('risk_pct_fibo_val_v2', 0.0)
-    elif mode == "CUSTOM": current_risk_display = st.session_state.get('risk_pct_custom_val_v2', 0.0)
+        if custom_entries:
+            entry_df = pd.DataFrame(custom_entries)
+            st.sidebar.write(f"**Total Lots:** {np.sum(entry_df['Lot'].astype(float)):.2f}")
+            st.sidebar.write(f"**Total Risk $:** {np.sum(entry_df['Risk $'].astype(float)):.2f}")
+            avg_rr = np.mean([float(r["RR"]) for r in custom_entries if float(r["RR"]) > 0]) if custom_entries else None
+            if avg_rr is not None:
+                st.sidebar.write(f"**Average RR:** {avg_rr:.2f}")
 
-    st.sidebar.write(f"**Total Lots ({mode}):** {summary_total_lots:.2f}")
-    st.sidebar.write(f"**Total Risk $ ({mode}):** {summary_total_risk_dollar:.2f} (Balance: {active_balance_display:,.2f}, Risk: {current_risk_display:.2f}%)")
-    
-    if mode == "FIBO":
-        # For FIBO, with โลจิกคำนวน.py, TP/RR are not in entry_data, so avg_rr and profit will be 0
-        st.sidebar.caption("(Average RR & Expected Profit for FIBO mode are not shown with current calculation logic.)")
-    elif mode == "CUSTOM":
-        if summary_avg_rr > 0: 
-            st.sidebar.write(f"**Average RR ({mode}) (to User TP):** {summary_avg_rr:.2f}")
-        st.sidebar.write(f"**Total Expected Profit (at User TP) ({mode}):** {summary_total_profit_at_primary_tp:,.2f} USD")
-    
-    # custom_tp_recommendation_messages was removed
-else:
-    # Fallback message logic from original main.py can remain here
-    show_fallback_info = True
-    if mode == "FIBO" and (not st.session_state.get("swing_high_fibo_val_v2", "") or not st.session_state.get("swing_low_fibo_val_v2", "")):
-        show_fallback_info = False 
-    
-    if show_fallback_info: # Simplified check
-        # Check if an info/warning/error message specific to input requirements for the current mode was already displayed by its calculation block
-        if mode == "FIBO" and not (st.session_state.get("swing_high_fibo_val_v2", "") and st.session_state.get("swing_low_fibo_val_v2", "")):
-             pass # Info message about filling High/Low is already shown
-        elif mode == "CUSTOM" and not (st.session_state.get("n_entry_custom_val_v2", 0) > 0 and st.session_state.get("risk_pct_custom_val_v2", 0.0) > 0) :
-             pass # Warnings about Risk% or N entries are already shown
-        elif not display_summary_info : # if no summary displayed and no prior mode-specific message captured
-            st.sidebar.info("กรอกข้อมูลให้ครบถ้วนและถูกต้องเพื่อคำนวณ Summary")
+    except Exception:
+        custom_entries = []
 
 # --- End of modified SEC 3 ---
 
