@@ -301,7 +301,7 @@ def save_new_portfolio_to_gsheets(portfolio_data_dict):
 
 
 # ===================== SEC 1.5: PORTFOLIO MANAGEMENT UI (Main Area) =======================
-with st.expander("💼 จัดการพอร์ต (เพิ่ม/ดูพอร์ต)", expanded=True): # Setting expanded=True for easier testing initially
+with st.expander("💼 จัดการพอร์ต (เพิ่ม/ดูพอร์ต)", expanded=True): # Setting expanded=True for easier testing
     st.subheader("พอร์ตทั้งหมดของคุณ")
     if 'df_portfolios_gs' not in locals() or df_portfolios_gs.empty:
         st.info("ยังไม่มีข้อมูลพอร์ต หรือยังไม่ได้โหลดข้อมูลพอร์ต โปรดเพิ่มพอร์ตใหม่ด้านล่าง หรือตรวจสอบการเชื่อมต่อ Google Sheets")
@@ -317,112 +317,203 @@ with st.expander("💼 จัดการพอร์ต (เพิ่ม/ดู
     st.subheader("➕ เพิ่มพอร์ตใหม่")
 
     # --- ย้าย st.selectbox สำหรับ "ประเภทพอร์ต" ออกมานอก st.form ---
+    # ใช้ key ที่แตกต่าง และอาจจะใช้ session_state ถ้าต้องการให้ค่าคงอยู่ระหว่างการ interact กับ widget อื่นนอกฟอร์ม
+    # แต่สำหรับการทำให้ conditional UI ภายในฟอร์มทำงาน การ rerun จาก selectbox นี้ก็เพียงพอ
     form_program_type_options_exp = ["", "Personal Account", "Prop Firm Challenge", "Funded Account", "Trading Competition"]
-    # ใช้ st.session_state เพื่อเก็บค่า selected_program_type ถ้าต้องการให้ค่าคงอยู่ระหว่างการกรอกฟอร์มส่วนอื่น
-    # หรือถ้าไม่ใช้ session_state ค่าจะถูก reset ทุกครั้งที่ Streamlit rerun นอกฟอร์ม
-    # เพื่อให้ UI ตอบสนองทันที เราจะใช้ตัวแปรธรรมดาก่อน แล้วดูผล
-    # ถ้าต้องการให้ค่าที่เลือกคงอยู่แม้จะมีการ interact กับ widget อื่นนอกฟอร์ม อาจจะต้องใช้ st.session_state
     
-    # ใช้ key ที่แตกต่างกันสำหรับ selectbox นอกฟอร์ม
-    # selected_program_type_for_form = st.selectbox(
-    #     "ประเภทพอร์ต (Program Type)*", 
-    #     options=form_program_type_options_exp, 
-    #     index=0, 
-    #     key="exp_pf_type_select" # Key ใหม่สำหรับ selectbox นอก form
-    # )
-    # st.write(f"**[DEBUG - นอก FORM] `selected_program_type_for_form` คือ:** `{selected_program_type_for_form}`")
+    # ถ้าต้องการให้ค่าที่เลือกใน selectbox นี้คงอยู่ระหว่างการ rerun ที่ไม่ได้เกิดจากการ submit ฟอร์ม
+    # อาจจะต้องใช้ st.session_state
+    if 'selected_program_type_for_form_v7' not in st.session_state:
+        st.session_state.selected_program_type_for_form_v7 = ""
+
+    selected_program_type_outside_form = st.selectbox(
+        "ประเภทพอร์ต (Program Type)*", 
+        options=form_program_type_options_exp, 
+        index=form_program_type_options_exp.index(st.session_state.selected_program_type_for_form_v7) if st.session_state.selected_program_type_for_form_v7 in form_program_type_options_exp else 0,
+        key="exp_pf_type_select_v7", # Key ใหม่สำหรับ selectbox นอก form
+        help="เลือกประเภทพอร์ต แล้วฟอร์มด้านล่างจะแสดงช่องที่เกี่ยวข้อง"
+    )
+    # อัปเดต session_state เมื่อมีการเลือก
+    if selected_program_type_outside_form != st.session_state.selected_program_type_for_form_v7:
+        st.session_state.selected_program_type_for_form_v7 = selected_program_type_outside_form
+        # ไม่ต้อง st.rerun() ที่นี่ เพราะการเปลี่ยนค่า selectbox จะ trigger rerun โดยอัตโนมัติ
+
+    st.write(f"**[DEBUG - นอก FORM] `selected_program_type_outside_form` คือ:** `{selected_program_type_outside_form}`")
 
 
-    with st.form("new_portfolio_form_main_v6", clear_on_submit=True): # Key ใหม่ v6
-        st.markdown("**กรอกข้อมูลพอร์ตใหม่:**")
+    with st.form("new_portfolio_form_main_v7", clear_on_submit=True): # Key ใหม่ v7
+        st.markdown("**กรอกรายละเอียดพอร์ต:** (สำหรับประเภท: `" + (selected_program_type_outside_form if selected_program_type_outside_form else "ยังไม่ได้เลือก") + "`)")
         
-        # --- Selectbox ประเภทพอร์ต ย้ายไปอยู่นอกฟอร์มแล้ว ---
-        # แต่เรายังต้องรับค่าเข้ามาในฟอร์มเพื่อใช้ในการ submit หรือแสดงผลภายในฟอร์ม
-        # ดังนั้น เราจะสร้าง selectbox อีกครั้งภายในฟอร์ม แต่จะใช้ค่าจากตัวนอกฟอร์มเป็น default ถ้าทำได้
-        # หรืออีกวิธีคือ ใช้ค่าจาก selected_program_type_for_form ที่อยู่นอกฟอร์มโดยตรงเลยตอน submit
-        
-        # วิธีที่ 1: ใช้ selectbox นอกฟอร์มเป็นตัวกำหนดการแสดงผล และส่งค่าไปตอน submit
-        # เราจะต้องมีวิธีส่ง selected_program_type_for_form เข้าไปใน new_portfolio_row_data
-        
-        # วิธีที่ 2 (ที่ "หำน้อย" จะลองใช้ที่นี่): ยังคง selectbox ไว้ในฟอร์ม แต่การแสดงผลส่วน conditional จะขึ้นกับมัน
-        # แล้วหวังว่าการ rerun ของ Streamlit จะเพียงพอ
-        # ถ้าไม่พอจริงๆ อาจจะต้องใช้ st.session_state + callback หรือย้าย selectbox ออกนอกฟอร์มจริงๆ
-        
+        # --- Input Fields พื้นฐาน (ยกเว้น Program Type ที่ย้ายออกไปแล้ว) ---
         form_c1_in_form, form_c2_in_form = st.columns(2)
         with form_c1_in_form:
-            form_new_portfolio_name_in_form = st.text_input("ชื่อพอร์ต (Portfolio Name)*", key="form_pf_name_v6")
-            # --- Selectbox "ประเภทพอร์ต" ยังคงอยู่ในฟอร์ม เพื่อให้ค่ามันถูก submit ไปพร้อมกัน ---
-            # แต่การแสดงผล conditional fields จะขึ้นกับค่าของมันในรอบ render ปัจจุบัน
-            selected_program_type_in_form = st.selectbox(
-                "ประเภทพอร์ต (Program Type)*", 
-                options=form_program_type_options_exp, # ใช้ options เดียวกัน
-                index=0, 
-                key="form_pf_type_v6_in_form" 
-            )
+            form_new_portfolio_name_in_form = st.text_input("ชื่อพอร์ต (Portfolio Name)*", key="form_pf_name_v7")
         with form_c2_in_form:
-            form_new_initial_balance_in_form = st.number_input("บาลานซ์เริ่มต้น (Initial Balance)*", min_value=0.01, value=10000.0, step=100.0, format="%.2f", key="form_pf_balance_v6")
-            form_status_options_in_form = ["Active", "Inactive", "Pending", "Passed", "Failed"]
-            form_new_status_in_form = st.selectbox("สถานะพอร์ต (Status)*", options=form_status_options_in_form, index=form_status_options_in_form.index("Active"), key="form_pf_status_v6")
+            form_new_initial_balance_in_form = st.number_input("บาลานซ์เริ่มต้น (Initial Balance)*", min_value=0.01, value=10000.0, step=100.0, format="%.2f", key="form_pf_balance_v7")
         
-        st.write(f"**[DEBUG - ใน FORM] `selected_program_type_in_form` คือ:** `{selected_program_type_in_form}`")
-
-        form_new_evaluation_step_val_in_form = ""
-        if selected_program_type_in_form == "Prop Firm Challenge": # <<< ใช้ค่าจาก selectbox ในฟอร์ม
+        form_status_options_in_form = ["Active", "Inactive", "Pending", "Passed", "Failed"]
+        form_new_status_in_form = st.selectbox("สถานะพอร์ต (Status)*", options=form_status_options_in_form, index=form_status_options_in_form.index("Active"), key="form_pf_status_v7")
+        
+        # --- "ขั้นตอนการประเมิน" จะแสดงก็ต่อเมื่อเลือก "Prop Firm Challenge" (จากตัวแปรนอกฟอร์ม) ---
+        form_new_evaluation_step_val_in_form = "" 
+        if selected_program_type_outside_form == "Prop Firm Challenge": 
             evaluation_step_options_in_form = ["", "Phase 1", "Phase 2", "Phase 3", "Verification"]
             form_new_evaluation_step_val_in_form = st.selectbox("ขั้นตอนการประเมิน (Evaluation Step)", 
                                                                 options=evaluation_step_options_in_form, index=0, 
-                                                                key="form_pf_eval_step_select_v6")
+                                                                key="form_pf_eval_step_select_v7")
 
         # --- Conditional Inputs Defaults (ใช้ชื่อตัวแปร _in_form เพื่อความชัดเจน) ---
-        form_profit_target_val_in_form = 8.0; form_daily_loss_val_in_form = 5.0; # ... (และอื่นๆ)
+        form_profit_target_val_in_form = 8.0; form_daily_loss_val_in_form = 5.0; form_total_stopout_val_in_form = 10.0; form_leverage_val_in_form = 100.0; form_min_days_val_in_form = 0
+        form_comp_end_date_in_form = None; form_comp_goal_metric_in_form = ""
+        form_pers_overall_profit_val_in_form = 0.0; form_pers_target_end_date_in_form = None; form_pers_weekly_profit_val_in_form = 0.0; form_pers_daily_profit_val_in_form = 0.0
+        form_pers_max_dd_overall_val_in_form = 0.0; form_pers_max_dd_daily_val_in_form = 0.0
+        form_enable_scaling_checkbox_val_in_form = False; form_scaling_freq_val_in_form = "Weekly"; form_su_wr_val_in_form = 55.0; form_su_gain_val_in_form = 2.0; form_su_inc_val_in_form = 0.25
+        form_sd_loss_val_in_form = -5.0; form_sd_wr_val_in_form = 40.0; form_sd_dec_val_in_form = 0.25; form_min_risk_val_in_form = 0.25; form_max_risk_val_in_form = 2.0; form_current_risk_val_in_form = 1.0
+        form_notes_val_in_form = ""
 
-        if selected_program_type_in_form in ["Prop Firm Challenge", "Funded Account"]:
+        # --- ส่วนแสดง Input ตาม Program Type (ใช้ selected_program_type_outside_form) ---
+        if selected_program_type_outside_form in ["Prop Firm Challenge", "Funded Account"]:
             st.markdown("**กฎเกณฑ์ Prop Firm/Funded:**")
-            # ... (Input fields โดยใช้ชื่อตัวแปร _in_form และ key ที่ลงท้ายด้วย _v6) ...
-            # ตัวอย่าง:
-            # with f_pf1: form_profit_target_val_in_form = st.number_input("เป้าหมายกำไร %*", value=form_profit_target_val_in_form, format="%.1f", key="f_pf_profit_v6")
+            f_pf1, f_pf2, f_pf3 = st.columns(3)
+            with f_pf1: form_profit_target_val_in_form = st.number_input("เป้าหมายกำไร %*", value=form_profit_target_val_in_form, format="%.1f", key="f_pf_profit_v7")
+            with f_pf2: form_daily_loss_val_in_form = st.number_input("จำกัดขาดทุนต่อวัน %*", value=form_daily_loss_val_in_form, format="%.1f", key="f_pf_dd_v7")
+            with f_pf3: form_total_stopout_val_in_form = st.number_input("จำกัดขาดทุนรวม %*", value=form_total_stopout_val_in_form, format="%.1f", key="f_pf_maxdd_v7")
+            f_pf_col1, f_pf_col2 = st.columns(2)
+            with f_pf_col1: form_leverage_val_in_form = st.number_input("Leverage", value=form_leverage_val_in_form, format="%.0f", key="f_pf_lev_v7")
+            with f_pf_col2: form_min_days_val_in_form = st.number_input("จำนวนวันเทรดขั้นต่ำ", value=form_min_days_val_in_form, step=1, key="f_pf_mindays_v7")
+        
+        if selected_program_type_outside_form == "Trading Competition":
+            st.markdown("**ข้อมูลการแข่งขัน:**")
+            f_tc1, f_tc2 = st.columns(2)
+            with f_tc1: 
+                form_comp_end_date_in_form = st.date_input("วันสิ้นสุดการแข่งขัน", value=form_comp_end_date_in_form, key="f_tc_enddate_v7")
+                form_profit_target_val_in_form = st.number_input("เป้าหมายกำไร % (Comp)", value=20.0, format="%.1f", key="f_tc_profit_v7")
+            with f_tc2: 
+                form_comp_goal_metric_in_form = st.text_input("ตัวชี้วัดเป้าหมาย (Comp)", value=form_comp_goal_metric_in_form, help="เช่น %Gain, ROI", key="f_tc_goalmetric_v7")
+                form_daily_loss_val_in_form = st.number_input("จำกัดขาดทุนต่อวัน % (Comp)", value=5.0, format="%.1f", key="f_tc_dd_v7")
+                form_total_stopout_val_in_form = st.number_input("จำกัดขาดทุนรวม % (Comp)", value=10.0, format="%.1f", key="f_tc_maxdd_v7")
 
-        # ... (Conditional inputs อื่นๆ สำหรับ Trading Competition, Personal Account, Scaling Manager ก็ทำนองเดียวกัน) ...
-        # ... (ให้แน่ใจว่าอ้างอิง selected_program_type_in_form และใช้ key ที่ไม่ซ้ำกัน) ...
-        # "หำน้อย" จะข้ามการพิมพ์ซ้ำส่วนนี้เพื่อความกระชับ แต่ลูกพี่ตั้มต้องใส่ให้ครบนะครับ
-        # โดยเปลี่ยนชื่อตัวแปรและ key ให้มี _in_form และ _v6 ต่อท้าย
+        if selected_program_type_outside_form == "Personal Account":
+            st.markdown("**เป้าหมายส่วนตัว (Optional):**")
+            f_ps1, f_ps2 = st.columns(2)
+            with f_ps1:
+                form_pers_overall_profit_val_in_form = st.number_input("เป้าหมายกำไรโดยรวม ($)", value=form_pers_overall_profit_val_in_form, format="%.2f", key="f_ps_profit_overall_v7")
+                form_pers_weekly_profit_val_in_form = st.number_input("เป้าหมายกำไรรายสัปดาห์ ($)", value=form_pers_weekly_profit_val_in_form, format="%.2f", key="f_ps_profit_weekly_v7")
+                form_pers_max_dd_overall_val_in_form = st.number_input("Max DD รวมที่ยอมรับได้ ($)", value=form_pers_max_dd_overall_val_in_form, format="%.2f", key="f_ps_dd_overall_v7")
+            with f_ps2:
+                form_pers_target_end_date_in_form = st.date_input("วันที่คาดว่าจะถึงเป้าหมายรวม", value=form_pers_target_end_date_in_form, key="f_ps_enddate_v7")
+                form_pers_daily_profit_val_in_form = st.number_input("เป้าหมายกำไรรายวัน ($)", value=form_pers_daily_profit_val_in_form, format="%.2f", key="f_ps_profit_daily_v7")
+                form_pers_max_dd_daily_val_in_form = st.number_input("Max DD ต่อวันที่ยอมรับได้ ($)", value=form_pers_max_dd_daily_val_in_form, format="%.2f", key="f_ps_dd_daily_v7")
 
+        st.markdown("**การตั้งค่า Scaling Manager (Optional):**")
+        form_enable_scaling_checkbox_val_in_form = st.checkbox("เปิดใช้งาน Scaling Manager?", value=form_enable_scaling_checkbox_val_in_form, key="f_scale_enable_v7")
+        if form_enable_scaling_checkbox_val_in_form:
+            f_sc1, f_sc2, f_sc3 = st.columns(3)
+            with f_sc1:
+                form_scaling_freq_val_in_form = st.selectbox("ความถี่ตรวจสอบ Scaling", ["Weekly", "Monthly"], index=["Weekly", "Monthly"].index(form_scaling_freq_val_in_form), key="f_scale_freq_v7")
+                form_su_wr_val_in_form = st.number_input("Scale Up: Min Winrate %", value=form_su_wr_val_in_form, format="%.1f", key="f_scale_su_wr_v7")
+                form_sd_loss_val_in_form = st.number_input("Scale Down: Max Loss %", value=form_sd_loss_val_in_form, format="%.1f", key="f_scale_sd_loss_v7")
+            with f_sc2:
+                form_min_risk_val_in_form = st.number_input("Min Risk % Allowed", value=form_min_risk_val_in_form, format="%.2f", key="f_scale_min_risk_v7")
+                form_su_gain_val_in_form = st.number_input("Scale Up: Min Gain %", value=form_su_gain_val_in_form, format="%.1f", key="f_scale_su_gain_v7")
+                form_sd_wr_val_in_form = st.number_input("Scale Down: Low Winrate %", value=form_sd_wr_val_in_form, format="%.1f", key="f_scale_sd_wr_v7")
+            with f_sc3:
+                form_max_risk_val_in_form = st.number_input("Max Risk % Allowed", value=form_max_risk_val_in_form, format="%.2f", key="f_scale_max_risk_v7")
+                form_su_inc_val_in_form = st.number_input("Scale Up: Risk Increment %", value=form_su_inc_val_in_form, format="%.2f", key="f_scale_su_inc_v7")
+                form_sd_dec_val_in_form = st.number_input("Scale Down: Risk Decrement %", value=form_sd_dec_val_in_form, format="%.2f", key="f_scale_sd_dec_v7")
+            form_current_risk_val_in_form = st.number_input("Current Risk % (สำหรับ Scaling)", value=form_current_risk_val_in_form, format="%.2f", key="f_scale_current_risk_v7")
 
-        # --- ที่เหลือของฟอร์ม (Notes, Submit button, Logic หลัง Submit) ---
-        form_notes_val_in_form = st.text_area("หมายเหตุเพิ่มเติม (Notes)", key="f_pf_notes_v6")
+        form_notes_val_in_form = st.text_area("หมายเหตุเพิ่มเติม (Notes)", value=form_notes_val_in_form, key="f_pf_notes_v7")
 
+        # --- Submit Button ---
         submitted_add_portfolio_in_form = st.form_submit_button("💾 บันทึกพอร์ตใหม่")
         
         if submitted_add_portfolio_in_form:
-            if not form_new_portfolio_name_in_form or not selected_program_type_in_form or not form_new_status_in_form or form_new_initial_balance_in_form <= 0:
-                st.warning("กรุณากรอกข้อมูลที่จำเป็น (*) ...")
+            # Validation
+            if not form_new_portfolio_name_in_form or not selected_program_type_outside_form or not form_new_status_in_form or form_new_initial_balance_in_form <= 0: # ใช้ selected_program_type_outside_form ในการ validate
+                st.warning("กรุณากรอกข้อมูลที่จำเป็น (*) ให้ครบถ้วนและถูกต้อง: ชื่อพอร์ต, ประเภทพอร์ต (เลือกด้านบนฟอร์ม), สถานะพอร์ต, และยอดเงินเริ่มต้นต้องมากกว่า 0")
             elif 'df_portfolios_gs' in locals() and not df_portfolios_gs.empty and form_new_portfolio_name_in_form in df_portfolios_gs['PortfolioName'].astype(str).values:
-                st.error(f"ชื่อพอร์ต '{form_new_portfolio_name_in_form}' มีอยู่แล้ว ...")
+                st.error(f"ชื่อพอร์ต '{form_new_portfolio_name_in_form}' มีอยู่แล้ว กรุณาใช้ชื่ออื่น")
             else:
                 new_id_value = str(uuid.uuid4())
                 new_portfolio_row_data = {
                     'PortfolioID': new_id_value,
                     'PortfolioName': form_new_portfolio_name_in_form, 
-                    'ProgramType': selected_program_type_in_form, # <<< ใช้ค่าจาก selectbox ในฟอร์ม
-                    'EvaluationStep': form_new_evaluation_step_val_in_form if selected_program_type_in_form == "Prop Firm Challenge" else "", 
+                    'ProgramType': selected_program_type_outside_form, # <<< ใช้ค่าจาก selectbox นอกฟอร์ม
+                    'EvaluationStep': form_new_evaluation_step_val_in_form if selected_program_type_outside_form == "Prop Firm Challenge" else "", 
                     'Status': form_new_status_in_form,
                     'InitialBalance': form_new_initial_balance_in_form, 
                     'CreationDate': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                    # ... (รวบรวมข้อมูลอื่นๆ ทั้งหมด โดยอ้างอิง selected_program_type_in_form และตัวแปร _in_form อื่นๆ) ...
+                    
+                    'ProfitTargetPercent': form_profit_target_val_in_form if selected_program_type_outside_form in ["Prop Firm Challenge", "Funded Account", "Trading Competition"] else None,
+                    'DailyLossLimitPercent': form_daily_loss_val_in_form if selected_program_type_outside_form in ["Prop Firm Challenge", "Funded Account", "Trading Competition"] else None,
+                    'TotalStopoutPercent': form_total_stopout_val_in_form if selected_program_type_outside_form in ["Prop Firm Challenge", "Funded Account", "Trading Competition"] else None,
+                    'Leverage': form_leverage_val_in_form if selected_program_type_outside_form in ["Prop Firm Challenge", "Funded Account"] else None,
+                    'MinTradingDays': form_min_days_val_in_form if selected_program_type_outside_form in ["Prop Firm Challenge", "Funded Account"] else None,
+                    
+                    'CompetitionEndDate': form_comp_end_date_in_form.strftime("%Y-%m-%d") if selected_program_type_outside_form == "Trading Competition" and form_comp_end_date_in_form else None,
+                    'CompetitionGoalMetric': form_comp_goal_metric_in_form if selected_program_type_outside_form == "Trading Competition" else None,
+                    
+                    'OverallProfitTarget': form_pers_overall_profit_val_in_form if selected_program_type_outside_form == "Personal Account" else None,
+                    'TargetEndDate': form_pers_target_end_date_in_form.strftime("%Y-%m-%d") if selected_program_type_outside_form == "Personal Account" and form_pers_target_end_date_in_form else None,
+                    'WeeklyProfitTarget': form_pers_weekly_profit_val_in_form if selected_program_type_outside_form == "Personal Account" else None,
+                    'DailyProfitTarget': form_pers_daily_profit_val_in_form if selected_program_type_outside_form == "Personal Account" else None,
+                    'MaxAcceptableDrawdownOverall': form_pers_max_dd_overall_val_in_form if selected_program_type_outside_form == "Personal Account" else None,
+                    'MaxAcceptableDrawdownDaily': form_pers_max_dd_daily_val_in_form if selected_program_type_outside_form == "Personal Account" else None,
+
+                    'EnableScaling': form_enable_scaling_checkbox_val_in_form,
+                    'ScalingCheckFrequency': form_scaling_freq_val_in_form if form_enable_scaling_checkbox_val_in_form else None,
+                    'ScaleUp_MinWinRate': form_su_wr_val_in_form if form_enable_scaling_checkbox_val_in_form else None,
+                    'ScaleUp_MinGainPercent': form_su_gain_val_in_form if form_enable_scaling_checkbox_val_in_form else None,
+                    'ScaleUp_RiskIncrementPercent': form_su_inc_val_in_form if form_enable_scaling_checkbox_val_in_form else None,
+                    'ScaleDown_MaxLossPercent': form_sd_loss_val_in_form if form_enable_scaling_checkbox_val_in_form else None,
+                    'ScaleDown_LowWinRate': form_sd_wr_val_in_form if form_enable_scaling_checkbox_val_in_form else None,
+                    'ScaleDown_RiskDecrementPercent': form_sd_dec_val_in_form if form_enable_scaling_checkbox_val_in_form else None,
+                    'MinRiskPercentAllowed': form_min_risk_val_in_form if form_enable_scaling_checkbox_val_in_form else None,
+                    'MaxRiskPercentAllowed': form_max_risk_val_in_form if form_enable_scaling_checkbox_val_in_form else None,
+                    'CurrentRiskPercent': form_current_risk_val_in_form,
+                    'Notes': form_notes_val_in_form
                 }
                 
                 success_save = save_new_portfolio_to_gsheets(new_portfolio_row_data) 
                 
                 if success_save:
-                    st.success(f"เพิ่มพอร์ต '{form_new_portfolio_name_in_form}' ... สำเร็จ!")
+                    st.success(f"เพิ่มพอร์ต '{form_new_portfolio_name_in_form}' (ID: {new_id_value}) สำเร็จ!")
                     if hasattr(load_portfolios_from_gsheets, 'clear'):
                          load_portfolios_from_gsheets.clear()
+                    # Clear the session state for selected_program_type_for_form_v7 so it defaults to "" on rerun
+                    if 'selected_program_type_for_form_v7' in st.session_state:
+                        st.session_state.selected_program_type_for_form_v7 = ""
                     st.rerun()
                 else:
-                    st.error("เกิดข้อผิดพลาดในการบันทึกพอร์ตใหม่ ...")
+                    st.error("เกิดข้อผิดพลาดในการบันทึกพอร์ตใหม่ไปยัง Google Sheets")
 # ==============================================================================
 # END: ส่วนจัดการ Portfolio (SEC 1.5)
 # ==============================================================================
+```
+
+**การเปลี่ยนแปลงที่สำคัญในโค้ดบล็อกนี้:**
+
+1.  **ย้าย `st.selectbox` สำหรับ "ประเภทพอร์ต" ออกมานอก `st.form`:**
+    * `selected_program_type_outside_form = st.selectbox(...)` ถูกวางไว้ **ก่อน** `with st.form(...)`
+    * "หำน้อย" ได้เพิ่มการใช้ `st.session_state` (`st.session_state.selected_program_type_for_form_v7`) เพื่อช่วยให้ค่าที่เลือกใน selectbox นี้ยังคงอยู่เมื่อมีการ Rerun ที่ไม่ได้เกิดจากการ Submit ฟอร์ม (เช่น ถ้ามี widget อื่นนอกฟอร์มที่ทำให้เกิด Rerun) และเพื่อให้ค่านี้ถูกใช้เป็น `index` เริ่มต้นของ selectbox นี้ในการ Rerun ครั้งถัดไป
+2.  **ภายใน `st.form`:**
+    * **ไม่มี `st.selectbox` สำหรับ "ประเภทพอร์ต" อีกแล้ว**
+    * เงื่อนไข `if selected_program_type_outside_form == ...:` ต่างๆ จะอ้างอิงค่าจากตัวแปร `selected_program_type_outside_form` ที่รับมาจากข้างนอกฟอร์ม
+    * **การรวบรวมข้อมูล `new_portfolio_row_data`:** ตอน Submit ฟอร์ม จะใช้ค่า `selected_program_type_outside_form` มาใส่ใน Dictionary
+3.  **การแสดงผล Conditional Fields:** เนื่องจาก `selected_program_type_outside_form` จะถูกอัปเดตทันทีที่ผู้ใช้เลือก และ Streamlit จะ Rerun, เงื่อนไข `if` ต่างๆ ที่อยู่ภายในฟอร์มควรจะใช้ค่าที่อัปเดตแล้วนี้ ทำให้ Conditional fields แสดง/ซ่อนได้ทันที
+4.  **`key` ของ Widgets:** "หำน้อย" ได้เปลี่ยน `key` ของ widgets ทั้งหมดในฟอร์มนี้ให้มี `_v7` (หรือชื่ออื่นที่ unique) เพื่อป้องกันการชนกับ `key` เดิมๆ ครับ
+5.  **การเคลียร์ `st.session_state` หลัง Submit:** หลังจากบันทึกพอร์ตใหม่สำเร็จ "หำน้อย" ได้เพิ่มการเคลียร์ `st.session_state.selected_program_type_for_form_v7` ให้เป็น `""` เพื่อให้ครั้งต่อไปที่ฟอร์มโหลด selectbox "ประเภทพอร์ต" (ที่อยู่นอกฟอร์ม) จะกลับไปที่ค่าเริ่มต้น (คือ `""` หรือ "ยังไม่ได้เลือก")
+
+**สิ่งที่ลูกพี่ตั้มต้องทำ:**
+
+1.  **นำโค้ดบล็อก `with st.expander("💼 จัดการพอร์ต (เพิ่ม/ดูพอร์ต)", ...)` นี้ ไปแทนที่บล็อกเดิมทั้งหมดในไฟล์ `main.py` (ในส่วน SEC 1.5)**
+2.  **ตรวจสอบให้แน่ใจว่าฟังก์ชัน `save_new_portfolio_to_gsheets` และ `load_portfolios_from_gsheets` (รวมถึง `get_gspread_client`) ถูก define ไว้อย่างถูกต้อง *ก่อน* ที่จะถึงโค้ด Expander นี้นะครับ**
+3.  **ย้ำอีกครั้งเรื่อง `expected_gsheet_headers_portfolio` ในฟังก์ชัน `save_new_portfolio_to_gsheets` นะครับว่าต้องตรงกับชีต "Portfolios" จริงๆ ของลูกพี่ตั้ม**
+
+"หำน้อย" หวังเป็นอย่างยิ่งว่าแนวทางนี้จะช่วยแก้ปัญหาเรื่อง UI ที่ไม่อัปเดตทันทีได้นะครับ การย้าย widget ที่ใช้เป็นเงื่อนไขหลักออกมานอกฟอร์ม เป็นวิธีมาตรฐานที่ใช้กันบ่อยๆ ใน Streamlit เพื่อให้ UI ตอบสนองได้ดีขึ้นครับ
+
+ลองทดสอบดูนะครับ! ถ้ามีอะไรอีก แจ้ง "หำน้อย" ได้เลยคร
 
 # ===================== SEC 2.1: COMMON INPUTS & MODE SELECTION =======================
 drawdown_limit_pct = st.sidebar.number_input(
