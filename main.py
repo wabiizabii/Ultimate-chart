@@ -1228,65 +1228,82 @@ with st.expander("📋 Entry Table (FIBO/CUSTOM)", expanded=True):
         col1_main, col2_main = st.columns(2)
         with col1_main:
             st.markdown("### 🎯 Entry Levels (FIBO)")
-            if entry_data:
-                entry_df_main = pd.DataFrame(entry_data)
+            # ใช้ตัวแปรใหม่จาก SEC 3 และตรวจสอบว่าถูก define และมีข้อมูลหรือไม่
+            if 'entry_data_summary_sec3' in locals() and entry_data_summary_sec3:
+                entry_df_main = pd.DataFrame(entry_data_summary_sec3)
                 st.dataframe(entry_df_main, hide_index=True, use_container_width=True)
             else:
-                st.info("กรอกข้อมูล High/Low และเลือก Fibo Level ใน Sidebar เพื่อดู Entry Levels.")
+                st.info("กรอกข้อมูล High/Low และเลือก Fibo Level ใน Sidebar เพื่อดู Entry Levels (หรือยังไม่มีข้อมูลสรุป).")
         with col2_main:
             st.markdown("### 🎯 Take Profit Zones (FIBO)")
             try:
-                current_swing_high_tp = st.session_state.get("swing_high", "")
-                current_swing_low_tp = st.session_state.get("swing_low", "")
-                current_fibo_direction_tp = st.session_state.get("fibo_direction", "Long")
+                # ใช้ session state keys ที่อัปเดตแล้วจาก SEC 2.2 เพื่อความสอดคล้อง
+                current_swing_high_tp_sec4 = st.session_state.get("swing_high_fibo_val_v2", "")
+                current_swing_low_tp_sec4 = st.session_state.get("swing_low_fibo_val_v2", "")
+                current_fibo_direction_tp_sec4 = st.session_state.get("direction_fibo_val_v2", "Long")
 
-                high_tp = float(current_swing_high_tp)
-                low_tp = float(current_swing_low_tp)
-
-                if high_tp > low_tp:
-                    if current_fibo_direction_tp == "Long":
-                        tp1_main = low_tp + (high_tp - low_tp) * 1.618
-                        tp2_main = low_tp + (high_tp - low_tp) * 2.618
-                        tp3_main = low_tp + (high_tp - low_tp) * 4.236
-                    else:
-                        tp1_main = high_tp - (high_tp - low_tp) * 1.618
-                        tp2_main = high_tp - (high_tp - low_tp) * 2.618
-                        tp3_main = high_tp - (high_tp - low_tp) * 4.236
-                    tp_df_main = pd.DataFrame({
-                        "TP Zone": ["TP1 (1.618)", "TP2 (2.618)", "TP3 (4.236)"],
-                        "Price": [f"{tp1_main:.2f}", f"{tp2_main:.2f}", f"{tp3_main:.2f}"]
-                    })
-                    st.dataframe(tp_df_main, hide_index=True, use_container_width=True)
+                if not current_swing_high_tp_sec4 or not current_swing_low_tp_sec4:
+                    st.info("📌 กรอก High/Low ใน Sidebar (FIBO) ให้ครบถ้วนเพื่อคำนวณ TP.")
                 else:
-                    if current_swing_high_tp or current_swing_low_tp :
-                        st.warning("📌 High ต้องมากกว่า Low เพื่อคำนวณ TP.")
+                    high_tp = float(current_swing_high_tp_sec4)
+                    low_tp = float(current_swing_low_tp_sec4)
+
+                    if high_tp > low_tp:
+                        if current_fibo_direction_tp_sec4 == "Long":
+                            tp1_main = low_tp + (high_tp - low_tp) * 1.618
+                            tp2_main = low_tp + (high_tp - low_tp) * 2.618
+                            tp3_main = low_tp + (high_tp - low_tp) * 4.236
+                        else: # Short
+                            tp1_main = high_tp - (high_tp - low_tp) * 1.618
+                            tp2_main = high_tp - (high_tp - low_tp) * 2.618
+                            tp3_main = high_tp - (high_tp - low_tp) * 4.236
+                        tp_df_main = pd.DataFrame({
+                            "TP Zone": ["TP1 (1.618)", "TP2 (2.618)", "TP3 (4.236)"],
+                            # แสดงทศนิยม 5 ตำแหน่งสำหรับราคา TP เพื่อความแม่นยำ
+                            "Price": [f"{tp1_main:.5f}", f"{tp2_main:.5f}", f"{tp3_main:.5f}"]
+                        })
+                        st.dataframe(tp_df_main, hide_index=True, use_container_width=True)
                     else:
-                        st.info("📌 กรอก High/Low ใน Sidebar เพื่อดู TP.")
+                        st.warning("📌 High ต้องมากกว่า Low เพื่อคำนวณ TP.")
             except ValueError:
-                 if current_swing_high_tp or current_swing_low_tp :
-                    st.warning("📌 กรอก High/Low เป็นตัวเลขที่ถูกต้องเพื่อคำนวณ TP.")
-                 else:
-                    st.info("📌 กรอก High/Low ใน Sidebar เพื่อดู TP.")
-            except Exception:
-                st.info("📌 เกิดข้อผิดพลาดในการคำนวณ TP.")
+                st.warning("📌 กรอก High/Low (FIBO) เป็นตัวเลขที่ถูกต้องเพื่อคำนวณ TP.")
+            except Exception as e_tp_fibo:
+                st.info(f"📌 เกิดข้อผิดพลาดในการคำนวณ TP (FIBO): {e_tp_fibo}")
 
     elif mode == "CUSTOM":
         st.markdown("### 🎯 Entry & Take Profit Zones (CUSTOM)")
-        if custom_entries_summary:
-            custom_df_main = pd.DataFrame(custom_entries_summary)
-            st.dataframe(custom_df_main, hide_index=True, use_container_width=True)
-            for i, row_data_dict in enumerate(custom_entries_summary):
+        # ใช้ตัวแปรใหม่จาก SEC 3 และตรวจสอบว่าถูก define และมีข้อมูลหรือไม่
+        if 'custom_entries_summary_sec3' in locals() and custom_entries_summary_sec3:
+            custom_df_main = pd.DataFrame(custom_entries_summary_sec3)
+            
+            # เลือกคอลัมน์ที่จะแสดงผล (ไม่รวม "ไม้ที่" ถ้าไม่ต้องการ หรือจัดลำดับใหม่)
+            cols_to_display_custom = [col for col in ["Entry", "SL", "TP", "Lot", "Risk $", "RR"] if col in custom_df_main.columns]
+            if cols_to_display_custom:
+                 st.dataframe(custom_df_main[cols_to_display_custom], hide_index=True, use_container_width=True)
+            else: # กรณีที่ custom_entries_summary_sec3 อาจมีโครงสร้างอื่น หรือ คอลัมน์ที่คาดหวังไม่มี
+                 st.dataframe(custom_df_main, hide_index=True, use_container_width=True)
+
+
+            for i, row_data_dict in enumerate(custom_entries_summary_sec3): # ใช้ตัวแปรใหม่
                 try:
                     rr_val_str = row_data_dict.get("RR", "0")
+                    # ตรวจสอบค่า RR ก่อนแปลง เพื่อหลีกเลี่ยง error ถ้าเป็น None, "", "NaN", หรือ "Error"
+                    if rr_val_str is None or str(rr_val_str).strip() == "" or \
+                       str(rr_val_str).lower() == "nan" or "error" in str(rr_val_str).lower():
+                        continue 
+                    
                     rr_val = float(rr_val_str)
-                    if rr_val < 2 and rr_val > 0:
-                        st.warning(f"🎯 Entry {i+1} มี RR ค่อนข้างต่ำ ({rr_val:.2f}) — ลองปรับ TP/SL เพื่อ Risk:Reward ที่ดีขึ้น")
-                except ValueError:
+                    if 0 < rr_val < 2: # ตรวจสอบว่า RR อยู่ระหว่าง 0 และ 2 (ไม่รวม 0)
+                        # พยายามใช้ "ไม้ที่" จาก dict ถ้ามี, ถ้าไม่มีให้ใช้ i+1
+                        entry_label = row_data_dict.get("ไม้ที่", i + 1)
+                        st.warning(f"🎯 Entry {entry_label} มี RR ค่อนข้างต่ำ ({rr_val:.2f}) — ลองปรับ TP/SL เพื่อ Risk:Reward ที่ดีขึ้น")
+                except ValueError: 
+                    # กรณี RR ไม่สามารถแปลงเป็น float ได้ (เช่น ยังเป็น "Error" จากการคำนวณก่อนหน้า)
                     pass
-                except Exception:
+                except Exception: # ดักจับ error อื่นๆ ที่อาจเกิดขึ้น
                     pass
         else:
-            st.info("กรอกข้อมูล Custom ใน Sidebar เพื่อดู Entry & TP Zones.")
+            st.info("กรอกข้อมูล Custom ใน Sidebar เพื่อดู Entry & TP Zones (หรือยังไม่มีข้อมูลสรุป).")
 
 # ===================== SEC 5: MAIN AREA - CHART VISUALIZER =======================
 with st.expander("📈 Chart Visualizer", expanded=True):
