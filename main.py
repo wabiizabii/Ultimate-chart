@@ -301,139 +301,106 @@ def save_new_portfolio_to_gsheets(portfolio_data_dict):
 
 
 # ===================== SEC 1.5: PORTFOLIO MANAGEMENT UI (Main Area) =======================
-with st.expander("💼 จัดการพอร์ต (เพิ่ม/ดูพอร์ต)", expanded=True): # Setting expanded=True for easier testing
+with st.expander("💼 จัดการพอร์ต (เพิ่ม/ดูพอร์ต)", expanded=True):
     st.subheader("พอร์ตทั้งหมดของคุณ")
-    # df_portfolios_gs should be loaded globally/module level before this UI section
     if 'df_portfolios_gs' not in locals() or df_portfolios_gs.empty:
-        st.info("ยังไม่มีข้อมูลพอร์ต หรือยังไม่ได้โหลดข้อมูลพอร์ต โปรดเพิ่มพอร์ตใหม่ด้านล่าง หรือตรวจสอบการเชื่อมต่อ Google Sheets")
+        st.info("ยังไม่มีข้อมูลพอร์ต...")
     else:
+        # ... (โค้ดแสดงตารางพอร์ตเหมือนเดิม) ...
         cols_to_display_pf_table = ['PortfolioID', 'PortfolioName', 'ProgramType', 'EvaluationStep', 'Status', 'InitialBalance']
         cols_exist_pf_table = [col for col in cols_to_display_pf_table if col in df_portfolios_gs.columns]
         if cols_exist_pf_table:
             st.dataframe(df_portfolios_gs[cols_exist_pf_table], use_container_width=True, hide_index=True)
         else:
-            st.info("ไม่พบคอลัมน์ที่ต้องการแสดงในตารางพอร์ต (ตรวจสอบ df_portfolios_gs และการโหลดข้อมูล)")
+            st.info("ไม่พบคอลัมน์ที่ต้องการแสดงในตารางพอร์ต")
 
     st.markdown("---")
     st.subheader("➕ เพิ่มพอร์ตใหม่")
 
-    # --- ย้าย st.selectbox "ประเภทพอร์ต" ออกมานอก st.form ---
-    # ใช้ key ที่ไม่ซ้ำกับในฟอร์ม (ถ้าเคยมี) และอาจจะเก็บใน session_state ถ้าต้องการให้ค่าคงอยู่จริงๆ
-    # แต่สำหรับการ render ตามเงื่อนไขทันที การใช้ตัวแปรธรรมดาก็เพียงพอ เพราะ Streamlit จะ rerun เมื่อ widget นอกฟอร์มเปลี่ยนค่า
-    
+    # --- Selectbox for Program Type (OUTSIDE THE FORM) ---
     program_type_options_outside = ["", "Personal Account", "Prop Firm Challenge", "Funded Account", "Trading Competition"]
-    # เราจะใช้ค่าจาก selectbox นี้โดยตรงในการควบคุม if-condition ภายในฟอร์ม
-    # เพื่อให้ UI ตอบสนองทันที key ที่ใช้ต้อง unique และไม่ควรซ้ำกับ key อื่นใน form หรือหน้านั้นๆ
-    # ถ้าต้องการให้ค่าที่เลือกนี้คงอยู่ระหว่างการกรอกข้อมูลอื่นๆ ในฟอร์ม (ก่อน submit)
-    # การใช้ session_state ร่วมกับ on_change callback อาจจะจำเป็น
-    # แต่เพื่อความง่าย ลองแบบนี้ก่อน: Streamlit จะ rerun เมื่อ selectbox นี้เปลี่ยนค่า
-    # และค่าใหม่ของ selected_program_type_outside จะถูกใช้ในรอบ render ถัดไป
     
-    # อาจจะจัด layout ให้ดูเหมือนเป็นส่วนหนึ่งของฟอร์มได้
-    st.markdown("**ข้อมูลพอร์ตใหม่:**") # หัวข้อรวมสำหรับส่วนเพิ่มพอร์ต
-    
-    # --- Selectbox for Program Type (OUTSIDE THE FORM for immediate UI update) ---
-    # ใช้ session_state เพื่อให้ค่าคงอยู่ระหว่างการกรอกฟอร์มส่วนที่เหลือ
-    if 'selected_program_type_for_new_portfolio' not in st.session_state:
-        st.session_state.selected_program_type_for_new_portfolio = ""
+    # ใช้ st.session_state เพื่อเก็บค่าที่เลือก และให้ UI update ทันที
+    if 'exp_pf_type_select_v8' not in st.session_state: # Key ใหม่
+        st.session_state.exp_pf_type_select_v8 = ""
 
-    def update_selected_program_type():
-        st.session_state.selected_program_type_for_new_portfolio = st.session_state.exp_pf_type_select_v7 # ใช้ key ของ selectbox
+    def on_program_type_change():
+        # Callback นี้จะถูกเรียกเมื่อ selectbox เปลี่ยนค่า ทำให้ st.session_state อัปเดต
+        # และ Streamlit จะ rerun ทำให้ UI ส่วนที่เหลือใช้ค่าใหม่จาก session_state
+        st.session_state.selected_program_type_for_form = st.session_state.exp_pf_type_select_v8
+        # อาจจะไม่ต้องทำอะไรมากใน callback ก็ได้ แค่ให้มัน rerun ก็พอ
 
-    selected_program_type_outside_form = st.selectbox(
+    st.selectbox( # ย้าย selectbox นี้ออกมาเพื่อให้ Streamlit rerun และอัปเดต UI ตามเงื่อนไขได้ทันที
         "ประเภทพอร์ต (Program Type)*", 
         options=program_type_options_outside, 
-        index=program_type_options_outside.index(st.session_state.selected_program_type_for_new_portfolio), # รักษาค่าที่เลือกไว้
-        key="exp_pf_type_select_v7", # Key ใหม่สำหรับ selectbox นอก form
-        on_change=update_selected_program_type # <<< เพิ่ม on_change callback
+        key="exp_pf_type_select_v8", # Key ใหม่ที่ใช้กับ session_state
+        on_change=on_program_type_change # <<< เพิ่ม on_change callback
     )
-    # selected_program_type_to_use = st.session_state.selected_program_type_for_new_portfolio
-    selected_program_type_to_use = selected_program_type_outside_form # ใช้ค่าจาก selectbox โดยตรงในรอบ render ปัจจุบัน
+    
+    # ดึงค่าจาก session_state ที่ถูกอัปเดตโดย callback (หรือค่าเริ่มต้น)
+    # selected_program_type_to_use_in_form = st.session_state.get('selected_program_type_for_form', "")
+    selected_program_type_to_use_in_form = st.session_state.exp_pf_type_select_v8 # ใช้ค่าจาก key ของ selectbox โดยตรง
 
-    st.write(f"**[DEBUG - นอก FORM] `selected_program_type_to_use` คือ:** `{selected_program_type_to_use}`")
+    st.write(f"**[DEBUG - นอก FORM, หลัง Selectbox] `selected_program_type_to_use_in_form` คือ:** `{selected_program_type_to_use_in_form}`")
 
 
-    with st.form("new_portfolio_form_main_v7", clear_on_submit=False): # Key ใหม่ v7, clear_on_submit=False เพื่อให้ค่าในฟอร์มไม่หายไปเมื่อ selectbox นอกฟอร์มเปลี่ยน
+    with st.form("new_portfolio_form_main_v8", clear_on_submit=True): # Key ใหม่ v8
+        st.markdown("**กรอกข้อมูลพอร์ต (สำหรับประเภท: " + (selected_program_type_to_use_in_form if selected_program_type_to_use_in_form else "ยังไม่ได้เลือก") + ")**")
         
-        # --- Input Fields อื่นๆ ที่เหลือจะอยู่ในฟอร์ม ---
+        # --- Input Fields อื่นๆ ที่เหลือจะอยู่ในฟอร์ม (ไม่มี selectbox ประเภทพอร์ตในนี้แล้ว) ---
         form_c1_in_form, form_c2_in_form = st.columns(2)
         with form_c1_in_form:
-            form_new_portfolio_name_in_form = st.text_input("ชื่อพอร์ต (Portfolio Name)*", key="form_pf_name_v7")
+            form_new_portfolio_name_in_form = st.text_input("ชื่อพอร์ต (Portfolio Name)*", key="form_pf_name_v8")
         with form_c2_in_form:
-            form_new_initial_balance_in_form = st.number_input("บาลานซ์เริ่มต้น (Initial Balance)*", min_value=0.01, value=10000.0, step=100.0, format="%.2f", key="form_pf_balance_v7")
+            form_new_initial_balance_in_form = st.number_input("บาลานซ์เริ่มต้น (Initial Balance)*", min_value=0.01, value=10000.0, key="form_pf_balance_v8")
         
         form_status_options_in_form = ["Active", "Inactive", "Pending", "Passed", "Failed"]
-        form_new_status_in_form = st.selectbox("สถานะพอร์ต (Status)*", options=form_status_options_in_form, index=form_status_options_in_form.index("Active"), key="form_pf_status_v7")
+        form_new_status_in_form = st.selectbox("สถานะพอร์ต (Status)*", options=form_status_options_in_form, index=0, key="form_pf_status_v8")
         
         form_new_evaluation_step_val_in_form = ""
-        if selected_program_type_to_use == "Prop Firm Challenge": # <<< ใช้ค่าจากตัวแปรนอกฟอร์ม
+        if selected_program_type_to_use_in_form == "Prop Firm Challenge": # <<< ใช้ค่าจากตัวแปรนอกฟอร์ม
+            st.write(f"**[DEBUG - ใน FORM, ใน IF Evaluation Step] `selected_program_type_to_use_in_form` คือ:** `{selected_program_type_to_use_in_form}`")
             evaluation_step_options_in_form = ["", "Phase 1", "Phase 2", "Phase 3", "Verification"]
             form_new_evaluation_step_val_in_form = st.selectbox("ขั้นตอนการประเมิน (Evaluation Step)", 
                                                                 options=evaluation_step_options_in_form, index=0, 
-                                                                key="form_pf_eval_step_select_v7")
+                                                                key="form_pf_eval_step_select_v8")
 
         # --- Conditional Inputs Defaults (เหมือนเดิม) ---
-        form_profit_target_val_in_form = 8.0 # ... (และอื่นๆ เหมือนเดิม)
+        # ... (กำหนดค่า default ให้ตัวแปร form_..._val ต่างๆ) ...
 
-        if selected_program_type_to_use in ["Prop Firm Challenge", "Funded Account"]: # <<< ใช้ค่าจากตัวแปรนอกฟอร์ม
+        if selected_program_type_to_use_in_form in ["Prop Firm Challenge", "Funded Account"]: # <<< ใช้ค่าจากตัวแปรนอกฟอร์ม
             st.markdown("**กฎเกณฑ์ Prop Firm/Funded:**")
-            # ... (Input fields โดยใช้ชื่อตัวแปร _in_form และ key ที่ลงท้ายด้วย _v7) ...
-            # ตัวอย่าง:
-            # with f_pf1: form_profit_target_val_in_form = st.number_input("เป้าหมายกำไร %*", value=form_profit_target_val_in_form, format="%.1f", key="f_pf_profit_v7")
-            # (เพื่อให้กระชับ "หำน้อย" จะไม่พิมพ์ซ้ำส่วนนี้ทั้งหมด แต่ลูกพี่ตั้มต้องใส่ให้ครบเหมือนเดิมนะครับ
-            # โดยเปลี่ยน selected_program_type_in_form เป็น selected_program_type_to_use และเปลี่ยน key ของ widget)
-
-        # ... (Conditional inputs อื่นๆ สำหรับ Trading Competition, Personal Account, Scaling Manager ก็ทำนองเดียวกัน) ...
-        # ... (ให้แน่ใจว่าอ้างอิง selected_program_type_to_use และใช้ key ที่ไม่ซ้ำกัน _v7) ...
-        # "หำน้อย" จะข้ามการพิมพ์ซ้ำส่วนนี้เพื่อความกระชับ แต่ลูกพี่ตั้มต้องใส่ให้ครบนะครับ
-        # โดยเปลี่ยนชื่อตัวแปรและ key ให้มี _in_form และ _v7 ต่อท้าย
-
-        # Placeholder for the rest of the form fields to keep the example shorter
-        # ลูกพี่ตั้มต้องนำโค้ดส่วนที่เหลือของ conditional inputs (Trading Comp, Personal Acc, Scaling Manager)
-        # และ new_notes_val มาใส่ตรงนี้นะครับ โดยปรับให้ใช้ selected_program_type_to_use และ key _v7
+            # ... (Input fields โดยอ้างอิงตัวแปร _val และใช้ key ที่ลงท้ายด้วย _v8) ...
+            # "หำน้อย" จะไม่พิมพ์ซ้ำส่วนนี้ทั้งหมด แต่ลูกพี่ตั้มต้องนำโค้ดส่วนที่เหลือของ conditional inputs
+            # (Trading Comp, Personal Acc, Scaling Manager) และ new_notes_val มาใส่ตรงนี้นะครับ
+            # โดยปรับให้ใช้ selected_program_type_to_use_in_form และ key _v8
 
         # --- ที่เหลือของฟอร์ม (Notes, Submit button, Logic หลัง Submit) ---
-        form_notes_val_in_form = st.text_area("หมายเหตุเพิ่มเติม (Notes)", key="f_pf_notes_v7") # ตัวอย่าง
+        # (ส่วนนี้เหมือนเดิม แต่ให้แน่ใจว่าอ้างอิงตัวแปรที่ถูกต้อง)
+        form_notes_val_in_form = st.text_area("หมายเหตุเพิ่มเติม (Notes)", key="f_pf_notes_v8") # ตัวอย่าง
 
         submitted_add_portfolio_in_form = st.form_submit_button("💾 บันทึกพอร์ตใหม่")
         
         if submitted_add_portfolio_in_form:
-            # Validation (ใช้ selected_program_type_to_use ในการ validate ถ้าจำเป็น)
-            if not form_new_portfolio_name_in_form or not selected_program_type_to_use or not form_new_status_in_form or form_new_initial_balance_in_form <= 0:
+            # Validation (ใช้ selected_program_type_to_use_in_form ในการ validate ถ้าจำเป็น)
+            if not form_new_portfolio_name_in_form or not selected_program_type_to_use_in_form or not form_new_status_in_form or form_new_initial_balance_in_form <= 0:
                 st.warning("กรุณากรอกข้อมูลที่จำเป็น (*) ...")
-            elif 'df_portfolios_gs' in locals() and not df_portfolios_gs.empty and form_new_portfolio_name_in_form in df_portfolios_gs['PortfolioName'].astype(str).values:
-                st.error(f"ชื่อพอร์ต '{form_new_portfolio_name_in_form}' มีอยู่แล้ว ...")
+            # ... (elif ตรวจสอบชื่อซ้ำ) ...
             else:
                 new_id_value = str(uuid.uuid4())
                 new_portfolio_row_data = {
                     'PortfolioID': new_id_value,
                     'PortfolioName': form_new_portfolio_name_in_form, 
-                    'ProgramType': selected_program_type_to_use, # <<< ใช้ค่าจากตัวแปรนอกฟอร์ม
-                    'EvaluationStep': form_new_evaluation_step_val_in_form if selected_program_type_to_use == "Prop Firm Challenge" else "", 
+                    'ProgramType': selected_program_type_to_use_in_form, # <<< ใช้ค่าจากตัวแปรนอกฟอร์ม
+                    'EvaluationStep': form_new_evaluation_step_val_in_form if selected_program_type_to_use_in_form == "Prop Firm Challenge" else "", 
                     'Status': form_new_status_in_form,
                     'InitialBalance': form_new_initial_balance_in_form, 
-                    'CreationDate': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                    # ... (รวบรวมข้อมูลอื่นๆ ทั้งหมด โดยอ้างอิง selected_program_type_to_use และตัวแปร _in_form อื่นๆ) ...
-                    # เช่น:
-                    # 'ProfitTargetPercent': form_profit_target_val_in_form if selected_program_type_to_use in ["Prop Firm Challenge", "Funded Account", "Trading Competition"] else None,
+                    # ... (รวบรวมข้อมูลอื่นๆ ทั้งหมด) ...
                 }
-                
-                success_save = save_new_portfolio_to_gsheets(new_portfolio_row_data) 
-                
-                if success_save:
-                    st.success(f"เพิ่มพอร์ต '{form_new_portfolio_name_in_form}' ... สำเร็จ!")
-                    # เคลียร์ session state ของ selectbox นอกฟอร์ม เพื่อให้ครั้งต่อไปเป็นค่าว่าง
-                    st.session_state.selected_program_type_for_new_portfolio = "" 
-                    if hasattr(load_portfolios_from_gsheets, 'clear'):
-                         load_portfolios_from_gsheets.clear()
-                    st.rerun()
-                else:
-                    st.error("เกิดข้อผิดพลาดในการบันทึกพอร์ตใหม่ ...")
+                # ... (เรียก save_new_portfolio_to_gsheets และจัดการผลลัพธ์) ...
 # ==============================================================================
 # END: ส่วนจัดการ Portfolio (SEC 1.5)
 # ==============================================================================
-
-
 
 # ===================== SEC 2.1: COMMON INPUTS & MODE SELECTION =======================
 drawdown_limit_pct = st.sidebar.number_input(
