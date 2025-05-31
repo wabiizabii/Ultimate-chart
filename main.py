@@ -18,28 +18,23 @@ st.set_page_config(layout="wide")
 with st.sidebar:
     st.header("🔧 Trade Plan Input")
 
-    # 1) Mode selector
+    # Mode selector
     mode = st.radio("Mode", ["FIBO", "CUSTOM"], horizontal=True)
 
-    # 2) FIBO Mode
+    # FIBO Mode
     if mode == "FIBO":
-        # เลือกระดับ Fibo ที่จะใช้งาน
-        all_levels   = [0.114, 0.25, 0.382, 0.5, 0.618]
-        all_labels   = [f"{lvl*100:.1f}%" for lvl in all_levels]
-        sel_labels   = st.multiselect(
-            "Select Fibo Levels", all_labels, default=all_labels[:3]
-        )
-        levels       = [all_levels[all_labels.index(lbl)] for lbl in sel_labels]
+        all_levels = [0.114, 0.25, 0.382, 0.5, 0.618]
+        all_labels = [f"{lvl*100:.1f}%" for lvl in all_levels]
+        sel_labels = st.multiselect("Select Fibo Levels", all_labels, default=all_labels[:3])
+        levels     = [all_levels[all_labels.index(lbl)] for lbl in sel_labels]
 
-        # Inputs
-        swing_high   = st.number_input("Swing High", format="%.5f")
-        swing_low    = st.number_input("Swing Low",  format="%.5f")
-        risk_pct     = st.number_input("Risk %", 0.0, 100.0, 1.0, step=0.1)/100
-        direction    = st.selectbox("Direction", ["Long", "Short"])
+        swing_high = st.number_input("Swing High", format="%.5f")
+        swing_low  = st.number_input("Swing Low",  format="%.5f")
+        risk_pct   = st.number_input("Risk %", 0.0, 100.0, 1.0, step=0.1)/100
+        direction  = st.selectbox("Direction", ["Long", "Short"])
 
-    # 3) CUSTOM Mode
+    # CUSTOM Mode
     else:
-        # จำนวน Leg
         num_legs     = st.number_input("จำนวนไม้ (Legs)", 1, 5, 1, step=1)
         entry_prices = []
         sl_prices    = []
@@ -50,13 +45,10 @@ with st.sidebar:
             sl_prices.append(
                 st.number_input(f"SL Price   {i+1}", format="%.5f", key=f"s{i}")
             )
-        risk_pct     = st.number_input("Risk %", 0.0, 100.0, 1.0, step=0.1)/100
-        direction    = st.selectbox("Direction", ["Long", "Short"])
+        risk_pct  = st.number_input("Risk %", 0.0, 100.0, 1.0, step=0.1)/100
+        direction = st.selectbox("Direction", ["Long", "Short"])
 
-    # ปุ่ม Refresh (เข้าใจว่าใช้เมื่อต้องการค้างฟอร์ม)
-    st.button("🔄 Refresh Inputs")
-
-    # ปุ่มสำรอง (Copy / Send / Save)
+    # Copy / Send / Save buttons
     copy_plan_btn = st.button("📋 Copy Plan")
     send_mt5_btn  = st.button("➡️ Send to MT5 (Mock)")
     save_plan_btn = st.button("💾 Save Plan")
@@ -85,12 +77,11 @@ components.html(
 # ─── Calculation ────────────────────────────────────────────────────
 # 1) Entry prices & stop_loss per leg
 if mode == "FIBO":
-    entry_prices = []
-    for lvl in levels:
-        if direction == "Long":
-            entry_prices.append(swing_high - (swing_high - swing_low)*lvl)
-        else:
-            entry_prices.append(swing_low + (swing_high - swing_low)*lvl)
+    entry_prices = [
+        (swing_high - (swing_high - swing_low)*lvl) if direction=="Long"
+        else (swing_low + (swing_high - swing_low)*lvl)
+        for lvl in levels
+    ]
     stop_loss = abs(entry_prices[0] - (swing_low if direction=="Long" else swing_high))
 else:
     stop_loss = abs(entry_prices[0] - sl_prices[0])
@@ -99,36 +90,45 @@ else:
 risk_amount = BALANCE * risk_pct
 total_lot   = risk_amount / stop_loss if stop_loss>0 else 0
 n_legs      = len(entry_prices)
-lot_sizes   = [total_lot/n_legs]*n_legs
+lot_sizes   = [total_lot/n_legs] * n_legs
 
 # 3) TP calculation (from same Fibo line)
-tp_mult    = [1.618, 2.618, 4.236]
-tp_prices  = []
+tp_mult   = [1.618, 2.618, 4.236]
+tp_prices = []
 for i, ep in enumerate(entry_prices):
-    m = tp_mult[min(i, len(tp_mult)-1)]
+    m    = tp_mult[min(i, len(tp_mult)-1)]
     base = (swing_low if mode=="FIBO" else sl_prices[0]) if direction=="Long" \
            else (swing_high if mode=="FIBO" else sl_prices[0])
-    if direction=="Long":
+    if direction == "Long":
         tp_prices.append(ep + (ep - base)*(m-1))
     else:
         tp_prices.append(ep - ((base - ep)*(m-1)))
 
-# 4) RR ratios & Profits
-rr_ratios  = [(tp - ep)/stop_loss for ep, tp in zip(entry_prices, tp_prices)]
-profits    = [ls*(tp - ep) for ep, ls, tp in zip(entry_prices, lot_sizes, tp_prices)]
+# 4) Guard Zero Division & compute RR/Profit/RiskPerLeg/TPProfit
+if stop_loss == 0:
+    st.warning("⚠️ Stop-loss is zero — กรุณาใส่ค่า Swing หรือ SL ให้ถูกต้อง")
+    rr_ratios    = [None] * n_legs
+    profits      = [0]    * n_legs
+else:
+    rr_ratios    = [(tp - ep)/stop_loss for ep, tp in zip(entry_prices, tp_prices)]
+    profits      = [ls*(tp - ep) for ep, ls, tp in zip(entry_prices, lot_sizes, tp_prices)]
 
-# prepare payload
+risk_per_leg = [ls * stop_loss for ls in lot_sizes]  # Risk $ per Leg
+tp_profit    = profits                                # TP Profit $ per Leg
+
+# prepare payload for Copy/Send/Save
 plan_payload = {
-    "timestamp":     datetime.now().isoformat(),
-    "mode":          mode,
-    "direction":     direction,
-    "risk_pct":      risk_pct,
-    "entry_prices":  entry_prices,
-    "sl_pp":         stop_loss,
-    "lot_sizes":     lot_sizes,
-    "tp_prices":     tp_prices,
-    "rr_ratios":     rr_ratios,
-    "profits":       profits,
+    "timestamp":    datetime.now().isoformat(),
+    "mode":         mode,
+    "direction":    direction,
+    "risk_pct":     risk_pct,
+    "entry_prices": entry_prices,
+    "sl_pp":        stop_loss,
+    "lot_sizes":    lot_sizes,
+    "tp_prices":    tp_prices,
+    "rr_ratios":    rr_ratios,
+    "risk_per_leg": risk_per_leg,
+    "tp_profit":    tp_profit,
 }
 
 # ─── Copy / Send / Save ──────────────────────────────────────────────
@@ -145,28 +145,23 @@ if save_plan_btn:
     df_row.to_csv(
         LOG_FILE, mode="a",
         header=not os.path.exists(LOG_FILE),
-        index=False, quoting=csv.QUOTE_NONNUMERIC
+        index=False,
+        quoting=csv.QUOTE_NONNUMERIC
     )
     st.sidebar.success(f"Saved to {LOG_FILE}")
 
 # ─── Display Results ─────────────────────────────────────────────────
-# Entry & TP inline table
 df_display = pd.DataFrame({
-    "Entry":  [f"{x:.5f}" for x in entry_prices],
-    "Lot":    [f"{x:.2f}" for x in lot_sizes],
-    "TP":     [f"{x:.5f}" for x in tp_prices],
-    "RR":     [f"{x:.2f}" for x in rr_ratios],
-    "Profit": [f"{x:.2f}" for x in profits],
+    "Entry":            [f"{x:.5f}" for x in entry_prices],
+    "Lot":              [f"{x:.2f}" for x in lot_sizes],
+    "TP":               [f"{x:.5f}" for x in tp_prices],
+    "RR":               [f"{x:.2f}" if x is not None else "-" for x in rr_ratios],
+    "Risk $ per Leg":   [f"{x:.2f}" for x in risk_per_leg],
+    "TP Profit $ per Leg":[f"{x:.2f}" for x in tp_profit],
 })
-st.markdown("## ⭐ Entry Plan + TP + RR + Profit")
-st.dataframe(df_display, use_container_width=True)
 
-# Trade Summary
-total_lots = sum(lot_sizes)
-total_risk = total_lots * stop_loss
-st.markdown("## 📊 Trade Summary")
-st.write(f"- **Total Lots:** {total_lots:.2f}")
-st.write(f"- **Total Risk $:** {total_risk:.2f}")
+st.markdown("## ⭐ Entry Plan + TP + RR + Risk/Profit per Leg")
+st.dataframe(df_display, use_container_width=True)
 
 # ─── Dashboard ────────────────────────────────────────────────────────
 st.markdown("## 🔄 Dashboard")
