@@ -322,23 +322,54 @@ with st.expander("💼 จัดการพอร์ต (เพิ่ม/ดู
     with st.form("new_portfolio_form_main", clear_on_submit=True): # Added _main to key
         st.markdown("**กรอกข้อมูลพอร์ตใหม่:**")
         
+     # ... (โค้ดส่วนบนของฟอร์ม new_portfolio_form) ...
+
+        # --- Input Fields พื้นฐาน ---
         c1_form_main, c2_form_main = st.columns(2)
         with c1_form_main:
-            new_portfolio_name = st.text_input("ชื่อพอร์ต (Portfolio Name)*", help="เช่น My Personal, FTMO Challenge Phase 1", key="form_add_main_pf_name_input")
+            new_portfolio_name = st.text_input("ชื่อพอร์ต (Portfolio Name)*", ...) # key เดิม
             program_type_options = ["", "Personal Account", "Prop Firm Challenge", "Funded Account", "Trading Competition"]
             new_program_type = st.selectbox("ประเภทพอร์ต (Program Type)*", 
                                             options=program_type_options, index=0,
-                                            help="เลือกประเภทของพอร์ต", key="form_add_main_pf_program_type_select")
+                                            key="form_add_main_pf_program_type_select") # key เดิม
         with c2_form_main:
-            new_initial_balance = st.number_input("บาลานซ์เริ่มต้น (Initial Balance)*", 
-                                                  min_value=0.01, value=10000.0, step=100.0, format="%.2f", key="form_add_main_pf_initial_balance_num")
+            new_initial_balance = st.number_input("บาลานซ์เริ่มต้น (Initial Balance)*", ...) # key เดิม
             status_options = ["Active", "Inactive", "Pending", "Passed", "Failed"]
             new_status = st.selectbox("สถานะพอร์ต (Status)*", 
                                       options=status_options, index=status_options.index("Active"), 
-                                      help="สถานะปัจจุบันของพอร์ต", key="form_add_main_pf_status_select")
+                                      key="form_add_main_pf_status_select") # key เดิม
         
-        new_evaluation_step = st.text_input("ขั้นตอนการประเมิน (Evaluation Step)", 
-                                            help="เช่น Phase 1, Step 2 (ถ้ามี)", key="form_add_main_pf_eval_step_input")
+        # --- "ขั้นตอนการประเมิน" จะแสดงก็ต่อเมื่อเลือก "Prop Firm Challenge" ---
+        new_evaluation_step_val = "" # กำหนดค่า default เป็นสตริงว่าง
+        if new_program_type == "Prop Firm Challenge":
+            new_evaluation_step_val = st.text_input("ขั้นตอนการประเมิน (Evaluation Step)", 
+                                                    help="เช่น Phase 1, Step 2", 
+                                                    key="form_add_main_pf_eval_step_input") # key เดิม
+
+        # --- Conditional Inputs อื่นๆ (กฎเกณฑ์เฉพาะของพอร์ต, เป้าหมายส่วนตัว, Scaling Manager) ---
+        # ... (โค้ดส่วนนี้ยังคงเดิม โดยอ้างอิง new_program_type ในการแสดงผล) ...
+        # ตัวอย่าง:
+        if new_program_type in ["Prop Firm Challenge", "Funded Account"]: # อาจจะต้องปรับเงื่อนไขนี้ถ้า Evaluation Step ใช้เฉพาะ Prop Firm Challenge
+            # ... แสดงกฎเกณฑ์ Prop Firm/Funded ...
+        # ... (เงื่อนไขอื่นๆ) ...
+
+
+        # --- Logic หลังกด Submit ---
+        if submitted_add_portfolio:
+            # ... (Validation) ...
+            
+            # --- รวบรวมข้อมูล new_portfolio_row_data ---
+            new_portfolio_row_data = {
+                'PortfolioID': new_id_value,
+                'PortfolioName': new_portfolio_name,
+                'ProgramType': new_program_type,
+                # ใช้ new_evaluation_step_val ที่เราดักค่าไว้
+                'EvaluationStep': new_evaluation_step_val if new_program_type == "Prop Firm Challenge" and new_evaluation_step_val else "", 
+                'Status': new_status,
+                'InitialBalance': new_initial_balance,
+                # ... (ข้อมูลอื่นๆ ทั้งหมด) ...
+            }
+            # ... (เรียก save_new_portfolio_to_gsheets และจัดการผลลัพธ์) ...
 
         # Conditional Inputs
         new_profit_target_percent_val = 0.0
