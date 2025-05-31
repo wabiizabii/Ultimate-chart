@@ -319,56 +319,97 @@ with st.expander("💼 จัดการพอร์ต (เพิ่ม/ดู
     st.markdown("---")
     st.subheader("➕ เพิ่มพอร์ตใหม่")
 
-    with st.form("new_portfolio_form_main", clear_on_submit=True): # Added _main to key
+ # ... (โค้ดส่วนบนของฟอร์ม new_portfolio_form) ...
+
+    with st.form("new_portfolio_form_main_v3", clear_on_submit=True): # หรือ key ล่าสุดที่ลูกพี่ตั้มใช้
         st.markdown("**กรอกข้อมูลพอร์ตใหม่:**")
         
-     # ... (โค้ดส่วนบนของฟอร์ม new_portfolio_form) ...
-
-        # --- Input Fields พื้นฐาน ---
-        c1_form_main, c2_form_main = st.columns(2)
-        with c1_form_main:
-            new_portfolio_name = st.text_input("ชื่อพอร์ต (Portfolio Name)*", ...) # key เดิม
-            program_type_options = ["", "Personal Account", "Prop Firm Challenge", "Funded Account", "Trading Competition"]
-            new_program_type = st.selectbox("ประเภทพอร์ต (Program Type)*", 
-                                            options=program_type_options, index=0,
-                                            key="form_add_main_pf_program_type_select") # key เดิม
-        with c2_form_main:
-            new_initial_balance = st.number_input("บาลานซ์เริ่มต้น (Initial Balance)*", ...) # key เดิม
-            status_options = ["Active", "Inactive", "Pending", "Passed", "Failed"]
-            new_status = st.selectbox("สถานะพอร์ต (Status)*", 
-                                      options=status_options, index=status_options.index("Active"), 
-                                      key="form_add_main_pf_status_select") # key เดิม
+        form_c1, form_c2 = st.columns(2)
+        with form_c1:
+            form_new_portfolio_name = st.text_input("ชื่อพอร์ต (Portfolio Name)*", key="form_pf_name_v3") # ใช้ key เดิม
+            form_program_type_options = ["", "Personal Account", "Prop Firm Challenge", "Funded Account", "Trading Competition"]
+            # --- รับค่า Program Type ---
+            selected_program_type = st.selectbox("ประเภทพอร์ต (Program Type)*", 
+                                                 options=form_program_type_options, 
+                                                 index=0, # Default to ""
+                                                 key="form_pf_type_v3") # ใช้ key เดิม
+        with form_c2:
+            form_new_initial_balance = st.number_input("บาลานซ์เริ่มต้น (Initial Balance)*", min_value=0.01, value=10000.0, format="%.2f", key="form_pf_balance_v3") # ใช้ key เดิม
+            form_status_options = ["Active", "Inactive", "Pending", "Passed", "Failed"]
+            form_new_status = st.selectbox("สถานะพอร์ต (Status)*", 
+                                           options=form_status_options, 
+                                           index=form_status_options.index("Active"), 
+                                           key="form_pf_status_v3") # ใช้ key เดิม
         
         # --- "ขั้นตอนการประเมิน" จะแสดงก็ต่อเมื่อเลือก "Prop Firm Challenge" ---
-        new_evaluation_step_val = "" # กำหนดค่า default เป็นสตริงว่าง
-        if new_program_type == "Prop Firm Challenge":
-            new_evaluation_step_val = st.text_input("ขั้นตอนการประเมิน (Evaluation Step)", 
-                                                    help="เช่น Phase 1, Step 2", 
-                                                    key="form_add_main_pf_eval_step_input") # key เดิม
+        # เราจะใช้ selected_program_type ที่ได้จาก selectbox ด้านบนมาเป็นเงื่อนไข
+        form_new_evaluation_step_val = "" # กำหนดค่า default
+        if selected_program_type == "Prop Firm Challenge": # <<< ใช้ค่าจาก selectbox โดยตรง
+            form_new_evaluation_step_val = st.text_input("ขั้นตอนการประเมิน (Evaluation Step)", 
+                                                        help="เช่น Phase 1, Step 2", 
+                                                        key="form_pf_eval_step_v3_conditional") # อาจจะเปลี่ยน key เพื่อความชัดเจน
 
         # --- Conditional Inputs อื่นๆ (กฎเกณฑ์เฉพาะของพอร์ต, เป้าหมายส่วนตัว, Scaling Manager) ---
-        # ... (โค้ดส่วนนี้ยังคงเดิม โดยอ้างอิง new_program_type ในการแสดงผล) ...
-        # ตัวอย่าง:
-        if new_program_type in ["Prop Firm Challenge", "Funded Account"]: # อาจจะต้องปรับเงื่อนไขนี้ถ้า Evaluation Step ใช้เฉพาะ Prop Firm Challenge
-            # ... แสดงกฎเกณฑ์ Prop Firm/Funded ...
-        # ... (เงื่อนไขอื่นๆ) ...
+        # ค่า default สำหรับ fields ที่อาจจะไม่มี หรือยังไม่ถูกแสดง
+        form_profit_target_val = 0.0
+        # ... (กำหนดค่า default อื่นๆ เหมือนเดิม) ...
+
+        # --- ส่วนแสดง Input ตาม Program Type (ใช้ selected_program_type) ---
+        if selected_program_type in ["Prop Firm Challenge", "Funded Account"]:
+            st.markdown("**กฎเกณฑ์ Prop Firm/Funded:**")
+            # ... (Input fields สำหรับ Prop Firm/Funded โดยใช้ selected_program_type ในการตัดสินใจ) ...
+            # ตัวอย่าง:
+            # if selected_program_type == "Prop Firm Challenge":
+            #     # แสดง field ที่เกี่ยวกับ Challenge
+            # elif selected_program_type == "Funded Account":
+            #     # แสดง field ที่เกี่ยวกับ Funded
+            # (หรือใช้ in [...] เหมือนเดิมถ้ากฎเกณฑ์คล้ายกัน)
+            f_pf1, f_pf2, f_pf3 = st.columns(3)
+            with f_pf1: form_profit_target_val = st.number_input("เป้าหมายกำไร %*", value=8.0, format="%.1f", key="f_pf_profit_v3_cond")
+            # ... (Input fields อื่นๆ สำหรับ Prop Firm/Funded)
+        
+        if selected_program_type == "Trading Competition":
+            st.markdown("**ข้อมูลการแข่งขัน:**")
+            # ... (Input fields สำหรับ Trading Competition) ...
+        
+        if selected_program_type == "Personal Account":
+            st.markdown("**เป้าหมายส่วนตัว (Optional):**")
+            # ... (Input fields สำหรับ Personal Account) ...
+
+        st.markdown("**การตั้งค่า Scaling Manager (Optional):**")
+        form_enable_scaling = st.checkbox("เปิดใช้งาน Scaling Manager?", value=False, key="f_scale_enable_v3_cond") # key ใหม่
+        if form_enable_scaling:
+            # ... (Input fields สำหรับ Scaling Manager) ...
+
+        form_notes = st.text_area("หมายเหตุเพิ่มเติม (Notes)", key="f_pf_notes_v3_cond") # key ใหม่
 
 
+        # --- Submit Button ---
+        submitted_add_portfolio = st.form_submit_button("💾 บันทึกพอร์ตใหม่")
+        
         # --- Logic หลังกด Submit ---
         if submitted_add_portfolio:
-            # ... (Validation) ...
-            
-            # --- รวบรวมข้อมูล new_portfolio_row_data ---
-            new_portfolio_row_data = {
-                'PortfolioID': new_id_value,
-                'PortfolioName': new_portfolio_name,
-                'ProgramType': new_program_type,
-                # ใช้ new_evaluation_step_val ที่เราดักค่าไว้
-                'EvaluationStep': new_evaluation_step_val if new_program_type == "Prop Firm Challenge" and new_evaluation_step_val else "", 
-                'Status': new_status,
-                'InitialBalance': new_initial_balance,
-                # ... (ข้อมูลอื่นๆ ทั้งหมด) ...
-            }
+            # Validation (ใช้ selected_program_type ในการ validate ถ้าจำเป็น)
+            if not form_new_portfolio_name or not selected_program_type or not form_new_status or form_new_initial_balance <= 0:
+                st.warning("กรุณากรอกข้อมูลที่จำเป็น (*) ให้ครบถ้วนและถูกต้อง: ชื่อพอร์ต, ประเภทพอร์ต, สถานะพอร์ต, และยอดเงินเริ่มต้นต้องมากกว่า 0")
+            # ... (ส่วน validation อื่นๆ และการบันทึกข้อมูล) ...
+            else:
+                new_id_value = str(uuid.uuid4())
+                new_portfolio_row_data = {
+                    'PortfolioID': new_id_value,
+                    'PortfolioName': form_new_portfolio_name, 
+                    'ProgramType': selected_program_type, # <<< ใช้ค่าจาก selectbox
+                    'EvaluationStep': form_new_evaluation_step_val if selected_program_type == "Prop Firm Challenge" else "", # <<< ใช้ค่าที่ดักไว้
+                    'Status': form_new_status,
+                    'InitialBalance': form_new_initial_balance,
+                    # ... (รวบรวมข้อมูลอื่นๆ ทั้งหมด โดยอ้างอิง selected_program_type สำหรับ conditional fields) ...
+                    'ProfitTargetPercent': form_profit_target_val if selected_program_type in ["Prop Firm Challenge", "Funded Account", "Trading Competition"] else None,
+                    # ... (ส่วนที่เหลือของการสร้าง new_portfolio_row_data) ...
+                }
+                
+                # success_save = save_new_portfolio_to_gsheets(new_portfolio_row_data) 
+                # ... (โค้ดบันทึกและ rerun) ...
+                st.info("Placeholder: ส่วนบันทึกข้อมูล") # Placeholder
             # ... (เรียก save_new_portfolio_to_gsheets และจัดการผลลัพธ์) ...
 
         # Conditional Inputs
