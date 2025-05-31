@@ -589,7 +589,7 @@ if st.sidebar.button("🔄 Reset Form"):
     st.session_state.swing_high_fibo_val_v2 = ""
     st.session_state.swing_low_fibo_val_v2 = ""
     # fibos_fibo_v2 ถูก define ใน SEC 2.2 ซึ่งมี 5 ตัว
-    st.session_state.fibo_flags_v2 = [True] * 5 # ตั้งค่าให้ Fibo levels ถูก check ทั้งหมด
+    st.session_state.fibo_flags_v2 = [False] * 5 # ตั้งค่าให้ Fibo levels ถูก check ทั้งหมด
 
     # ตั้งค่าเริ่มต้นสำหรับ CUSTOM
     default_n_entries = 2
