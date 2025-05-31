@@ -1081,6 +1081,9 @@ def save_plan_to_gsheets(plan_data_list, trade_mode_arg, asset_name, risk_percen
         st.error(f"❌ เกิดข้อผิดพลาดในการบันทึกแผนไปยัง Google Sheets: {e}")
         return False
 
+# ===================== SEC 3.2: SAVE PLAN ACTION & DRAWDOWN LOCK =======================
+# (ฟังก์ชัน save_plan_to_gsheets อยู่ก่อนหน้านี้ ไม่ต้องแก้ไข)
+
 df_drawdown_check = pd.DataFrame()
 gc_drawdown = get_gspread_client()
 if gc_drawdown:
@@ -1090,17 +1093,31 @@ if gc_drawdown:
         records_drawdown = ws_planned_logs_drawdown.get_all_records()
         if records_drawdown:
             df_drawdown_check = pd.DataFrame(records_drawdown)
-    except Exception as e:
+            # Ensure 'Timestamp' and 'Risk $' columns are correctly typed for get_today_drawdown
+            if 'Timestamp' in df_drawdown_check.columns:
+                df_drawdown_check['Timestamp'] = pd.to_datetime(df_drawdown_check['Timestamp'], errors='coerce')
+            if 'Risk $' in df_drawdown_check.columns:
+                df_drawdown_check['Risk $'] = pd.to_numeric(df_drawdown_check['Risk $'], errors='coerce')
+
+    except gspread.exceptions.WorksheetNotFound:
+        # This case is handled by df_drawdown_check remaining empty if worksheet not found
+        pass # Silently continue if PlannedTradeLogs doesn't exist for drawdown check
+    except Exception as e_dd_load:
+        # st.warning(f"ไม่สามารถโหลดข้อมูล PlannedTradeLogs สำหรับ Drawdown check: {e_dd_load}") # Optional warning
         pass
 
-drawdown_today = get_today_drawdown(df_drawdown_check.copy(), acc_balance)
-drawdown_limit_pct_val = st.session_state.get('drawdown_limit_pct', 2.0)
-drawdown_limit_abs = -acc_balance * (drawdown_limit_pct_val / 100)
 
-if drawdown_today < 0:
+# Use active_balance_to_use for drawdown calculations if limit is portfolio-dependent
+drawdown_today = get_today_drawdown(df_drawdown_check.copy(), active_balance_to_use) # Pass active_balance_to_use
+drawdown_limit_pct_val = st.session_state.get('drawdown_limit_pct', 2.0)
+drawdown_limit_abs = -abs(active_balance_to_use * (drawdown_limit_pct_val / 100.0)) # Use active_balance_to_use
+
+if drawdown_today < 0: # Only show if there's actual drawdown from plans
     st.sidebar.markdown(f"**ขาดทุนจากแผนวันนี้:** <font color='red'>{drawdown_today:,.2f} USD</font>", unsafe_allow_html=True)
+    st.sidebar.markdown(f"**ลิมิตขาดทุนที่ตั้งไว้:** {drawdown_limit_abs:,.2f} USD ({drawdown_limit_pct_val:.1f}% ของ {active_balance_to_use:,.2f} USD)")
 else:
     st.sidebar.markdown(f"**ขาดทุนจากแผนวันนี้:** {drawdown_today:,.2f} USD")
+
 
 active_portfolio_id = st.session_state.get('active_portfolio_id_gs', None)
 active_portfolio_name = st.session_state.get('active_portfolio_name_gs', None)
@@ -1108,37 +1125,102 @@ active_portfolio_name = st.session_state.get('active_portfolio_name_gs', None)
 asset_to_save = ""
 risk_pct_to_save = 0.0
 direction_to_save = "N/A"
-data_to_save = []
+current_data_to_save = [] # This will be populated by summary data from SEC 3
+
+save_button_pressed_flag = False
+
+# Determine which save button was pressed (save_fibo or save_custom are from SEC 2.2 and SEC 2.3)
+if mode == "FIBO" and 'save_fibo' in locals() and save_fibo:
+    save_button_pressed_flag = True
+elif mode == "CUSTOM" and 'save_custom' in locals() and save_custom:
+    save_button_pressed_flag = True
 
 if mode == "FIBO":
-    asset_to_save = st.session_state.get("asset", "XAUUSD")
-    risk_pct_to_save = st.session_state.get("risk_pct", 1.0)
-    direction_to_save = st.session_state.get("fibo_direction", "Long")
-    data_to_save = entry_data
-    save_button_pressed = save_fibo
+    asset_to_save = st.session_state.get("asset_fibo_val_v2", "XAUUSD")
+    risk_pct_to_save = st.session_state.get("risk_pct_fibo_val_v2", 1.0)
+    direction_to_save = st.session_state.get("direction_fibo_val_v2", "Long")
+    current_data_to_save = entry_data_summary_sec3 # From new SEC 3 calculations
 elif mode == "CUSTOM":
-    asset_to_save = st.session_state.get("asset_custom", "XAUUSD")
-    risk_pct_to_save = st.session_state.get("risk_pct_custom", 1.0)
-    direction_to_save = st.session_state.get("custom_direction_for_log", "N/A")
-    data_to_save = custom_entries_summary
-    save_button_pressed = save_custom
+    asset_to_save = st.session_state.get("asset_custom_val_v2", "XAUUSD")
+    risk_pct_to_save = st.session_state.get("risk_pct_custom_val_v2", 1.0)
+    
+    # Infer direction for CUSTOM mode
+    if custom_entries_summary_sec3: # Check if there are entries to infer from
+        long_count = 0
+        short_count = 0
+        valid_trade_count = 0
+        for item in custom_entries_summary_sec3:
+            try:
+                # Ensure 'Entry' and 'SL' keys exist and are valid numbers
+                entry_price_str = item.get("Entry")
+                sl_price_str = item.get("SL")
+                if entry_price_str is None or sl_price_str is None: continue
 
-if save_button_pressed and data_to_save:
-    if drawdown_today <= drawdown_limit_abs and drawdown_limit_abs < 0 :
+                entry_price = float(entry_price_str)
+                sl_price = float(sl_price_str)
+                
+                if pd.notna(entry_price) and pd.notna(sl_price) and entry_price != sl_price:
+                    valid_trade_count += 1
+                    if entry_price > sl_price: # Standard: SL is below entry for Long
+                        long_count += 1
+                    elif entry_price < sl_price: # Standard: SL is above entry for Short
+                        short_count += 1
+            except (ValueError, TypeError):
+                # Silently skip if conversion to float fails or keys missing
+                pass 
+
+        if valid_trade_count > 0:
+            if long_count == valid_trade_count and short_count == 0:
+                direction_to_save = "Long"
+            elif short_count == valid_trade_count and long_count == 0:
+                direction_to_save = "Short"
+            elif long_count > 0 and short_count > 0: # Mixed
+                direction_to_save = "Mixed"
+            elif long_count > 0: # Only longs, but maybe not all trades were valid for direction
+                 direction_to_save = "Long"
+            elif short_count > 0: # Only shorts
+                 direction_to_save = "Short"
+            else: # No clear direction from valid trades (e.g., all SL=Entry or invalid numbers)
+                direction_to_save = "N/A"
+        else:
+            direction_to_save = "N/A" # No valid trades to infer direction from
+    else:
+        direction_to_save = "N/A" # No custom entries available
+
+    current_data_to_save = custom_entries_summary_sec3 # From new SEC 3 calculations
+
+if save_button_pressed_flag:
+    if not current_data_to_save:
+        st.sidebar.warning(f"ไม่พบข้อมูลแผน ({mode}) ที่จะบันทึก กรุณาคำนวณแผนใน Summary ให้ถูกต้องก่อน")
+    elif drawdown_today <= drawdown_limit_abs : # drawdown_limit_abs is negative
         st.sidebar.error(
-            f"หยุดเทรด! ขาดทุนจากแผนรวมวันนี้ {abs(drawdown_today):,.2f} เกินลิมิต {abs(drawdown_limit_abs):,.2f} ({drawdown_limit_pct_val:.1f}%)"
+            f"หยุดเทรด! ขาดทุนจากแผนรวมวันนี้ {abs(drawdown_today):,.2f} ถึง/เกินลิมิต {abs(drawdown_limit_abs):,.2f} ({drawdown_limit_pct_val:.1f}%)"
         )
     elif not active_portfolio_id:
-        st.sidebar.error("กรุณาเลือกพอร์ตที่ใช้งานก่อนบันทึกแผน")
+        st.sidebar.error("กรุณาเลือกพอร์ตที่ใช้งาน (Active Portfolio) ใน Sidebar ด้านบนก่อนบันทึกแผน")
     else:
         try:
-            if save_plan_to_gsheets(data_to_save, mode, asset_to_save, risk_pct_to_save, direction_to_save, active_portfolio_id, active_portfolio_name):
+            if save_plan_to_gsheets(current_data_to_save, mode, asset_to_save, risk_pct_to_save, direction_to_save, active_portfolio_id, active_portfolio_name):
                 st.sidebar.success(f"บันทึกแผน ({mode}) สำหรับพอร์ต '{active_portfolio_name}' ลง Google Sheets สำเร็จ!")
                 st.balloons()
+                # Optional: Clear input fields after successful save
+                # if mode == "FIBO":
+                #     st.session_state.swing_high_fibo_val_v2 = ""
+                #     st.session_state.swing_low_fibo_val_v2 = ""
+                #     # Potentially reset fibo_flags_v2 as well
+                # elif mode == "CUSTOM":
+                #     for i in range(st.session_state.get("n_entry_custom_val_v2",1)):
+                #         st.session_state[f"custom_entry_{i}_v3"] = "0.00"
+                #         st.session_state[f"custom_sl_{i}_v3"] = "0.00"
+                #         st.session_state[f"custom_tp_{i}_v3"] = "0.00"
+                # st.rerun() # To reflect cleared inputs
             else:
-                st.sidebar.error(f"Save ({mode}) ไปยัง Google Sheets ไม่สำเร็จ.")
-        except Exception as e:
-            st.sidebar.error(f"Save ({mode}) ไม่สำเร็จ: {e}")
+                st.sidebar.error(f"Save ({mode}) ไปยัง Google Sheets ไม่สำเร็จ (อาจเกิดจาก Headers ไม่ตรง หรือการเชื่อมต่อมีปัญหา)")
+        except Exception as e_save_plan:
+            st.sidebar.error(f"เกิดข้อผิดพลาดรุนแรงระหว่างบันทึกแผน ({mode}): {e_save_plan}")
+            # st.exception(e_save_plan) # Uncomment for full traceback during debugging
+
+# --- End of new SEC 3.2 ---
 
 # ===================== SEC 4: MAIN AREA - ENTRY PLAN DETAILS TABLE =======================
 with st.expander("📋 Entry Table (FIBO/CUSTOM)", expanded=True):
