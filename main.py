@@ -93,77 +93,107 @@ def load_portfolios_from_gsheets():
         st.error(f"❌ เกิดข้อผิดพลาดในการโหลด Portfolios: {e}")
         return pd.DataFrame()
 
+# ที่ส่วนบนของ main.py (SEC 0)
+# acc_balance = 10000 # <<< เราอาจจะไม่ใช้ค่า Hardcode นี้โดยตรงอีกต่อไป
+# หรือจะเก็บไว้เป็นค่า default ถ้ายังไม่มีพอร์ตไหนถูกเลือก
+
+# ... (โค้ดส่วน SEC 0.1 Helper Functions เหมือนเดิม) ...
+
 # ===================== SEC 1: PORTFOLIO SELECTION (Sidebar) =======================
-df_portfolios_gs = load_portfolios_from_gsheets() # โหลดข้อมูลพอร์ตก่อนส่วน UI อื่นๆ
+df_portfolios_gs = load_portfolios_from_gsheets() 
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("เลือกพอร์ตที่ใช้งาน (Active Portfolio)")
 
-# Initialize session state variables for portfolio selection
-if 'active_portfolio_name_gs' not in st.session_state:
-    st.session_state.active_portfolio_name_gs = ""
-if 'active_portfolio_id_gs' not in st.session_state:
-    st.session_state.active_portfolio_id_gs = None
-if 'current_portfolio_details' not in st.session_state: # เพิ่มเพื่อเก็บรายละเอียดพอร์ตที่เลือก
-    st.session_state.current_portfolio_details = None
+# Initialize session state variables
+if 'active_portfolio_name_gs' not in st.session_state: st.session_state.active_portfolio_name_gs = ""
+if 'active_portfolio_id_gs' not in st.session_state: st.session_state.active_portfolio_id_gs = None
+if 'current_portfolio_details' not in st.session_state: st.session_state.current_portfolio_details = None
+if 'current_account_balance' not in st.session_state: st.session_state.current_account_balance = 10000.0 # <<< ค่า Default เริ่มต้น
 
-
-portfolio_names_list_gs = [""] # Start with an empty option
+portfolio_names_list_gs = [""] 
 if not df_portfolios_gs.empty and 'PortfolioName' in df_portfolios_gs.columns:
-    # Filter out NaNs and ensure unique names before sorting
-    valid_portfolio_names = sorted(df_portfolios_gs['PortfolioName'].dropna().unique().tolist())
+    valid_portfolio_names = sorted(df_portfolios_gs['PortfolioName'].dropna().astype(str).unique().tolist())
     portfolio_names_list_gs.extend(valid_portfolio_names)
 
-# Ensure current selection is valid
 if st.session_state.active_portfolio_name_gs not in portfolio_names_list_gs:
-    st.session_state.active_portfolio_name_gs = portfolio_names_list_gs[0] # Default to empty or first valid
+    st.session_state.active_portfolio_name_gs = portfolio_names_list_gs[0] 
+
+try:
+    current_index = portfolio_names_list_gs.index(st.session_state.active_portfolio_name_gs)
+except ValueError:
+    current_index = 0 
 
 selected_portfolio_name_gs = st.sidebar.selectbox(
     "เลือกพอร์ต:",
     options=portfolio_names_list_gs,
-    index=portfolio_names_list_gs.index(st.session_state.active_portfolio_name_gs), # Handles if list is empty
-    key='sb_active_portfolio_selector_gs'
+    index=current_index, 
+    key='sb_active_portfolio_selector_gs_v3' # Key ใหม่
 )
 
-if selected_portfolio_name_gs != "":
-    st.session_state.active_portfolio_name_gs = selected_portfolio_name_gs
-    if not df_portfolios_gs.empty:
+if selected_portfolio_name_gs != "" and not df_portfolios_gs.empty:
+    if st.session_state.active_portfolio_name_gs != selected_portfolio_name_gs: # ถ้ามีการเลือกพอร์ตใหม่
+        st.session_state.active_portfolio_name_gs = selected_portfolio_name_gs
         selected_portfolio_row_df = df_portfolios_gs[df_portfolios_gs['PortfolioName'] == selected_portfolio_name_gs]
         if not selected_portfolio_row_df.empty:
-            # Convert the first row to a dictionary
             st.session_state.current_portfolio_details = selected_portfolio_row_df.iloc[0].to_dict()
             if 'PortfolioID' in st.session_state.current_portfolio_details:
-                st.session_state.active_portfolio_id_gs = st.session_state.current_portfolio_details['PortfolioID']
+                st.session_state.active_portfolio_id_gs = str(st.session_state.current_portfolio_details['PortfolioID'])
+            
+            # --- อัปเดต current_account_balance ---
+            if pd.notna(st.session_state.current_portfolio_details.get('InitialBalance')) and st.session_state.current_portfolio_details.get('InitialBalance') != '':
+                try:
+                    st.session_state.current_account_balance = float(st.session_state.current_portfolio_details['InitialBalance'])
+                except ValueError:
+                    st.session_state.current_account_balance = 10000.0 # Fallback to default
+                    st.sidebar.warning(f"ไม่สามารถแปลง InitialBalance ของพอร์ต '{selected_portfolio_name_gs}' เป็นตัวเลขได้ ใช้ค่าเริ่มต้นแทน")
             else:
-                st.session_state.active_portfolio_id_gs = None
-                st.sidebar.warning("ไม่พบ PortfolioID สำหรับพอร์ตที่เลือก.")
-        else:
+                st.session_state.current_account_balance = 10000.0 # Fallback to default if InitialBalance is missing
+                st.sidebar.info(f"พอร์ต '{selected_portfolio_name_gs}' ไม่มีข้อมูล InitialBalance หรือเป็นค่าว่าง ใช้ค่าเริ่มต้นแทน")
+
+        else: # ไม่พบข้อมูลพอร์ตที่เลือก
             st.session_state.active_portfolio_id_gs = None
             st.session_state.current_portfolio_details = None
+            st.session_state.current_account_balance = 10000.0 # Fallback to default
             st.sidebar.warning(f"ไม่พบข้อมูลสำหรับพอร์ตชื่อ '{selected_portfolio_name_gs}'.")
-else:
+elif selected_portfolio_name_gs == "": # ถ้าไม่ได้เลือกพอร์ต (เลือกตัวเลือก "" แรกสุด)
     st.session_state.active_portfolio_name_gs = ""
     st.session_state.active_portfolio_id_gs = None
     st.session_state.current_portfolio_details = None
+    st.session_state.current_account_balance = 10000.0 # Fallback to default
 
-# Display details of the selected active portfolio
+# แสดงรายละเอียดพอร์ตที่เลือก (เหมือนเดิม แต่จะใช้ st.session_state.current_portfolio_details)
 if st.session_state.current_portfolio_details:
     details = st.session_state.current_portfolio_details
     st.sidebar.markdown(f"**💡 ข้อมูลพอร์ต '{details.get('PortfolioName', 'N/A')}'**")
-    if pd.notna(details.get('InitialBalance')): st.sidebar.write(f"- Balance เริ่มต้น: {details['InitialBalance']:,.2f} USD")
-    if pd.notna(details.get('ProgramType')): st.sidebar.write(f"- ประเภท: {details['ProgramType']}")
-    if pd.notna(details.get('Status')): st.sidebar.write(f"- สถานะ: {details['Status']}")
-    
-    # Display rules based on ProgramType
-    if details.get('ProgramType') in ["Prop Firm Challenge", "Funded Account", "Trading Competition"]:
-        if pd.notna(details.get('ProfitTargetPercent')): st.sidebar.write(f"- เป้าหมายกำไร: {details['ProfitTargetPercent']:.1f}%")
-        if pd.notna(details.get('DailyLossLimitPercent')): st.sidebar.write(f"- Daily Loss Limit: {details['DailyLossLimitPercent']:.1f}%")
-        if pd.notna(details.get('TotalStopoutPercent')): st.sidebar.write(f"- Total Stopout: {details['TotalStopoutPercent']:.1f}%")
-    # Add more specific details as needed
-elif not df_portfolios_gs.empty and selected_portfolio_name_gs == "":
+    # ใช้ st.session_state.current_account_balance ที่อัปเดตแล้ว
+    st.sidebar.write(f"- Balance ปัจจุบัน (จาก Initial): {st.session_state.current_account_balance:,.2f} USD") 
+    # ... (แสดงรายละเอียดอื่นๆ เหมือนเดิม) ...
+elif not df_portfolios_gs.empty and selected_portfolio_name_gs == "" and len(portfolio_names_list_gs) > 1 :
      st.sidebar.info("กรุณาเลือกพอร์ตที่ใช้งานจากรายการ")
 elif df_portfolios_gs.empty:
     st.sidebar.warning("ไม่พบข้อมูล Portfolio ใน Google Sheets หรือเกิดข้อผิดพลาดในการโหลด.")
+
+# --- การใช้ค่า balance ที่อัปเดตแล้วในส่วนอื่นของโปรแกรม ---
+# ตัวอย่างใน SEC 2.3 (Custom Trade) ที่มีการใช้ acc_balance:
+# risk_dollar_total = acc_balance * risk_per_trade
+# จะต้องเปลี่ยนเป็น:
+# risk_dollar_total = st.session_state.current_account_balance * risk_per_trade
+
+# ตัวอย่างใน SEC 3 (Strategy Summary) ที่มีการใช้ acc_balance:
+# risk_dollar_total = acc_balance * risk_per_trade
+# จะต้องเปลี่ยนเป็น:
+# risk_dollar_total = st.session_state.current_account_balance * risk_per_trade
+
+# ตัวอย่างใน SEC 3.1.1 (Scaling Suggestion) ที่มีการใช้ acc_balance:
+# if winrate_perf > 55 and gain_perf > 0.02 * acc_balance:
+# จะต้องเปลี่ยนเป็น:
+# if winrate_perf > 55 and gain_perf > 0.02 * st.session_state.current_account_balance:
+
+# ตัวอย่างใน SEC 3.2 (Drawdown Lock) ที่มีการใช้ acc_balance:
+# drawdown_limit_abs = -acc_balance * (drawdown_limit_pct_val / 100)
+# จะต้องเปลี่ยนเป็น:
+# drawdown_limit_abs = -st.session_state.current_account_balance * (drawdown_limit_pct_val / 100)
 
 
 # ========== Function Utility (ต่อจากของเดิม) ==========
