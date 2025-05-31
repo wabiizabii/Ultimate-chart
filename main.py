@@ -734,106 +734,215 @@ elif mode == "CUSTOM": # mode ควรจะถูก define ใน SEC 2.1
 st.sidebar.markdown("---")
 st.sidebar.markdown("### 🧾 Strategy Summary")
 
-entry_data = []
-custom_entries_summary = []
+# active_balance_to_use is defined globally before SEC 2.2 and should hold the
+# initial balance of the currently selected portfolio, or a default value.
+# Example: active_balance_to_use = st.session_state.get('current_account_balance', 10000.0)
 
+entry_data_summary_sec3 = []
+custom_entries_summary_sec3 = []
+
+# Mode is selected in SEC 2.1
 if mode == "FIBO":
     try:
-        current_fibo_risk_pct = st.session_state.get("risk_pct", 1.0)
-        current_fibo_direction = st.session_state.get("fibo_direction", "Long")
-        current_swing_high = st.session_state.get("swing_high", "")
-        current_swing_low = st.session_state.get("swing_low", "")
-        current_fibo_flags = st.session_state.get("fibo_flags", [False]*5)
-
-        high = float(current_swing_high)
-        low = float(current_swing_low)
-        selected_fibo_levels = [fibos[i] for i, sel in enumerate(current_fibo_flags) if sel]
-        n = len(selected_fibo_levels)
-        risk_per_trade = current_fibo_risk_pct / 100
-        risk_dollar_total = acc_balance * risk_per_trade
-        risk_dollar_per_entry = risk_dollar_total / n if n > 0 else 0
+        # Retrieve values from session state, matching keys used in SEC 2.2
+        current_fibo_risk_pct_sec3 = st.session_state.get("risk_pct_fibo_val_v2", 1.0)
+        current_fibo_direction_sec3 = st.session_state.get("direction_fibo_val_v2", "Long")
+        current_swing_high_sec3 = st.session_state.get("swing_high_fibo_val_v2", "")
+        current_swing_low_sec3 = st.session_state.get("swing_low_fibo_val_v2", "")
         
-        for idx, fibo_level_val in enumerate(selected_fibo_levels):
-            if current_fibo_direction == "Long":
-                entry = low + (high - low) * fibo_level_val
-                sl = low
-            else:
-                entry = high - (high - low) * fibo_level_val
-                sl = high
+        # fibos_fibo_v2 is defined in SEC 2.2. If SEC 3 is executed after SEC 2.2 in the script flow,
+        # fibos_fibo_v2 will be available. For clarity, we can redefine or ensure its scope.
+        # Assuming fibos_fibo_v2 = [0.114, 0.25, 0.382, 0.5, 0.618] from SEC 2.2
+        # If not, uncomment and use this:
+        # fibos_levels_sec3 = [0.114, 0.25, 0.382, 0.5, 0.618]
+        # current_fibo_flags_sec3 = st.session_state.get("fibo_flags_v2", [True] * len(fibos_levels_sec3))
+        
+        # Make sure fibos_fibo_v2 (from SEC 2.2) is accessible here.
+        # If it's not guaranteed, define fibos_levels_sec3 explicitly as above.
+        # For this example, we'll assume fibos_fibo_v2 is in scope.
+        if 'fibos_fibo_v2' not in locals() and 'fibos_fibo_v2' not in globals(): # Check if defined
+            fibos_fibo_v2 = [0.114, 0.25, 0.382, 0.5, 0.618] # Fallback definition
+            st.warning("fibos_fibo_v2 not found in local/global scope, using default for SEC 3. Please check script structure.")
+
+        current_fibo_flags_sec3 = st.session_state.get("fibo_flags_v2", [True] * len(fibos_fibo_v2))
+
+        if not current_swing_high_sec3 or not current_swing_low_sec3:
+            st.sidebar.info("กรอก High/Low ใน Sidebar (FIBO) เพื่อคำนวณ Summary")
+        elif float(current_swing_high_sec3) <= float(current_swing_low_sec3):
+            st.sidebar.warning("High ต้องมากกว่า Low สำหรับการคำนวณ FIBO")
+        elif current_fibo_risk_pct_sec3 <= 0:
+            st.sidebar.warning("Risk % (FIBO) ต้องมากกว่า 0")
+        else:
+            high_sec3 = float(current_swing_high_sec3)
+            low_sec3 = float(current_swing_low_sec3)
             
-            stop = abs(entry - sl)
-            lot = risk_dollar_per_entry / stop if stop > 0 else 0
-            risk_val = stop * lot if stop > 0 else 0
-
-            if stop > 0:
-                if current_fibo_direction == "Long":
-                    tp1 = entry + (stop * 1.618)
-                else:
-                    tp1 = entry - (stop * 1.618)
-                tp_display = f"{tp1:.2f}"
+            selected_fibo_indices_sec3 = [i for i, selected in enumerate(current_fibo_flags_sec3) if selected]
+            
+            if not selected_fibo_indices_sec3:
+                st.sidebar.info("เลือก Fibo Level อย่างน้อยหนึ่งระดับเพื่อคำนวณ Summary")
             else:
-                tp_display = "-"
+                num_selected_fibo_entries_sec3 = len(selected_fibo_indices_sec3)
+                risk_per_trade_decimal_sec3 = current_fibo_risk_pct_sec3 / 100.0
+                
+                risk_dollar_total_sec3 = active_balance_to_use * risk_per_trade_decimal_sec3
+                risk_dollar_per_entry_sec3 = risk_dollar_total_sec3 / num_selected_fibo_entries_sec3 if num_selected_fibo_entries_sec3 > 0 else 0
 
-            entry_data.append({
-                "Fibo Level": f"{fibo_level_val:.3f}",
-                "Entry": f"{entry:.2f}",
-                "SL": f"{sl:.2f}",
-                "TP": tp_display, 
-                "Lot": f"{lot:.2f}" if stop > 0 else "0.00",
-                "Risk $": f"{risk_val:.2f}" if stop > 0 else "0.00",
-            })
-        if entry_data:
-            entry_df_summary = pd.DataFrame(entry_data)
-            st.sidebar.write(f"**Total Lots:** {entry_df_summary['Lot'].astype(float).sum():.2f}")
-            st.sidebar.write(f"**Total Risk $:** {entry_df_summary['Risk $'].astype(float).sum():.2f}")
-    except ValueError:
-        if current_swing_high or current_swing_low:
-             st.sidebar.warning("กรอก High/Low ให้ถูกต้องเพื่อดู Summary")
-    except Exception as e:
-        pass 
+                for i_selected_fibo in selected_fibo_indices_sec3:
+                    fibo_level_val_sec3 = fibos_fibo_v2[i_selected_fibo] # Use fibos_fibo_v2 from SEC 2.2
+                    
+                    entry_price_sec3 = 0.0
+                    sl_price_sec3 = 0.0
+                    if current_fibo_direction_sec3 == "Long":
+                        entry_price_sec3 = low_sec3 + (high_sec3 - low_sec3) * fibo_level_val_sec3
+                        sl_price_sec3 = low_sec3 
+                    else: # Short
+                        entry_price_sec3 = high_sec3 - (high_sec3 - low_sec3) * fibo_level_val_sec3
+                        sl_price_sec3 = high_sec3
+                    
+                    stop_distance_sec3 = abs(entry_price_sec3 - sl_price_sec3)
+                    # Ensure stop_distance is not extremely small to prevent huge lot sizes / division by zero
+                    if stop_distance_sec3 < 1e-9: # Threshold for too small stop
+                        lot_size_sec3 = 0
+                        actual_risk_value_sec3 = 0
+                        tp_display_str_sec3 = "-"
+                        st.sidebar.warning(f"Fibo {fibo_level_val_sec3:.3f}: Stop distance is too small. Lot size set to 0.")
+                    else:
+                        lot_size_sec3 = risk_dollar_per_entry_sec3 / stop_distance_sec3
+                        actual_risk_value_sec3 = stop_distance_sec3 * lot_size_sec3
+
+                        tp1_price_sec3 = 0.0
+                        if current_fibo_direction_sec3 == "Long":
+                            tp1_price_sec3 = entry_price_sec3 + (stop_distance_sec3 * 1.618)
+                        else: # Short
+                            tp1_price_sec3 = entry_price_sec3 - (stop_distance_sec3 * 1.618)
+                        tp_display_str_sec3 = f"{tp1_price_sec3:.5f}" # More precision for TP
+
+                    entry_data_summary_sec3.append({
+                        "Fibo Level": f"{fibo_level_val_sec3:.3f}",
+                        "Entry": f"{entry_price_sec3:.5f}", # More precision for Entry/SL
+                        "SL": f"{sl_price_sec3:.5f}",
+                        "TP": tp_display_str_sec3, 
+                        "Lot": f"{lot_size_sec3:.2f}",
+                        "Risk $": f"{actual_risk_value_sec3:.2f}",
+                    })
+                
+                if entry_data_summary_sec3:
+                    df_summary_fibo_sec3 = pd.DataFrame(entry_data_summary_sec3)
+                    st.sidebar.write("**แผน FIBO:**")
+                    st.sidebar.dataframe(df_summary_fibo_sec3, hide_index=True, use_container_width=True)
+                    
+                    total_lots_fibo_sec3 = df_summary_fibo_sec3['Lot'].astype(float).sum()
+                    total_risk_dollar_fibo_sec3 = df_summary_fibo_sec3['Risk $'].astype(float).sum()
+                    
+                    st.sidebar.write(f"**Total Lots (FIBO):** {total_lots_fibo_sec3:.2f}")
+                    st.sidebar.write(f"**Total Risk $ (FIBO):** {total_risk_dollar_fibo_sec3:.2f} (Balance: {active_balance_to_use:,.2f}, Risk: {current_fibo_risk_pct_sec3:.2f}%)")
+                else:
+                    st.sidebar.info("ไม่สามารถคำนวณ Summary สำหรับ FIBO (อาจจะยังไม่ได้เลือก Fibo Level หรือ High/Low ไม่ถูกต้อง)")
+
+    except ValueError: # Handles issues like non-numeric High/Low
+        if st.session_state.get("swing_high_fibo_val_v2", "") or st.session_state.get("swing_low_fibo_val_v2", ""):
+             st.sidebar.warning("กรอก High/Low (FIBO) เป็นตัวเลขที่ถูกต้องเพื่อดู Summary")
+    except Exception as e_fibo_summary:
+        st.sidebar.error(f"เกิดข้อผิดพลาด (FIBO Summary): {e_fibo_summary}")
+
 elif mode == "CUSTOM":
     try:
-        num_entries_val_summary = st.session_state.get("n_entry_custom", 1)
-        current_custom_risk_pct_summary = st.session_state.get("risk_pct_custom", 1.0)
+        num_entries_custom_sec3 = st.session_state.get("n_entry_custom_val_v2", 1)
+        current_custom_risk_pct_sec3 = st.session_state.get("risk_pct_custom_val_v2", 1.0)
 
-        risk_per_trade_summary = current_custom_risk_pct_summary / 100
-        risk_dollar_total_summary = acc_balance * risk_per_trade_summary
-        risk_dollar_per_entry_summary = risk_dollar_total_summary / num_entries_val_summary if num_entries_val_summary > 0 else 0
-        
-        rr_list = []
-        for i in range(int(num_entries_val_summary)):
-            entry_val_str = st.session_state.get(f"custom_entry_{i}", "0.00")
-            sl_val_str = st.session_state.get(f"custom_sl_{i}", "0.00")
-            tp_val_str = st.session_state.get(f"custom_tp_{i}", "0.00")
+        if current_custom_risk_pct_sec3 <= 0:
+            st.sidebar.warning("Risk % (CUSTOM) ต้องมากกว่า 0")
+        elif num_entries_custom_sec3 <= 0:
+            st.sidebar.warning("จำนวนไม้ (CUSTOM) ต้องมากกว่า 0")
+        else:
+            risk_per_trade_decimal_custom_sec3 = current_custom_risk_pct_sec3 / 100.0
+            risk_dollar_total_custom_sec3 = active_balance_to_use * risk_per_trade_decimal_custom_sec3
+            risk_dollar_per_entry_custom_sec3 = risk_dollar_total_custom_sec3 / num_entries_custom_sec3
+            
+            all_custom_inputs_valid_sec3 = True
+            rr_list_custom_sec3 = []
 
-            entry_val = float(entry_val_str)
-            sl_val = float(sl_val_str)
-            tp_val = float(tp_val_str)
+            for i_custom in range(int(num_entries_custom_sec3)):
+                entry_val_str_sec3 = st.session_state.get(f"custom_entry_{i_custom}_v3", "0.00")
+                sl_val_str_sec3 = st.session_state.get(f"custom_sl_{i_custom}_v3", "0.00")
+                tp_val_str_sec3 = st.session_state.get(f"custom_tp_{i_custom}_v3", "0.00")
 
-            stop = abs(entry_val - sl_val)
-            target = abs(tp_val - entry_val)
-            lot = risk_dollar_per_entry_summary / stop if stop > 0 else 0
-            rr = (target / stop) if stop > 0 else 0
-            rr_list.append(rr)
-            custom_entries_summary.append({
-                "Entry": f"{entry_val:.2f}",
-                "SL": f"{sl_val:.2f}",
-                "TP": f"{tp_val:.2f}",
-                "Lot": f"{lot:.2f}" if stop > 0 else "0.00",
-                "Risk $": f"{risk_dollar_per_entry_summary:.2f}" if stop > 0 else "0.00",
-                "RR": f"{rr:.2f}" if stop > 0 else "0.00"
-            })
-        if custom_entries_summary:
-            custom_df_summary = pd.DataFrame(custom_entries_summary)
-            st.sidebar.write(f"**Total Lots:** {custom_df_summary['Lot'].astype(float).sum():.2f}")
-            st.sidebar.write(f"**Total Risk $:** {custom_df_summary['Risk $'].astype(float).sum():.2f}")
-            avg_rr = np.mean([r for r in rr_list if r > 0]) if any(r > 0 for r in rr_list) else 0
-            if avg_rr > 0 :
-                st.sidebar.write(f"**Average RR:** {avg_rr:.2f}")
-    except ValueError:
-        st.sidebar.warning("กรอก Entry/SL/TP ให้ถูกต้องเพื่อดู Summary")
-    except Exception as e:
-        pass
+                try:
+                    entry_val_custom_sec3 = float(entry_val_str_sec3)
+                    sl_val_custom_sec3 = float(sl_val_str_sec3)
+                    tp_val_custom_sec3 = float(tp_val_str_sec3)
+
+                    if entry_val_custom_sec3 == sl_val_custom_sec3:
+                        custom_entries_summary_sec3.append({
+                            "ไม้ที่": i_custom + 1, "Entry": f"{entry_val_custom_sec3:.5f}", "SL": f"{sl_val_custom_sec3:.5f}",
+                            "TP": f"{tp_val_custom_sec3:.5f}", "Lot": "Error (SL=Entry)",
+                            "Risk $": "Error", "RR": "Error"
+                        })
+                        all_custom_inputs_valid_sec3 = False
+                        continue
+
+                    stop_distance_custom_sec3 = abs(entry_val_custom_sec3 - sl_val_custom_sec3)
+                    target_distance_custom_sec3 = abs(tp_val_custom_sec3 - entry_val_custom_sec3)
+                    
+                    if stop_distance_custom_sec3 < 1e-9: # Threshold for too small stop
+                        lot_size_custom_sec3 = 0
+                        actual_risk_value_custom_sec3 = 0
+                        rr_custom_sec3 = 0
+                        st.sidebar.warning(f"ไม้ที่ {i_custom+1}: Stop distance is too small. Lot size set to 0.")
+                    else:
+                        lot_size_custom_sec3 = risk_dollar_per_entry_custom_sec3 / stop_distance_custom_sec3
+                        actual_risk_value_custom_sec3 = risk_dollar_per_entry_custom_sec3 # Per entry
+                        rr_custom_sec3 = target_distance_custom_sec3 / stop_distance_custom_sec3
+                        rr_list_custom_sec3.append(rr_custom_sec3)
+
+                    custom_entries_summary_sec3.append({
+                        "ไม้ที่": i_custom + 1,
+                        "Entry": f"{entry_val_custom_sec3:.5f}", # More precision
+                        "SL": f"{sl_val_custom_sec3:.5f}",
+                        "TP": f"{tp_val_custom_sec3:.5f}",
+                        "Lot": f"{lot_size_custom_sec3:.2f}",
+                        "Risk $": f"{actual_risk_value_custom_sec3:.2f}",
+                        "RR": f"{rr_custom_sec3:.2f}"
+                    })
+                except ValueError:
+                    all_custom_inputs_valid_sec3 = False
+                    custom_entries_summary_sec3.append({
+                        "ไม้ที่": i_custom + 1, "Entry": entry_val_str_sec3, "SL": sl_val_str_sec3, "TP": tp_val_str_sec3,
+                        "Lot": "Error (Invalid input)", "Risk $": "Error", "RR": "Error"
+                    })
+                    # No break here, show all errors
+            
+            if custom_entries_summary_sec3:
+                df_summary_custom_sec3 = pd.DataFrame(custom_entries_summary_sec3)
+                st.sidebar.write("**แผน CUSTOM:**")
+                st.sidebar.dataframe(df_summary_custom_sec3, 
+                                    column_order=("ไม้ที่", "Entry", "SL", "TP", "Lot", "Risk $", "RR"),
+                                    hide_index=True, 
+                                    use_container_width=True)
+
+                # Check if any row in the dataframe contains "Error" in Lot column
+                if not (df_summary_custom_sec3['Lot'].astype(str).str.contains("Error").any()):
+                    total_lots_custom_sec3 = df_summary_custom_sec3['Lot'].astype(float).sum()
+                    total_risk_dollar_custom_sec3 = df_summary_custom_sec3['Risk $'].astype(float).sum()
+                    
+                    st.sidebar.write(f"**Total Lots (CUSTOM):** {total_lots_custom_sec3:.2f}")
+                    st.sidebar.write(f"**Total Risk $ (CUSTOM):** {total_risk_dollar_custom_sec3:.2f} (Balance: {active_balance_to_use:,.2f}, Risk: {current_custom_risk_pct_sec3:.2f}%)")
+                    
+                    avg_rr_custom_sec3 = np.mean([r for r in rr_list_custom_sec3 if isinstance(r, (float, int)) and r > 0]) if rr_list_custom_sec3 else 0
+                    if avg_rr_custom_sec3 > 0:
+                        st.sidebar.write(f"**Average RR (CUSTOM):** {avg_rr_custom_sec3:.2f}")
+                else:
+                    st.sidebar.warning("มีข้อผิดพลาดในข้อมูล CUSTOM บางรายการ, กรุณาตรวจสอบตารางด้านบน")
+            else:
+                st.sidebar.info("กรอกข้อมูล CUSTOM เพื่อคำนวณ Summary")
+
+
+    except ValueError: # Catch error if initial parsing of num_entries or risk_pct fails
+        st.sidebar.warning("กรอกข้อมูล CUSTOM ให้ถูกต้อง (ตัวเลข) เพื่อดู Summary")
+    except Exception as e_custom_summary:
+        st.sidebar.error(f"เกิดข้อผิดพลาด (CUSTOM Summary): {e_custom_summary}")
+
+# --- End of new SEC 3 ---
 
 # ===================== SEC 3.1: SCALING MANAGER =======================
 with st.sidebar.expander("⚙️ Scaling Manager Settings", expanded=False):
