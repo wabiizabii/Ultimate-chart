@@ -301,24 +301,15 @@ def save_new_portfolio_to_gsheets(portfolio_data_dict):
 
 
 # ===================== SEC 1.5: PORTFOLIO MANAGEMENT UI (Main Area) =======================
-with st.expander("💼 จัดการพอร์ต (เพิ่ม/ดูพอร์ต)", expanded=False): # Default to collapsed
-    st.subheader("พอร์ตทั้งหมดของคุณ")
-    # df_portfolios_gs should be loaded globally/module level before this UI section
-    if 'df_portfolios_gs' not in locals() or df_portfolios_gs.empty:
-        st.info("ยังไม่มีข้อมูลพอร์ต หรือยังไม่ได้โหลดข้อมูลพอร์ต โปรดเพิ่มพอร์ตใหม่ด้านล่าง หรือตรวจสอบการเชื่อมต่อ Google Sheets")
-    else:
-        cols_to_display_pf_table = ['PortfolioID', 'PortfolioName', 'ProgramType', 'EvaluationStep', 'Status', 'InitialBalance']
-        cols_exist_pf_table = [col for col in cols_to_display_pf_table if col in df_portfolios_gs.columns]
-        if cols_exist_pf_table:
-            st.dataframe(df_portfolios_gs[cols_exist_pf_table], use_container_width=True, hide_index=True)
-        else:
-            st.info("ไม่พบคอลัมน์ที่ต้องการแสดงในตารางพอร์ต (ตรวจสอบ df_portfolios_gs และการโหลดข้อมูล)")
+with st.expander("💼 จัดการพอร์ต (เพิ่ม/ดูพอร์ต)", expanded=False): # ระดับการย่อหน้าที่ 1
+    st.subheader("พอร์ตทั้งหมดของคุณ") # ระดับการย่อหน้าที่ 2 (อยู่ใต้ expander)
+    # ... (โค้ดแสดงตารางพอร์ต) ...
 
-    st.markdown("---")
-    st.subheader("➕ เพิ่มพอร์ตใหม่")
+    st.markdown("---") # ระดับการย่อหน้าที่ 2
+    st.subheader("➕ เพิ่มพอร์ตใหม่") # ระดับการย่อหน้าที่ 2
 
- with st.form("new_portfolio_form_main_v5", clear_on_submit=True): # Key ใหม่ v5
-        st.markdown("**กรอกข้อมูลพอร์ตใหม่:**")
+    with st.form("new_portfolio_form_main_v5", clear_on_submit=True): # ระดับการย่อหน้าที่ 2 (อยู่ใต้ expander เหมือนกัน)
+        st.markdown("**กรอกข้อมูลพอร์ตใหม่:**") # ระดับการย่อหน้าที่ 3 (อยู่ใต้ form)
         
         form_c1, form_c2 = st.columns(2)
         with form_c1:
