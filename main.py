@@ -1469,7 +1469,24 @@ with st.expander("📈 Chart Visualizer", expanded=False):
 
 # ===================== SEC 6: MAIN AREA - AI ASSISTANT =======================
 with st.expander("🤖 AI Assistant", expanded=True):
-    df_ai_logs = pd.DataFrame()
+    # Get active portfolio details
+    active_portfolio_id_ai = st.session_state.get('active_portfolio_id_gs', None)
+    active_portfolio_name_ai = st.session_state.get('active_portfolio_name_gs', "ทั่วไป (ไม่ได้เลือกพอร์ต)")
+    # active_balance_to_use is defined globally and should reflect the active portfolio's initial balance
+    # If no portfolio is selected, active_balance_to_use defaults to 10000.0 (as per its definition)
+    # We will use this for simulation if a portfolio is active, otherwise, the old acc_balance (10000) for global.
+    
+    balance_for_ai_sim = acc_balance # Default to global acc_balance (10000)
+    report_title_suffix = "(จากข้อมูลแผนเทรดทั้งหมด)"
+
+    if active_portfolio_id_ai:
+        balance_for_ai_sim = active_balance_to_use # Use active portfolio's balance for simulation
+        report_title_suffix = f"(สำหรับพอร์ต: '{active_portfolio_name_ai}')"
+        st.info(f"AI Assistant กำลังวิเคราะห์ข้อมูลสำหรับพอร์ต: '{active_portfolio_name_ai}' (Balance เริ่มต้น: {balance_for_ai_sim:,.2f} USD)")
+    else:
+        st.info("AI Assistant กำลังวิเคราะห์ข้อมูลจากแผนเทรดทั้งหมด (ยังไม่ได้เลือก Active Portfolio)")
+
+    df_ai_logs_all = pd.DataFrame() # To store all logs first
     gc_ai = get_gspread_client()
     if gc_ai:
         try:
@@ -1477,31 +1494,61 @@ with st.expander("🤖 AI Assistant", expanded=True):
             ws_ai_logs = sh_ai.worksheet(WORKSHEET_PLANNED_LOGS)
             records_ai = ws_ai_logs.get_all_records()
             if records_ai:
-                df_ai_logs = pd.DataFrame(records_ai)
-                if 'Risk $' in df_ai_logs.columns:
-                    df_ai_logs['Risk $'] = pd.to_numeric(df_ai_logs['Risk $'], errors='coerce').fillna(0)
-                if 'RR' in df_ai_logs.columns:
-                    df_ai_logs['RR'] = pd.to_numeric(df_ai_logs['RR'], errors='coerce')
-                if 'Timestamp' in df_ai_logs.columns:
-                    df_ai_logs['Timestamp'] = pd.to_datetime(df_ai_logs['Timestamp'], errors='coerce')
-        except Exception as e:
-            pass
-            
-    if df_ai_logs.empty:
-        st.info("ยังไม่มีข้อมูลแผนเทรดใน Log (Google Sheets) สำหรับ AI Assistant")
-    else:
-        total_trades_ai = df_ai_logs.shape[0]
-        win_trades_ai = df_ai_logs[df_ai_logs["Risk $"] > 0].shape[0] if "Risk $" in df_ai_logs.columns else 0
-        winrate_ai = (100 * win_trades_ai / total_trades_ai) if total_trades_ai > 0 else 0
-        gross_profit_ai = df_ai_logs["Risk $"].sum() if "Risk $" in df_ai_logs.columns else 0
-        
-        avg_rr_ai = df_ai_logs["RR"].mean() if "RR" in df_ai_logs.columns and not df_ai_logs["RR"].dropna().empty else None
+                df_ai_logs_all = pd.DataFrame(records_ai)
+                if 'Risk $' in df_ai_logs_all.columns:
+                    df_ai_logs_all['Risk $'] = pd.to_numeric(df_ai_logs_all['Risk $'], errors='coerce').fillna(0)
+                if 'RR' in df_ai_logs_all.columns:
+                    df_ai_logs_all['RR'] = pd.to_numeric(df_ai_logs_all['RR'], errors='coerce')
+                if 'Timestamp' in df_ai_logs_all.columns:
+                    df_ai_logs_all['Timestamp'] = pd.to_datetime(df_ai_logs_all['Timestamp'], errors='coerce')
+                if 'PortfolioID' in df_ai_logs_all.columns: # Ensure PortfolioID is string for consistent comparison
+                    df_ai_logs_all['PortfolioID'] = df_ai_logs_all['PortfolioID'].astype(str)
 
-        max_drawdown_ai = 0
-        if "Risk $" in df_ai_logs.columns:
-            df_ai_logs_sorted = df_ai_logs.sort_values(by="Timestamp") if "Timestamp" in df_ai_logs.columns else df_ai_logs
-            current_balance_sim = acc_balance
-            peak_balance_sim = acc_balance
+        except gspread.exceptions.WorksheetNotFound:
+            st.warning(f"ไม่พบ Worksheet '{WORKSHEET_PLANNED_LOGS}' สำหรับ AI Assistant.")
+            df_ai_logs_all = pd.DataFrame() # Ensure it's an empty DF
+        except Exception as e_ai_load:
+            st.error(f"เกิดข้อผิดพลาดในการโหลดข้อมูลสำหรับ AI Assistant: {e_ai_load}")
+            df_ai_logs_all = pd.DataFrame() # Ensure it's an empty DF
+            
+    # Filter logs if an active portfolio is selected
+    df_ai_logs_to_analyze = pd.DataFrame()
+    if active_portfolio_id_ai and not df_ai_logs_all.empty:
+        if 'PortfolioID' in df_ai_logs_all.columns:
+            # Ensure active_portfolio_id_ai is string for comparison, as PortfolioID in df is now string
+            df_ai_logs_to_analyze = df_ai_logs_all[df_ai_logs_all['PortfolioID'] == str(active_portfolio_id_ai)].copy()
+            if df_ai_logs_to_analyze.empty:
+                st.info(f"ไม่พบข้อมูลแผนเทรดใน Log สำหรับพอร์ต '{active_portfolio_name_ai}'.")
+        else:
+            st.warning("คอลัมน์ 'PortfolioID' ไม่พบใน PlannedTradeLogs, ไม่สามารถกรองข้อมูลสำหรับ AI Assistant ได้")
+            df_ai_logs_to_analyze = df_ai_logs_all.copy() # Analyze all if PortfolioID column is missing
+    elif not df_ai_logs_all.empty: # No active portfolio, analyze all logs
+        df_ai_logs_to_analyze = df_ai_logs_all.copy()
+    else: # df_ai_logs_all is empty
+        df_ai_logs_to_analyze = pd.DataFrame()
+
+
+    if df_ai_logs_to_analyze.empty and df_ai_logs_all.empty: # No logs at all
+        st.info("ยังไม่มีข้อมูลแผนเทรดใน Log (Google Sheets) สำหรับ AI Assistant")
+    elif df_ai_logs_to_analyze.empty and not df_ai_logs_all.empty and active_portfolio_id_ai: # Active portfolio selected, but no logs for it
+        # Message already shown above
+        pass
+    else: # Logs exist for analysis (either global or for active portfolio)
+        total_trades_ai = df_ai_logs_to_analyze.shape[0]
+        win_trades_ai = df_ai_logs_to_analyze[df_ai_logs_to_analyze["Risk $"] > 0].shape[0] if "Risk $" in df_ai_logs_to_analyze.columns else 0
+        winrate_ai = (100 * win_trades_ai / total_trades_ai) if total_trades_ai > 0 else 0
+        gross_profit_ai = df_ai_logs_to_analyze["Risk $"].sum() if "Risk $" in df_ai_logs_to_analyze.columns else 0
+        
+        avg_rr_ai_series = df_ai_logs_to_analyze["RR"].dropna() if "RR" in df_ai_logs_to_analyze.columns else pd.Series(dtype='float64')
+        avg_rr_ai = avg_rr_ai_series.mean() if not avg_rr_ai_series.empty else None
+
+        max_drawdown_ai = 0.0
+        if "Risk $" in df_ai_logs_to_analyze.columns and not df_ai_logs_to_analyze.empty:
+            df_ai_logs_sorted = df_ai_logs_to_analyze.sort_values(by="Timestamp") if "Timestamp" in df_ai_logs_to_analyze.columns and not df_ai_logs_to_analyze["Timestamp"].isnull().all() else df_ai_logs_to_analyze
+            
+            current_balance_sim = balance_for_ai_sim # Use the determined balance for simulation
+            peak_balance_sim = balance_for_ai_sim
+            
             for pnl_val in df_ai_logs_sorted["Risk $"]:
                 current_balance_sim += pnl_val
                 if current_balance_sim > peak_balance_sim:
@@ -1512,39 +1559,53 @@ with st.expander("🤖 AI Assistant", expanded=True):
         
         win_day_ai = "-"
         loss_day_ai = "-"
-        if "Timestamp" in df_ai_logs.columns and "Risk $" in df_ai_logs.columns and not df_ai_logs["Timestamp"].isnull().all():
-            df_ai_logs["Weekday"] = df_ai_logs["Timestamp"].dt.day_name()
-            daily_pnl = df_ai_logs.groupby("Weekday")["Risk $"].sum()
-            if not daily_pnl.empty:
-                win_day_ai = daily_pnl.idxmax() if daily_pnl.max() > 0 else "-"
-                loss_day_ai = daily_pnl.idxmin() if daily_pnl.min() < 0 else "-"
+        if "Timestamp" in df_ai_logs_to_analyze.columns and "Risk $" in df_ai_logs_to_analyze.columns and not df_ai_logs_to_analyze["Timestamp"].isnull().all() and not df_ai_logs_to_analyze.empty:
+            # Ensure 'Weekday' is available or create it safely
+            if not df_ai_logs_to_analyze["Timestamp"].isnull().all():
+                df_ai_logs_to_analyze.loc[:, "Weekday"] = df_ai_logs_to_analyze["Timestamp"].dt.day_name()
+                daily_pnl = df_ai_logs_to_analyze.groupby("Weekday")["Risk $"].sum()
+                if not daily_pnl.empty:
+                    win_day_ai = daily_pnl.idxmax() if daily_pnl.max() > 0 else "-"
+                    loss_day_ai = daily_pnl.idxmin() if daily_pnl.min() < 0 else "-"
+            else: # All timestamps are NaT
+                 win_day_ai = loss_day_ai = "N/A (Invalid Dates)"
 
-        st.markdown("### 🧠 AI Intelligence Report (จากข้อมูลแผนเทรด)")
-        st.write(f"- **จำนวนแผนเทรดทั้งหมด:** {total_trades_ai:,}")
+
+        st.markdown(f"### 🧠 AI Intelligence Report {report_title_suffix}")
+        st.write(f"- **จำนวนแผนเทรดที่วิเคราะห์:** {total_trades_ai:,}")
         st.write(f"- **Winrate (ตามแผน):** {winrate_ai:.2f}% (คำนวณจาก Risk $ > 0)")
         st.write(f"- **กำไร/ขาดทุนสุทธิ (ตามแผน):** {gross_profit_ai:,.2f} USD")
         if avg_rr_ai is not None:
             st.write(f"- **RR เฉลี่ย (ตามแผน):** {avg_rr_ai:.2f}")
-        st.write(f"- **Max Drawdown (จำลองจากแผน):** {max_drawdown_ai:,.2f} USD")
+        else:
+            st.write(f"- **RR เฉลี่ย (ตามแผน):** N/A")
+        st.write(f"- **Max Drawdown (จำลองจากแผน):** {max_drawdown_ai:,.2f} USD (เริ่มจำลองจาก Balance: {balance_for_ai_sim:,.2f} USD)")
         st.write(f"- **วันที่ทำกำไรดีที่สุด (ตามแผน):** {win_day_ai}")
         st.write(f"- **วันที่ขาดทุนมากที่สุด (ตามแผน):** {loss_day_ai}")
 
         st.markdown("### 🤖 AI Insight (จากกฎที่คุณกำหนดเอง)")
         insight_messages = []
-        if winrate_ai >= 60:
-            insight_messages.append("✅ Winrate (ตามแผน) สูง: ระบบการวางแผนมีแนวโน้มที่ดี")
-        elif winrate_ai < 40 and total_trades_ai > 10 :
-            insight_messages.append("⚠️ Winrate (ตามแผน) ต่ำ: ควรทบทวนกลยุทธ์การวางแผน")
-        
-        if avg_rr_ai is not None and avg_rr_ai < 1.5 and total_trades_ai > 5:
-            insight_messages.append("📉 RR เฉลี่ย (ตามแผน) ต่ำกว่า 1.5: อาจต้องพิจารณาการตั้ง TP/SL เพื่อ Risk:Reward ที่เหมาะสมขึ้น")
-        
-        if max_drawdown_ai > acc_balance * 0.10:
-            insight_messages.append("🚨 Max Drawdown (จำลองจากแผน) ค่อนข้างสูง: ควรระมัดระวังการบริหารความเสี่ยง")
-        
-        if not insight_messages:
-            insight_messages = ["ดูเหมือนว่าข้อมูลแผนเทรดปัจจุบันยังไม่มีจุดที่น่ากังวลเป็นพิเศษตามเกณฑ์ที่ตั้งไว้"]
-        
+        if total_trades_ai > 0 : # Only provide insights if there are trades
+            if winrate_ai >= 60:
+                insight_messages.append("✅ Winrate (ตามแผน) สูง: ระบบการวางแผนมีแนวโน้มที่ดี")
+            elif winrate_ai < 40 and total_trades_ai >= 10 : # Ensure enough trades for low winrate warning
+                insight_messages.append("⚠️ Winrate (ตามแผน) ต่ำ: ควรทบทวนกลยุทธ์การวางแผน")
+            
+            if avg_rr_ai is not None and avg_rr_ai < 1.5 and total_trades_ai >= 5: # Ensure enough trades for RR warning
+                insight_messages.append("📉 RR เฉลี่ย (ตามแผน) ต่ำกว่า 1.5: อาจต้องพิจารณาการตั้ง TP/SL เพื่อ Risk:Reward ที่เหมาะสมขึ้น")
+            
+            # Use balance_for_ai_sim for drawdown threshold comparison
+            if max_drawdown_ai > (balance_for_ai_sim * 0.10) and balance_for_ai_sim > 0:
+                insight_messages.append(f"🚨 Max Drawdown (จำลองจากแผน) {max_drawdown_ai:,.2f} USD ค่อนข้างสูงเมื่อเทียบกับ Balance เริ่มต้น ({balance_for_ai_sim * 0.10:,.2f} USD): ควรระมัดระวังการบริหารความเสี่ยง")
+            elif max_drawdown_ai > 0 and balance_for_ai_sim == 0: # Edge case if balance_for_ai_sim ended up as 0
+                 insight_messages.append(f"ℹ️ Max Drawdown (จำลองจากแผน) คือ {max_drawdown_ai:,.2f} USD แต่ไม่สามารถเทียบเป็น % กับ Balance เริ่มต้นได้ (Balance เริ่มต้น = 0)")
+
+
+        if not insight_messages and total_trades_ai > 0:
+            insight_messages = ["ดูเหมือนว่าข้อมูลแผนเทรดที่วิเคราะห์ยังไม่มีจุดที่น่ากังวลเป็นพิเศษตามเกณฑ์ที่ตั้งไว้"]
+        elif not insight_messages and total_trades_ai == 0:
+             insight_messages = ["ยังไม่มีข้อมูลแผนเทรดให้ AI วิเคราะห์สำหรับส่วนนี้"]
+
         for msg in insight_messages:
             if "✅" in msg: st.success(msg)
             elif "⚠️" in msg or "📉" in msg: st.warning(msg)
