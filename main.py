@@ -390,12 +390,12 @@ with st.form("new_portfolio_form_main_v3", clear_on_submit=True):
             st.markdown("**เป้าหมายส่วนตัว (Optional):**")
             f_ps1, f_ps2 = st.columns(2)
             with f_ps1:
-                form_pers_overall_profit_val = st.number_input("เป้าหมายกำไรโดยรวม (<span class="math-inline">\)", value\=form\_pers\_overall\_profit\_val, format\="%\.2f", key\="f\_ps\_profit\_overall\_v3\_unique"\)
-form\_pers\_weekly\_profit\_val \= st\.number\_input\("เป้าหมายกำไรรายสัปดาห์ \(</span>)", value=form_pers_weekly_profit_val, format="%.2f", key="f_ps_profit_weekly_v3_unique")
-                form_pers_max_dd_overall_val = st.number_input("Max DD รวมที่ยอมรับได้ (<span class="math-inline">\)", value\=form\_pers\_max\_dd\_overall\_val, format\="%\.2f", key\="f\_ps\_dd\_overall\_v3\_unique"\)
-with f\_ps2\:
-form\_pers\_target\_end\_date \= st\.date\_input\("วันที่คาดว่าจะถึงเป้าหมายรวม", value\=form\_pers\_target\_end\_date, key\="f\_ps\_enddate\_v3\_unique"\)
-form\_pers\_daily\_profit\_val \= st\.number\_input\("เป้าหมายกำไรรายวัน \(</span>)", value=form_pers_daily_profit_val, format="%.2f", key="f_ps_profit_daily_v3_unique")
+                form_pers_overall_profit_val = st.number_input("เป้าหมายกำไรโดยรวม ($)", value=form_pers_overall_profit_val, format="%.2f", key="f_ps_profit_overall_v3_unique")
+                form_pers_weekly_profit_val = st.number_input("เป้าหมายกำไรรายสัปดาห์ ($)", value=form_pers_weekly_profit_val, format="%.2f", key="f_ps_profit_weekly_v3_unique")
+                form_pers_max_dd_overall_val = st.number_input("Max DD รวมที่ยอมรับได้ ($)", value=form_pers_max_dd_overall_val, format="%.2f", key="f_ps_dd_overall_v3_unique")
+            with f_ps2:
+                form_pers_target_end_date = st.date_input("วันที่คาดว่าจะถึงเป้าหมายรวม", value=form_pers_target_end_date, key="f_ps_enddate_v3_unique")
+                form_pers_daily_profit_val = st.number_input("เป้าหมายกำไรรายวัน ($)", value=form_pers_daily_profit_val, format="%.2f", key="f_ps_profit_daily_v3_unique")
                 form_pers_max_dd_daily_val = st.number_input("Max DD ต่อวันที่ยอมรับได้ ($)", value=form_pers_max_dd_daily_val, format="%.2f", key="f_ps_dd_daily_v3_unique")
 
         st.markdown("**การตั้งค่า Scaling Manager (Optional):**")
@@ -455,8 +455,31 @@ form\_pers\_daily\_profit\_val \= st\.number\_input\("เป้าหมาย�
                     'WeeklyProfitTarget': form_pers_weekly_profit_val if selected_program_type == "Personal Account" else None,
                     'DailyProfitTarget': form_pers_daily_profit_val if selected_program_type == "Personal Account" else None,
                     'MaxAcceptableDrawdownOverall': form_pers_max_dd_overall_val if selected_program_type == "Personal Account" else None,
-                    'MaxAcceptableDrawdownDaily': form_pers_max_dd_
+                    'MaxAcceptableDrawdownDaily': form_pers_max_dd_daily_val if selected_program_type == "Personal Account" else None,
 
+                    'EnableScaling': form_enable_scaling_checkbox_val, # ใช้ค่าจาก checkbox
+                    'ScalingCheckFrequency': form_scaling_freq_val if form_enable_scaling_checkbox_val else None,
+                    'ScaleUp_MinWinRate': form_su_wr_val if form_enable_scaling_checkbox_val else None,
+                    'ScaleUp_MinGainPercent': form_su_gain_val if form_enable_scaling_checkbox_val else None,
+                    'ScaleUp_RiskIncrementPercent': form_su_inc_val if form_enable_scaling_checkbox_val else None,
+                    'ScaleDown_MaxLossPercent': form_sd_loss_val if form_enable_scaling_checkbox_val else None,
+                    'ScaleDown_LowWinRate': form_sd_wr_val if form_enable_scaling_checkbox_val else None,
+                    'ScaleDown_RiskDecrementPercent': form_sd_dec_val if form_enable_scaling_checkbox_val else None,
+                    'MinRiskPercentAllowed': form_min_risk_val if form_enable_scaling_checkbox_val else None,
+                    'MaxRiskPercentAllowed': form_max_risk_val if form_enable_scaling_checkbox_val else None,
+                    'CurrentRiskPercent': form_current_risk_val, # เก็บ CurrentRiskPercent เสมอ
+                    'Notes': form_notes_val
+                }
+                
+                success_save = save_new_portfolio_to_gsheets(new_portfolio_row_data) 
+                
+                if success_save:
+                    st.success(f"เพิ่มพอร์ต '{form_new_portfolio_name}' (ID: {new_id_value}) สำเร็จ!")
+                    if hasattr(load_portfolios_from_gsheets, 'clear'):
+                         load_portfolios_from_gsheets.clear()
+                    st.rerun()
+                else:
+                    st.error("เกิดข้อผิดพลาดในการบันทึกพอร์ตใหม่ไปยัง Google Sheets")
 # ==============================================================================
 # END: ส่วนจัดการ Portfolio
 # ==============================================================================
