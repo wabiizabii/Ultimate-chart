@@ -1,217 +1,13 @@
 # ======================= SEC 0: IMPORT & CONFIG =======================
 import streamlit as st
 import pandas as pd
-import openpyxl  
 import numpy as np
 import os
 from datetime import datetime
-import plotly.express as px
-import google.generativeai as genai
-import gspread # <--- เพิ่ม import gspread ที่นี่
 
-st.set_page_config(page_title="Ultimate-Chart", layout="wide")
-acc_balance = 10000 
+st.set_page_config(page_title="Legendary RR Planner", layout="wide")
+acc_balance = 10000  # FIX
 log_file = "trade_log.csv"
-
-
-# กำหนดชื่อ Google Sheet และ Worksheet ที่จะใช้เก็บข้อมูล Statement
-GOOGLE_SHEET_NAME = "TradeLog" # **เปลี่ยนเป็นชื่อ Google Sheet ของคุณ**
-GOOGLE_WORKSHEET_NAME = "Uploaded Statements" # ชื่อ Worksheet ที่จะใช้เก็บ Statement
-
-# ฟังก์ชันสำหรับเชื่อมต่อ gspread
-def get_gspread_client():
-    try:
-        if "gcp_service_account" not in st.secrets:
-            st.warning("⚠️ โปรดตั้งค่า 'gcp_service_account' ใน `.streamlit/secrets.toml` เพื่อเชื่อมต่อ Google Sheets.")
-            return None
-        return gspread.service_account_from_dict(st.secrets["gcp_service_account"])
-    except Exception as e:
-        st.error(f"❌ เกิดข้อผิดพลาดในการเชื่อมต่อ Google Sheets: {e}")
-        st.info("ตรวจสอบว่า 'gcp_service_account' ใน secrets.toml ถูกต้อง และได้แชร์ Sheet กับ Service Account แล้ว")
-        return None
-
-# ฟังก์ชันสำหรับอ่านข้อมูล Statement จาก Google Sheets
-import pandas as pd # <-- ตรวจสอบให้แน่ใจว่ามีบรรทัดนี้อยู่ด้านบนสุดของไฟล์ main.py
-import gspread     # <-- ตรวจสอบให้แน่ใจว่ามีบรรทัดนี้อยู่ด้านบนสุดของไฟล์ main.py
-import streamlit as st # <-- ตรวจสอบให้แน่ใจว่ามีบรรทัดนี้อยู่ด้านบนสุดของไฟล์ main.py
-
-@st.cache_data(ttl=3600)
-def load_statement_from_gsheets():
-    gc = get_gspread_client()
-    if gc is None:
-        return {}
-
-    try:
-        sh = gc.open(GOOGLE_SHEET_NAME)
-        try:
-            worksheet = sh.worksheet(GOOGLE_WORKSHEET_NAME)
-        except gspread.exceptions.WorksheetNotFound:
-            st.info(f"✨ กำลังสร้าง Worksheet '{GOOGLE_WORKSHEET_NAME}' ใน Google Sheet '{GOOGLE_SHEET_NAME}'...")
-            worksheet = sh.add_worksheet(title=GOOGLE_WORKSHEET_NAME, rows="1", cols="1")
-            return {}
-
-        all_sheet_values = worksheet.get_all_values()
-
-        if not all_sheet_values or len(all_sheet_values) < 2:
-            st.info(f"Worksheet '{GOOGLE_WORKSHEET_NAME}' ว่างเปล่าหรือมีข้อมูลน้อยเกินไป.")
-            return {}
-
-        parser_config = {
-            "positions": {
-                "start_keyword": "Positions",
-                "header_row_offset": 1, 
-                "end_keyword": "Orders"
-            },
-            "orders": {
-                "start_keyword": "Orders",
-                "header_row_offset": 1,
-                "end_keyword": "Deals"
-            },
-            "deals": {
-                "start_keyword": "Deals",
-                "header_row_offset": 1,
-                "end_keyword": "Balance" 
-            },
-            "balance_summary": { # เพิ่มส่วนนี้ตามที่คุณต้องการ
-                "start_keyword": "Balance",
-                "header_row_offset": 0, # หรืออาจจะเป็น 1 ถ้าหัวตารางไม่ได้อยู่บรรทัดเดียวกับ Balance
-                "end_keyword": "Drawdown"
-            },
-            # *** สำคัญ: คุณสามารถเพิ่มส่วนอื่นๆ ที่คุณต้องการได้ที่นี่ ***
-            # โดยการดูจาก Statement ของคุณว่ามี Keyword อะไรที่ใช้ระบุส่วนนั้น
-            # และหัวตารางอยู่ห่างจาก Keyword นั้นกี่บรรทัด (header_row_offset)
-            # และส่วนนั้นสิ้นสุดที่ Keyword อะไร (end_keyword)
-        }
-
-        all_sections_dfs = {}
-        st.write("--- กำลังแยกส่วนข้อมูล ---")
-
-        for section_name, config in parser_config.items():
-            start_row_idx = -1
-            end_row_idx = -1
-
-            for i, row in enumerate(all_sheet_values):
-                # ค้นหา start_keyword ในแถว อาจจะอยู่ในคอลัมน์แรก หรือคอลัมน์อื่น
-                # ใช้ " ".join(row) เพื่อรวมคอลัมน์ในแถวนั้นเป็น string เดียวแล้วค้นหา
-                if config["start_keyword"] in " ".join(row): 
-                    start_row_idx = i
-                    break
-
-            if start_row_idx == -1:
-                st.warning(f"⚠️ ไม่พบส่วน '{section_name}' ด้วย keyword: '{config['start_keyword']}'.")
-                continue
-
-            if "end_keyword" in config and config["end_keyword"]:
-                for i in range(start_row_idx + 1, len(all_sheet_values)):
-                    if config["end_keyword"] in " ".join(all_sheet_values[i]):
-                        end_row_idx = i
-                        break
-
-            if end_row_idx == -1:
-                end_row_idx = len(all_sheet_values)
-
-            header_row_actual_idx = start_row_idx + config["header_row_offset"]
-
-            if header_row_actual_idx >= len(all_sheet_values):
-                st.warning(f"⚠️ หัวตารางของส่วน '{section_name}' เกินขอบเขต. ข้ามส่วนนี้.")
-                continue
-
-            header = all_sheet_values[header_row_actual_idx]
-            clean_header = [h for h in header if h.strip() != '']
-
-            if not clean_header:
-                st.warning(f"⚠️ ไม่พบหัวตารางที่ถูกต้องสำหรับส่วน '{section_name}'. ข้ามส่วนนี้.")
-                continue
-
-            # หาตำแหน่งของคอลัมน์ที่ไม่ว่างใน header เพื่อใช้ตัดข้อมูล
-            # และตรวจสอบว่าคอลัมน์ว่างเหล่านั้นเป็นแค่ช่องว่างหรือคอลัมน์ที่ไม่มีข้อมูลจริงๆ
-            col_indices = []
-            for i, h_val in enumerate(header):
-                if h_val.strip() != '':
-                    col_indices.append(i)
-                elif len(col_indices) > 0 and (i - col_indices[-1] == 1): # ถ้าเป็นคอลัมน์ว่างถัดจากคอลัมน์ที่มีข้อมูล
-                    # อาจจะเกิดจากการรวมเซลล์ใน Excel
-                    # ให้ลองดูว่าคอลัมน์ถัดไปเป็นส่วนหนึ่งของหัวตารางหรือไม่
-                    # แต่สำหรับตอนนี้ เราจะพึ่ง clean_header ที่ไม่รวมคอลัมน์ว่างเลย
-                    pass
-
-
-            section_raw_data = []
-            for row_idx in range(header_row_actual_idx + 1, end_row_idx):
-                current_row = all_sheet_values[row_idx]
-                if not any(c.strip() for c in current_row):
-                    break
-
-                # ตัดข้อมูลตามคอลัมน์ที่มีใน clean_header
-                truncated_row = [current_row[idx] if idx < len(current_row) else '' for idx in col_indices]
-                section_raw_data.append(truncated_row)
-
-            if section_raw_data:
-                df_section = pd.DataFrame(section_raw_data, columns=clean_header)
-                df_section.replace('', pd.NA, inplace=True)
-                df_section.dropna(how='all', inplace=True)
-
-                if not df_section.empty:
-                    all_sections_dfs[section_name] = df_section
-                    st.success(f"โหลดข้อมูลส่วน '{section_name}' สำเร็จ ({len(df_section)} แถว).")
-                else:
-                    st.info(f"ส่วน '{section_name}' มีข้อมูลแต่ไม่สามารถประมวลผลเป็น DataFrame ได้.")
-            else:
-                st.info(f"ไม่พบข้อมูลสำหรับส่วน '{section_name}'.")
-
-        if all_sections_dfs:
-            st.success(f"โหลดข้อมูล Statement ทั้งหมดจาก Google Sheet '{GOOGLE_SHEET_NAME}/{GOOGLE_WORKSHEET_NAME}' สำเร็จ!")
-        else:
-            st.warning("ไม่พบข้อมูลส่วนใดๆ ใน Google Sheet. โปรดตรวจสอบไฟล์ Statement และโครงสร้าง.")
-
-        return all_sections_dfs
-
-    except gspread.exceptions.SpreadsheetNotFound:
-        st.error(f"❌ ไม่พบ Google Sheet ชื่อ '{GOOGLE_SHEET_NAME}'. โปรดสร้างและแชร์กับ Service Account ของคุณ")
-        return {}
-    except Exception as e:
-        st.error(f"❌ เกิดข้อผิดพลาดในการโหลดข้อมูล Statement จาก Google Sheets: {e}")
-        st.exception(e)
-        return {}
-
-# ฟังก์ชันสำหรับบันทึก DataFrame ลง Google Sheets (แทนที่ข้อมูลเก่า)
-# (โค้ดส่วนอื่น ๆ ของคุณอยู่เหมือนเดิม)
-
-def save_statement_to_gsheets(df_to_save):
-    if df_to_save.empty:
-        st.warning("ไม่มีข้อมูลที่จะบันทึกไปยัง Google Sheets.")
-        return
-
-    gc = get_gspread_client()
-    if gc is None:
-        return
-
-    try:
-        sh = gc.open(GOOGLE_SHEET_NAME)
-        try:
-            worksheet = sh.worksheet(GOOGLE_WORKSHEET_NAME)
-        except gspread.exceptions.WorksheetNotFound:
-            st.info(f"✨ สร้าง Worksheet '{GOOGLE_WORKSHEET_NAME}' ใน Google Sheet '{GOOGLE_SHEET_NAME}'")
-            worksheet = sh.add_worksheet(title=GOOGLE_WORKSHEET_NAME, rows="1", cols="1")
-
-        # --- เพิ่มส่วนนี้เข้ามา ---
-        df_to_save_str = df_to_save.copy()
-        for col in df_to_save_str.columns:
-            if pd.api.types.is_datetime64_any_dtype(df_to_save_str[col]):
-                df_to_save_str[col] = df_to_save_str[col].dt.strftime('%Y-%m-%d %H:%M:%S')
-        # --- สิ้นสุดส่วนที่เพิ่ม ---
-
-        worksheet.clear()
-        worksheet.update([df_to_save_str.columns.values.tolist()] + df_to_save_str.astype(str).values.tolist())
-        st.success(f"บันทึกข้อมูล Statement ไปยัง Google Sheet '{GOOGLE_SHEET_NAME}/{GOOGLE_WORKSHEET_NAME}' เรียบร้อยแล้ว!")
-    except Exception as e:
-        st.error(f"❌ เกิดข้อผิดพลาดในการบันทึกข้อมูล Statement ไปยัง Google Sheets: {e}")
-        st.exception(e) # ให้คงบรรทัดนี้ไว้ เผื่อยังมี Error อื่น
-        # แต่ถ้ามี st.stop() อยู่ ให้เอา # ใส่ข้างหน้า หรือลบทิ้งครับ เช่น
-        # # st.stop()
-
-# (โค้ดส่วนอื่น ๆ ของคุณอยู่เหมือนเดิม)
-
 
 # ========== Function Utility ==========
 def get_today_drawdown(log_file, acc_balance):
@@ -249,8 +45,7 @@ def get_performance(log_file, mode="week"):
     return winrate, gain, total
 
 # ======================= SEC 1: SIDEBAR / INPUT ZONE =======================
-
-st.sidebar.header("🎛️ Trade Setup")
+st.sidebar.header("🗂️ Trade Planner")
 
 drawdown_limit_pct = st.sidebar.number_input(
     "Drawdown Limit ต่อวัน (%)",
@@ -258,69 +53,42 @@ drawdown_limit_pct = st.sidebar.number_input(
     value=2.0, step=0.1, format="%.1f"
 )
 
-mode = st.sidebar.radio("Trade Mode", ["FIBO", "CUSTOM"], horizontal=True, key="mode")
+mode = st.sidebar.radio("เลือกโหมด", ["FIBO", "CUSTOM"], horizontal=True)
 
-
-if st.sidebar.button("🔄 Reset Form"):
-    risk_keep = st.session_state.get("risk_pct", 1.0)
-    asset_keep = st.session_state.get("asset", "XAUUSD")
-
-    # เคลียร์ทุก key ยกเว้น risk_pct กับ asset
-    keys_to_keep = {"risk_pct", "asset"}
-    keys_to_delete = [k for k in list(st.session_state.keys()) if k not in keys_to_keep]
-
-    for k in keys_to_delete:
-        del st.session_state[k]
-
-    st.session_state["risk_pct"] = risk_keep
-    st.session_state["asset"] = asset_keep
-
-    # 👇 ส่วนที่เพิ่มเข้าไปเพื่อ “ล้าง FIBO checkbox”
-    st.session_state["fibo_flags"] = [False, False, False, False, False]
-
-    st.rerun()
-
+if st.sidebar.button("Clear (รีเซ็ตฟอร์ม)"):
+    st.experimental_rerun()
 
 # -- Input Zone (แยก FIBO/CUSTOM) --
 # ======================= SEC 1: SIDEBAR / INPUT ZONE (FIBO) =======================
 if mode == "FIBO":
     col1, col2, col3 = st.sidebar.columns([2, 2, 2])
     with col1:
-        asset = st.text_input("Asset", value="XAUUSD", key="asset")
+        asset = st.text_input("Asset", value="XAUUSD")
     with col2:
         risk_pct = st.number_input(
             "Risk %",
             min_value=0.01,
             max_value=100.0,
+            value=1.00,
             step=0.01,
-            format="%.2f",
-            key="risk_pct"
+            format="%.2f"
         )
     with col3:
         direction = st.radio("Direction", ["Long", "Short"], horizontal=True)
 
     col4, col5 = st.sidebar.columns(2)
     with col4:
-        swing_high = st.text_input("High", key="swing_high")
+        swing_high = st.text_input("High", value="2365.00")
     with col5:
-        swing_low = st.text_input("Low", key="swing_low")
-
-    # 📐 Entry Fibo Levels (ใช้ร่วมกับ Reset Form ได้)
-    st.sidebar.markdown("**📐 Entry Fibo Levels**")
+        swing_low = st.text_input("Low", value="2355.00")
+    
+    st.sidebar.markdown("**เลือก Fibo Level:**")
     fibos = [0.114, 0.25, 0.382, 0.5, 0.618]
     labels = [f"{l:.3f}" for l in fibos]
     cols = st.sidebar.columns(len(fibos))
-
-    # ตั้งค่า flags ถ้ายังไม่มี
-    if "fibo_flags" not in st.session_state:
-        st.session_state.fibo_flags = [True] * len(fibos)
-
     fibo_selected = []
     for i, col in enumerate(cols):
-        checked = col.checkbox(labels[i], value=st.session_state.fibo_flags[i])
-        fibo_selected.append(checked)
-
-    st.session_state.fibo_flags = fibo_selected
+        fibo_selected.append(col.checkbox(labels[i], value=True, key=f"fibo_{labels[i]}"))
 
     try:
         high = float(swing_high)
@@ -329,10 +97,8 @@ if mode == "FIBO":
             st.sidebar.warning("High ต้องมากกว่า Low!")
     except Exception:
         pass
-
     if risk_pct <= 0:
         st.sidebar.warning("Risk% ต้องมากกว่า 0")
-
     st.sidebar.markdown("---")
     try:
         high = float(swing_high)
@@ -347,16 +113,13 @@ if mode == "FIBO":
             st.sidebar.caption("Lot/TP/ผลลัพธ์เต็มอยู่ด้านล่าง")
     except Exception:
         pass
-
     save_fibo = st.sidebar.button("Save Plan", key="save_fibo")
-
-
 
 # ======================= SEC 1: SIDEBAR / INPUT ZONE (CUSTOM) =======================
 elif mode == "CUSTOM":
     col1, col2, col3 = st.sidebar.columns([2, 2, 2])
     with col1:
-        asset = st.text_input("Asset", value="XAUUSD", key="asset")
+        asset = st.text_input("Asset", value="XAUUSD")
     with col2:
         risk_pct = st.number_input(
             "Risk %",
@@ -402,9 +165,9 @@ elif mode == "CUSTOM":
             stop = None
         try:
             if stop is not None and stop > 0:
-                if 'direction' in locals() and direction == "Long": # This 'direction' would come from FIBO mode
+                if 'direction' in locals() and direction == "Long":
                     tp_rr3 = entry_val + 3 * stop
-                else: # Defaulting to Short if direction is not explicitly Long or not defined
+                else:
                     tp_rr3 = entry_val - 3 * stop
                 tp_rr3_display = f"TP ที่ RR=3: {tp_rr3:.2f}"
             else:
@@ -419,7 +182,7 @@ elif mode == "CUSTOM":
 
 # ======================= SEC 4: SUMMARY (ย้ายไป Sidebar) =======================
 st.sidebar.markdown("---")
-st.sidebar.markdown("### 🧾 Strategy Summary")
+st.sidebar.markdown("### 🧮 Summary")
 
 if mode == "FIBO":
     # FIBO Table Logic (คืนสูตร)
@@ -542,38 +305,33 @@ with st.expander("📋 Entry Table (FIBO/CUSTOM)", expanded=True):
     if mode == "FIBO":
         col1, col2 = st.columns(2)
         with col1:
-            st.markdown("### 🎯 Entry Levels")
-            if 'entry_data' in locals() and entry_data: # Ensure entry_data is defined
+            st.markdown("### 📋 Entry Table")
+            if entry_data:
                 entry_df = pd.DataFrame(entry_data)
                 st.dataframe(entry_df, hide_index=True, use_container_width=True)
-            else:
-                st.info("กรอกข้อมูล High/Low และเลือก Fibo Level เพื่อดู Entry Levels.")
         with col2:
-            st.markdown("### 🎯 Take Profit Zones")
+            st.markdown("### 🎯 TP Table ")
             try:
                 high = float(swing_high)
                 low = float(swing_low)
-                if high > low: # Ensure high is greater than low for valid calculation
-                    if direction == "Long":
-                        tp1 = low + (high - low) * 1.618
-                        tp2 = low + (high - low) * 2.618
-                        tp3 = low + (high - low) * 4.236
-                    else:
-                        tp1 = high - (high - low) * 1.618
-                        tp2 = high - (high - low) * 2.618
-                        tp3 = high - (high - low) * 4.236
-                    tp_df = pd.DataFrame({
-                        "TP": ["TP1", "TP2", "TP3"],
-                        "Price": [f"{tp1:.2f}", f"{tp2:.2f}", f"{tp3:.2f}"]
-                    })
-                    st.dataframe(tp_df, hide_index=True, use_container_width=True)
+                if direction == "Long":
+                    tp1 = low + (high - low) * 1.618
+                    tp2 = low + (high - low) * 2.618
+                    tp3 = low + (high - low) * 4.236
                 else:
-                    st.warning("📌 Define High and Low correctly to unlock your TP projection.")
-            except (ValueError, NameError): # Catch ValueError for float conversion and NameError if swing_high/low aren't set
-                st.warning("📌 Define High and Low to unlock your TP projection.")       
+                    tp1 = high - (high - low) * 1.618
+                    tp2 = high - (high - low) * 2.618
+                    tp3 = high - (high - low) * 4.236
+                tp_df = pd.DataFrame({
+                    "TP": ["TP1", "TP2", "TP3"],
+                    "Price": [f"{tp1:.2f}", f"{tp2:.2f}", f"{tp3:.2f}"]
+                })
+                st.dataframe(tp_df, hide_index=True, use_container_width=True)
+            except Exception:
+                st.warning("กรุณากรอก High/Low ให้ถูกต้องเพื่อแสดงตาราง TP")
     elif mode == "CUSTOM":
-        st.markdown("### 🎯 Entry & Take Profit Zones ")
-        if 'custom_entries' in locals() and custom_entries: # Ensure custom_entries is defined
+        st.markdown("### 📋 Entry Table ")
+        if custom_entries:
             entry_df = pd.DataFrame(custom_entries)
             st.dataframe(entry_df, hide_index=True, use_container_width=True)
             # แจ้งเตือน RR
@@ -581,13 +339,9 @@ with st.expander("📋 Entry Table (FIBO/CUSTOM)", expanded=True):
                 try:
                     rr = float(row["RR"])
                     if rr < 2:
-                        st.warning(f"🎯 Entry {i+1} RR is low ({rr:.2f}) — fine-tune your TP/SL for better balance."
-)
+                        st.warning(f"ไม้ {i+1} RR ต่ำ! ({rr:.2f}) ควรปรับ TP หรือ SL ใหม่")
                 except:
                     pass
-        else:
-            st.info("กรอกข้อมูล Custom เพื่อดู Entry & TP Zones.")
-
 
 # ======================= SEC 5: เชื่อมปุ่ม Save Plan กับ save_plan + Drawdown Lock =======================
 drawdown_today = get_today_drawdown(log_file, acc_balance)
@@ -605,84 +359,85 @@ def save_plan(data, mode, asset, risk_pct, direction):
     df_save["Mode"] = mode
     df_save["Asset"] = asset
     df_save["Risk %"] = risk_pct
-    df_save["Direction"] = direction # ensure direction is always passed
+    df_save["Direction"] = direction
     df_save["Timestamp"] = now
     if os.path.exists(log_file):
         df_old = pd.read_csv(log_file)
         df_save = pd.concat([df_old, df_save], ignore_index=True)
     df_save.to_csv(log_file, index=False)
 
-
-current_direction = None
-if mode == "FIBO":
-    if 'direction' in locals():
-        current_direction = direction
-elif mode == "CUSTOM":
-    current_direction = "N/A" 
-
-
-if mode == "FIBO" and 'entry_data' in locals() and save_fibo and entry_data and current_direction is not None:
+if mode == "FIBO" and 'entry_data' in locals() and save_fibo and entry_data:
     if drawdown_today <= drawdown_limit:
         st.sidebar.error(
             f"หยุดเทรด! ขาดทุนรวมวันนี้ {abs(drawdown_today):,.2f} เกินลิมิต {abs(drawdown_limit):,.2f} ({drawdown_limit_pct:.1f}%)"
         )
     else:
         try:
-            save_plan(entry_data, "FIBO", asset, risk_pct, current_direction)
+            save_plan(entry_data, "FIBO", asset, risk_pct, direction)
             st.sidebar.success("บันทึกแผน (FIBO) สำเร็จ!")
         except Exception as e:
             st.sidebar.error(f"Save ไม่สำเร็จ: {e}")
 
-elif mode == "CUSTOM" and 'custom_entries' in locals() and save_custom and custom_entries and current_direction is not None:
+elif mode == "CUSTOM" and 'custom_entries' in locals() and save_custom and custom_entries:
     if drawdown_today <= drawdown_limit:
         st.sidebar.error(
             f"หยุดเทรด! ขาดทุนรวมวันนี้ {abs(drawdown_today):,.2f} เกินลิมิต {abs(drawdown_limit):,.2f} ({drawdown_limit_pct:.1f}%)"
         )
     else:
         try:
-            save_plan(custom_entries, "CUSTOM", asset, risk_pct, current_direction)
+            save_plan(custom_entries, "CUSTOM", asset, risk_pct, direction)
             st.sidebar.success("บันทึกแผน (CUSTOM) สำเร็จ!")
         except Exception as e:
             st.sidebar.error(f"Save ไม่สำเร็จ: {e}")
 
 # ======================= SEC 7: VISUALIZER (เหลือแต่กราฟ) =======================
+st.markdown("## 🟢 SEC 7: Visualizer (แสดงกราฟเท่านั้น)")
 
-with st.expander("📈 Chart Visualizer", expanded=True):
-    plot = st.button("Plot Plan", key="plot_plan")
+# ไม่ต้องใช้ col1/col2 สองฝั่งแล้ว เอาแต่ col เดียวหรือเต็มแถวก็ได้
+plot = st.button("Plot Plan", key="plot_plan")
 
-    if plot:
-        st.components.v1.html("""
-        <div class="tradingview-widget-container">
-          <div id="tradingview_legendary"></div>
-          <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
-          <script type="text/javascript">
-          new TradingView.widget({
-            "width": "100%",
-            "height": 600,
-            "symbol": "OANDA:XAUUSD",      // ปรับ symbol ได้
-            "interval": "15",
-            "timezone": "Asia/Bangkok",
-            "theme": "dark",
-            "style": "1",
-            "locale": "th",
-            "toolbar_bg": "#f1f3f6",
-            "enable_publishing": true,
-            "withdateranges": true,
-            "allow_symbol_change": true,
-            "hide_side_toolbar": false,
-            "details": true,
-            "hotlist": true,
-            "calendar": true,
-            "container_id": "tradingview_legendary"
-          });
-          </script>
-        </div>
-        """, height=620)
-    else:
-        st.info("กดปุ่ม Plot Plan เพื่อแสดงกราฟ TradingView")
+
+if plot:
+    st.markdown("#### กราฟ TradingView Widget (ลากเส้นได้, overlay plan จริง!)")
+    st.components.v1.html("""
+    <div class="tradingview-widget-container">
+      <div id="tradingview_legendary"></div>
+      <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
+      <script type="text/javascript">
+      new TradingView.widget({
+        "width": "100%",
+    "height": 600,
+    "symbol": "OANDA:XAUUSD",         // ปรับ symbol ได้
+    "interval": "15",
+    "timezone": "Asia/Bangkok",
+    "theme": "dark",
+    "style": "1",                     // เปลี่ยนเป็น 1,2,3,4 (แท่งเทียน,เส้น,bar) ได้
+    "locale": "th",
+    "toolbar_bg": "#f1f3f6",
+    "enable_publishing": true,        // เปิดปุ่ม share/snapshot
+    "withdateranges": true,           // เปิด TF, date range
+    "allow_symbol_change": true,      // เปลี่ยน symbol ได้
+    "hide_side_toolbar": false,       // โชว์เครื่องมือวาดเส้น/indicator
+    "details": true,                  // เพิ่มรายละเอียด symbol
+    "hotlist": true,                  // เพิ่ม hotlist (หุ้น/forex/crypto)
+    "calendar": true,                 // เพิ่ม economic calendar
+        "container_id": "tradingview_legendary"
+      });
+      </script>
+    </div>
+    """, height=620)
+    st.caption("ลาก Fibo, Line, Box, วัด RR ได้เต็มรูปแบบ")
+    st.info("Overlay แผนเทรดจริงจาก input/log! (รอต่อยอด overlay เส้นอัตโนมัติใน engine ต่อไป)")
+else:
+    st.info("กดปุ่ม Plot Plan เพื่อแสดงกราฟ TradingView")
+
+st.markdown("---")
+st.markdown("Visualizer รับข้อมูลแผนเทรดจริง พร้อม plot overlay (ขยาย/ปรับ engine ได้ทันทีในอนาคต)")
+
+
 
 # ======================= SEC 8: AI SUMMARY & INSIGHT =======================
-with st.expander("	🤖 AI Assistant", expanded=True):
+with st.expander("🤖 SEC 8: AI Summary & Insight (Beta)", expanded=True):
     if os.path.exists(log_file):
         try:
             df_log = pd.read_csv(log_file)
@@ -726,7 +481,7 @@ with st.expander("	🤖 AI Assistant", expanded=True):
                     win_day = loss_day = "-"
 
                 # 6. ข้อมูลสรุป/Insight
-                st.markdown("### 🧠 AI Intelligence Report")
+                st.markdown("### สรุป AI วิเคราะห์ข้อมูลแผนเทรดล่าสุด")
                 st.write(f"- **จำนวนแผนเทรด:** {total_trades:,}")
                 st.write(f"- **Winrate:** {winrate:.2f}%")
                 st.write(f"- **กำไร/ขาดทุนสุทธิ:** {gross_profit:,.2f} USD")
@@ -737,7 +492,7 @@ with st.expander("	🤖 AI Assistant", expanded=True):
                 st.write(f"- **วันขาดทุนมากสุด:** {loss_day}")
 
                 # 7. Insight จุดแข็ง/จุดอ่อน (beta)
-                st.markdown("### 🤖 AI Insight (จากกฎที่คุณกำหนดเอง)")
+                st.markdown("### 🤖 AI Insight")
                 insight = []
                 if winrate >= 60:
                     insight.append("ระบบมี Winrate สูง มีความเสถียรภาพดี")
@@ -757,275 +512,76 @@ with st.expander("	🤖 AI Assistant", expanded=True):
             st.warning(f"เกิดข้อผิดพลาดในการวิเคราะห์ AI: {e}")
     else:
         st.info("ยังไม่มีข้อมูล log_file สำหรับ AI Summary")
-# ======================= SEC 7: Ultimate Statement Import & Auto-Mapping (Final Version) =======================
-with st.expander("📂 SEC 7: Ultimate Statement Import & Auto-Mapping", expanded=True):
-    st.markdown("### 📊 จัดการ Statement และข้อมูลดิบ")
 
-    # --- ส่วนจัดการ Session State ---
-    if 'all_statement_data' not in st.session_state:
-        st.session_state.all_statement_data = {}
-        st.session_state.df_stmt_current = pd.DataFrame()
 
-    st.markdown("---")
-    st.subheader("📤 อัปโหลด Statement (CSV/XLSX) เพื่อประมวลผลและบันทึก")
-    
-    uploaded_files = st.file_uploader(
-        "ลากและวางไฟล์ Statement ที่นี่ หรือคลิกเพื่อเลือกไฟล์",
-        type=["xlsx", "csv"],
-        accept_multiple_files=True,
-        key="sec7_final_upload"
-    )
 
-    st.checkbox("⚙️ เปิดโหมด Debug (แสดงตารางข้อมูลทั้งหมดที่แยกได้)", key="debug_mode_final")
-    
-    # --- ฟังก์ชันหลัก (ไม่มีการเปลี่ยนแปลง) ---
-    def extract_data_from_report(file_buffer, stat_definitions_arg):
-        df_raw = None
+# ======================= SEC 9: DASHBOARD + AI ULTIMATE (Tab Template) =======================
+
+import plotly.express as px
+
+tab_dashboard, tab_rr, tab_lot, tab_time, tab_ai, tab_export = st.tabs([
+    "📊 Dashboard", 
+    "📈 RR Histogram", 
+    "📉 Lot Size Evolution", 
+    "🕒 Time Analysis", 
+    "🤖 AI Recommendation", 
+    "⬇️ Export/Report"
+])
+
+# ----------- Tab 1: Dashboard Overview -----------
+with tab_dashboard:
+    if os.path.exists(log_file):
         try:
-            file_buffer.seek(0)
-            if file_buffer.name.endswith('.csv'):
-                df_raw = pd.read_csv(file_buffer, header=None, low_memory=False)
-            elif file_buffer.name.endswith('.xlsx'):
-                df_raw = pd.read_excel(file_buffer, header=None, engine='openpyxl')
-        except Exception as e:
-            st.error(f"เกิดข้อผิดพลาดในการอ่านไฟล์: {e}")
-            return None
-
-        if df_raw is None or df_raw.empty:
-            st.warning("ไม่สามารถอ่านข้อมูลจากไฟล์ได้ หรือไฟล์ว่างเปล่า")
-            return None
-
-        section_starts = {}
-        section_keywords = ["Positions", "Orders", "Deals", "History", "Results"]
-        for keyword in section_keywords:
-            if keyword not in section_starts:
-                for r_idx, row in df_raw.iterrows():
-                    if row.astype(str).str.contains(keyword, case=False, regex=False).any():
-                        actual_key = "Deals" if keyword == "History" else keyword
-                        if actual_key not in section_starts:
-                            section_starts[actual_key] = r_idx
-                        break
-        
-        extracted_data = {}
-        sorted_sections = sorted(section_starts.items(), key=lambda x: x[1])
-
-        tabular_keywords = ["Positions", "Orders", "Deals"]
-        for i, (section_name, start_row) in enumerate(sorted_sections):
-            if section_name not in tabular_keywords:
-                continue
-            header_row_idx = start_row + 1
-            while header_row_idx < len(df_raw) and df_raw.iloc[header_row_idx].isnull().all():
-                header_row_idx += 1
-            if header_row_idx < len(df_raw):
-                headers = [str(h).strip() for h in df_raw.iloc[header_row_idx] if pd.notna(h) and str(h).strip() != '']
-                data_start_row = header_row_idx + 1
-                end_row = len(df_raw)
-                if i + 1 < len(sorted_sections):
-                    end_row = sorted_sections[i+1][1]
-                df_section = df_raw.iloc[data_start_row:end_row].copy().dropna(how='all')
-                if not df_section.empty:
-                    num_data_cols = df_section.shape[1]
-                    final_headers = headers[:num_data_cols]
-                    if len(final_headers) < num_data_cols:
-                        final_headers.extend([f'Unnamed:{i}' for i in range(len(final_headers), num_data_cols)])
-                    df_section.columns = final_headers
-                    extracted_data[section_name.lower()] = df_section
-
-        if "Results" in section_starts:
-            results_stats = {}
-            start_row = section_starts["Results"]
-            results_df = df_raw.iloc[start_row : start_row + 15]
-            for _, row in results_df.iterrows():
-                for c_idx, cell in enumerate(row):
-                    if pd.notna(cell):
-                        label = str(cell).strip().replace(':', '')
-                        if label in stat_definitions_arg:
-                            for i in range(1, 4):
-                                if (c_idx + i) < len(row):
-                                    value = row.iloc[c_idx + i]
-                                    if pd.notna(value) and str(value).strip() != "":
-                                        clean_value = str(value).split('(')[0].strip()
-                                        results_stats[label] = clean_value
-                                        break
-                            break 
-            if results_stats:
-                extracted_data["balance_summary"] = pd.DataFrame(list(results_stats.items()), columns=['Metric', 'Value'])
-        return extracted_data
-
-    # --- ส่วนที่เรียกใช้ฟังก์ชันและแสดงผล ---
-    
-    # <<< จุดแก้ไขสำคัญที่แก้ NameError >>>
-    # ย้าย stat_definitions ออกมาสร้างไว้ข้างนอกก่อนเสมอ
-    stat_definitions = {
-        "Total Net Profit", "Gross Profit", "Gross Loss", "Profit Factor", "Expected Payoff", "Recovery Factor",
-        "Sharpe Ratio", "Balance Drawdown Absolute", "Balance Drawdown Maximal", "Balance Drawdown Relative",
-        "Total Trades", "Short Trades (won %)", "Long Trades (won %)", "Profit Trades (% of total)", 
-        "Loss Trades (% of total)", "Largest profit trade", "Largest loss trade", "Average profit trade", 
-        "Average loss trade", "Maximum consecutive wins ($)", "Maximal consecutive profit (count)",
-        "Average consecutive wins", "Maximum consecutive losses ($)", "Maximal consecutive loss (count)", 
-        "Average consecutive losses"
-    }
-
-    if uploaded_files:
-        for uploaded_file in uploaded_files:
-            st.info(f"กำลังประมวลผลไฟล์: {uploaded_file.name}")
-            with st.spinner(f"กำลังแยกส่วนข้อมูล..."):
-                # ส่ง stat_definitions เข้าไปในฟังก์ชันตรงๆ
-                extracted_data = extract_data_from_report(uploaded_file, stat_definitions)
-                
-                if extracted_data:
-                    st.success(f"ประมวลผลสำเร็จ! พบข้อมูลในส่วน: {', '.join(extracted_data.keys())}")
-
-                    if 'deals' in extracted_data:
-                        st.session_state.df_stmt_current = extracted_data['deals'].copy()
-                    
-                    for key, df in extracted_data.items():
-                        st.session_state.all_statement_data[key] = df.copy()
-
-                    if 'balance_summary' in extracted_data:
-                        st.write("### 📊 Balance Summary")
-                        st.dataframe(extracted_data['balance_summary'])
-                    
-                    if st.session_state.debug_mode_final:
-                        for section_key, section_df in extracted_data.items():
-                            if section_key != 'balance_summary':
-                                st.write(f"### 📄 ข้อมูลส่วน: {section_key.replace('_', ' ').title()}")
-                                st.dataframe(section_df)
-                else:
-                    st.warning(f"ไม่สามารถแยกส่วนข้อมูลใดๆ จากไฟล์ {uploaded_file.name} ได้")
-    else:
-        st.info("ยังไม่มีไฟล์ Statement อัปโหลด")
-
-    st.markdown("---")
-    st.subheader("📁 ข้อมูล Statement ที่ถูกโหลดและประมวลผลล่าสุด (Deals)")
-    st.dataframe(st.session_state.df_stmt_current)
-
-    if st.button("🗑️ ล้างข้อมูล Statement ที่โหลดทั้งหมด", key="clear_all_statements_final"):
-        st.session_state.all_statement_data = {}
-        st.session_state.df_stmt_current = pd.DataFrame()
-        st.success("ล้างข้อมูล Statement ทั้งหมดแล้ว")
-        st.rerun()
-# ======================= SEC 9: DASHBOARD + AI ULTIMATE =======================
-# ปรับปรุง load_data_for_dashboard()
-def load_data_for_dashboard():
-    source_option = st.selectbox(
-        "เลือกแหล่งข้อมูลสำหรับแดชบอร์ด",
-        ["Log File (แผน)", "Statement Import (ของจริง)"],
-        index=0,
-        key="dashboard_source_select"
-    )
-    if source_option == "Log File (แผน)":
-        if os.path.exists(log_file):
-            df_data = pd.read_csv(log_file)
-        else:
-            df_data = pd.DataFrame()
-    else: # Statement Import (ของจริง)
-        # เราใช้ st.session_state.df_stmt_current ซึ่งถูกโหลด/อัปเดตจาก SEC 7 แล้ว
-        return st.session_state.df_stmt_current 
-    return df_data
-
-with st.expander("📊 Performance Dashboard", expanded=True):
-    df_data = load_data_for_dashboard()
-
-    tab_dashboard, tab_rr, tab_lot, tab_time, tab_ai, tab_export = st.tabs([
-        "📊 Dashboard",
-        "📈 RR Histogram",
-        "📉 Lot Size Evolution",
-        "🕒 Time Analysis",
-        "🤖 AI Recommendation", 
-        "⬇️ Export/Report"
-    ])
-
-    with tab_dashboard:
-        if df_data.empty:
-            st.info("ยังไม่มีข้อมูลสำหรับ Dashboard")
-        else:
-            # ปรับปรุงการใช้คอลัมน์ "Symbol" หรือ "Asset"
-            column_for_asset_filter = None
-            if "Asset" in df_data.columns and df_data["Asset"].notna().any():
-                column_for_asset_filter = "Asset"
-            elif "Symbol" in df_data.columns and df_data["Symbol"].notna().any():
-                column_for_asset_filter = "Symbol"
-
-            if column_for_asset_filter:
-                selected_asset = st.selectbox(
-                    f"🎯 Filter by {column_for_asset_filter}", 
-                    ["ทั้งหมด"] + sorted(df_data[column_for_asset_filter].dropna().unique()), 
-                    key="dashboard_asset_filter"
-                )
-                if selected_asset != "ทั้งหมด":
-                    df_data = df_data[df_data[column_for_asset_filter] == selected_asset]
+            df_log = pd.read_csv(log_file)
+            if df_log.empty:
+                st.info("ยังไม่มีข้อมูลสำหรับ Dashboard")
             else:
-                st.warning("ไม่พบคอลัมน์ 'Asset' หรือ 'Symbol' สำหรับการกรอง")
-
-
-            st.markdown("### 🥧 Pie Chart: Win/Loss")
-            profit_col = None
-            if "Profit" in df_data.columns:
-                profit_col = "Profit"
-            elif "Risk $" in df_data.columns: # Fallback for log file
-                profit_col = "Risk $"
-
-            if profit_col:
-                win_count = df_data[df_data[profit_col].astype(float) > 0].shape[0]
-                loss_count = df_data[df_data[profit_col].astype(float) <= 0].shape[0]
+                st.markdown("### 🥧 Pie Chart: Win/Loss")
+                win_count = df_log[df_log["Risk $"].astype(float) > 0].shape[0]
+                loss_count = df_log[df_log["Risk $"].astype(float) <= 0].shape[0]
                 pie_df = pd.DataFrame({"Result": ["Win", "Loss"], "Count": [win_count, loss_count]})
                 pie_chart = px.pie(pie_df, names="Result", values="Count", color="Result",
-                                color_discrete_map={"Win": "green", "Loss": "red"})
+                                   color_discrete_map={"Win": "green", "Loss": "red"})
                 st.plotly_chart(pie_chart, use_container_width=True)
-            else:
-                st.warning("ไม่พบคอลัมน์กำไร/ขาดทุน (Profit หรือ Risk $) สำหรับ Pie Chart")
-
-
-            st.markdown("### 📊 Bar Chart: กำไร/ขาดทุนแต่ละวัน")
-            date_col = None
-            if "Timestamp" in df_data.columns:
-                date_col = "Timestamp"
-            elif "Date" in df_data.columns:
-                date_col = "Date"
-            elif "Open Time" in df_data.columns:
-                date_col = "Open Time" # Assuming Open Time is the relevant date for daily sums
-            elif "Close Time" in df_data.columns:
-                date_col = "Close Time" # Assuming Close Time is the relevant date for daily sums
-
-            if date_col and profit_col:
-                df_data_copy = df_data.copy() # Make a copy to avoid SettingWithCopyWarning
-                df_data_copy["TradeDate"] = pd.to_datetime(df_data_copy[date_col], errors='coerce').dt.date
-                bar_df = df_data_copy.groupby("TradeDate")[profit_col].sum().reset_index(name="Profit/Loss")
-                bar_chart = px.bar(bar_df, x="TradeDate", y="Profit/Loss", color="Profit/Loss",
-                                color_continuous_scale=["red", "orange", "green"])
+                
+                st.markdown("### 📊 Bar Chart: กำไร/ขาดทุนแต่ละวัน")
+                df_log["Date"] = pd.to_datetime(df_log["Timestamp"], errors='coerce').dt.date
+                bar_df = df_log.groupby("Date")["Risk $"].sum().reset_index()
+                bar_chart = px.bar(bar_df, x="Date", y="Risk $", color="Risk $",
+                                   color_continuous_scale=["red", "orange", "green"])
                 st.plotly_chart(bar_chart, use_container_width=True)
-            else:
-                st.warning("ไม่พบคอลัมน์วันที่/เวลา หรือ กำไร/ขาดทุน สำหรับ Bar Chart")
 
-
-            st.markdown("### 📈 Timeline: Balance Curve")
-            if profit_col and date_col:
-                df_data_copy = df_data.copy()
-                df_data_copy["Balance"] = 10000 + df_data_copy[profit_col].astype(float).cumsum()
-                df_data_copy["TradeDate"] = pd.to_datetime(df_data_copy[date_col], errors='coerce') # Use full datetime for timeline x-axis
-
-                # Sort by date for correct balance curve
-                df_data_copy = df_data_copy.sort_values(by="TradeDate")
-
-                timeline_chart = px.line(df_data_copy, x="TradeDate", y="Balance", markers=True)
+                st.markdown("### 📈 Timeline: Balance Curve")
+                df_log["Balance"] = acc_balance + df_log["Risk $"].astype(float).cumsum()
+                timeline_chart = px.line(df_log, x="Date", y="Balance", markers=True)
                 st.plotly_chart(timeline_chart, use_container_width=True)
-            else:
-                st.warning("ไม่พบคอลัมน์วันที่/เวลา หรือ กำไร/ขาดทุน สำหรับ Balance Curve")
 
-    with tab_rr:
-        if df_data.empty:
-            st.info("ยังไม่มีข้อมูลสำหรับ RR Histogram")
-        else:
+                st.markdown("### 🔍 Filter Dashboard")
+                asset_options = ["ทั้งหมด"] + sorted(df_log["Asset"].unique().tolist())
+                selected_asset = st.selectbox("Asset", asset_options, key="asset_filter_dashboard")
+                if selected_asset != "ทั้งหมด":
+                    df_log = df_log[df_log["Asset"] == selected_asset]
+                # เพิ่ม filter อื่นได้ที่นี่
+
+        except Exception as e:
+            st.error(f"Error loading dashboard: {e}")
+    else:
+        st.info("ยังไม่มีข้อมูล log_file สำหรับ Dashboard Visualization")
+
+# ----------- Tab 2: RR Histogram -----------
+with tab_rr:
+    if os.path.exists(log_file):
+        try:
+            df_log = pd.read_csv(log_file)
             rr_col = None
-            for col in df_data.columns:
+            for col in df_log.columns:
                 if col.strip().upper() == "RR":
                     rr_col = col
                     break
-            if rr_col:
-                rr_data = pd.to_numeric(df_data[rr_col], errors='coerce').dropna()
-                if rr_data.empty:
-                    st.info("ยังไม่มีข้อมูล RR ที่บันทึกในข้อมูล")
+            if rr_col is not None:
+                rr_data = pd.to_numeric(df_log[rr_col], errors='coerce').dropna()
+                if len(rr_data) == 0:
+                    st.info("ยังไม่มีข้อมูล RR ที่บันทึกใน log_file")
                 else:
                     st.markdown("#### RR Histogram (แจกแจง Risk:Reward)")
                     fig = px.histogram(
@@ -1039,172 +595,110 @@ with st.expander("📊 Performance Dashboard", expanded=True):
                     st.plotly_chart(fig, use_container_width=True)
                     st.caption("ดูว่า RR ส่วนใหญ่อยู่โซนไหน ถ้ามี RR < 2 เยอะ = เสี่ยง/หลุดวินัย")
             else:
-                st.warning("ไม่พบคอลัมน์ RR ในข้อมูล")
+                st.warning("ไม่พบคอลัมน์ RR ใน log_file")
+        except Exception as e:
+            st.error(f"Error loading RR Histogram: {e}")
+    else:
+        st.info("ยังไม่มีข้อมูล log_file สำหรับ RR Histogram")
 
-    with tab_lot:
-        if df_data.empty:
-            st.info("ยังไม่มีข้อมูลสำหรับ Lot Size Evolution")
-        else:
-            if "Lot" in df_data.columns:
-                df_data_copy = df_data.copy()
-                df_data_copy["TradeDate"] = pd.to_datetime(df_data_copy["Timestamp"] if "Timestamp" in df_data_copy.columns else (df_data_copy["Date"] if "Date" in df_data_copy.columns else (df_data_copy["Open Time"] if "Open Time" in df_data_copy.columns else None)), errors='coerce')
-                df_data_copy = df_data_copy.dropna(subset=['TradeDate']) # Remove rows with invalid dates
-                df_data_copy = df_data_copy.sort_values(by="TradeDate") # Sort for correct timeline
-
-                if not df_data_copy.empty:
-                    st.markdown("#### Lot Size Evolution (การเปลี่ยนแปลง Lot Size ตามเวลา)")
-                    fig = px.line(
-                        df_data_copy,
-                        x="TradeDate",
-                        y="Lot",
-                        markers=True,
-                        title="Lot Size Evolution"
-                    )
-                    st.plotly_chart(fig, use_container_width=True)
-                    st.caption("วิเคราะห์ Money Management/Scaling ได้ที่นี่")
-                else:
-                    st.warning("ไม่พบข้อมูล Lot ที่ถูกต้อง หรือข้อมูลวันที่ไม่สมบูรณ์")
+# ----------- Tab 3: Lot Size Evolution -----------
+with tab_lot:
+    if os.path.exists(log_file):
+        try:
+            df_log = pd.read_csv(log_file)
+            if "Lot" in df_log.columns:
+                df_log["Date"] = pd.to_datetime(df_log["Timestamp"], errors='coerce').dt.date
+                st.markdown("#### Lot Size Evolution (การเปลี่ยนแปลง Lot Size ตามเวลา)")
+                fig = px.line(
+                    df_log,
+                    x="Date",
+                    y="Lot",
+                    markers=True,
+                    title="Lot Size Evolution"
+                )
+                st.plotly_chart(fig, use_container_width=True)
+                st.caption("วิเคราะห์ Money Management/Scaling ได้ที่นี่")
             else:
-                st.warning("ไม่พบคอลัมน์ Lot ในข้อมูล")
+                st.warning("ไม่พบคอลัมน์ Lot ใน log_file")
+        except Exception as e:
+            st.error(f"Error loading Lot Size Evolution: {e}")
+    else:
+        st.info("ยังไม่มีข้อมูล log_file สำหรับ Lot Size Evolution")
 
-    with tab_time:
-        if df_data.empty:
-            st.info("ยังไม่มีข้อมูลสำหรับ Time Analysis")
-        else:
+# ----------- Tab 4: Time Analysis -----------
+with tab_time:
+    if os.path.exists(log_file):
+        try:
+            df_log = pd.read_csv(log_file)
             st.markdown("#### Time Analysis (วิเคราะห์ตามวัน/เวลา)")
+            df_log["Date"] = pd.to_datetime(df_log["Timestamp"], errors='coerce')
+            df_log["Weekday"] = df_log["Date"].dt.day_name()
+            weekday_df = df_log.groupby("Weekday")["Risk $"].sum().reindex(
+                ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]).reset_index()
+            bar_chart = px.bar(weekday_df, x="Weekday", y="Risk $", title="กำไร/ขาดทุนรวมตามวันในสัปดาห์")
+            st.plotly_chart(bar_chart, use_container_width=True)
+            st.caption("ดูว่าเทรดวันไหนเวิร์ค วันไหนควรหลีกเลี่ยง")
+        except Exception as e:
+            st.error(f"Error loading Time Analysis: {e}")
+    else:
+        st.info("ยังไม่มีข้อมูล log_file สำหรับ Time Analysis")
 
-            date_col_for_time = None
-            if "Timestamp" in df_data.columns:
-                date_col_for_time = "Timestamp"
-            elif "Date" in df_data.columns:
-                date_col_for_time = "Date"
-            elif "Open Time" in df_data.columns:
-                date_col_for_time = "Open Time"
-            elif "Close Time" in df_data.columns:
-                date_col_for_time = "Close Time"
-
-            if date_col_for_time and profit_col:
-                df_data_copy = df_data.copy()
-                df_data_copy["TradeDateFull"] = pd.to_datetime(df_data_copy[date_col_for_time], errors='coerce')
-                df_data_copy = df_data_copy.dropna(subset=['TradeDateFull']) # Remove rows with invalid dates
-
-                df_data_copy["Weekday"] = df_data_copy["TradeDateFull"].dt.day_name()
-
-                weekday_df = df_data_copy.groupby("Weekday")[profit_col].sum().reindex(
-                    ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
-                ).reset_index(name="Profit/Loss")
-                bar_chart = px.bar(weekday_df, x="Weekday", y="Profit/Loss", title="กำไร/ขาดทุนรวมตามวันในสัปดาห์")
-                st.plotly_chart(bar_chart, use_container_width=True)
-                st.caption("ดูว่าเทรดวันไหนเวิร์ค วันไหนควรหลีกเลี่ยง")
-            else:
-                st.warning("ไม่พบคอลัมน์วันที่/เวลา หรือ กำไร/ขาดทุน สำหรับ Time Analysis")
-
-    with tab_ai:
-        if df_data.empty:
-            st.info("ยังไม่มีข้อมูลสำหรับ AI Recommendation")
-        else:
+# ----------- Tab 5: AI Recommendation -----------
+with tab_ai:
+    if os.path.exists(log_file):
+        try:
+            df_log = pd.read_csv(log_file)
+            # ดึง insight/AI Section SEC 8 มาใส่ในนี้ได้เลย
+            # ตัวอย่างสั้น (ดึง insight จาก AI)
             st.markdown("### AI Insight & Recommendation")
-            total_trades = df_data.shape[0]
-            profit_col_ai = None
-            if "Profit" in df_data.columns:
-                profit_col_ai = "Profit"
-            elif "Risk $" in df_data.columns:
-                profit_col_ai = "Risk $"
-
-            if profit_col_ai:
-                win_trades = df_data[df_data[profit_col_ai].astype(float) > 0].shape[0]
-                loss_trades = df_data[df_data[profit_col_ai].astype(float) <= 0].shape[0]
-                winrate_ai = 100 * win_trades / total_trades if total_trades > 0 else 0
-                gross_profit_ai = df_data[profit_col_ai].astype(float).sum()
-            else:
-                win_trades = 0
-                loss_trades = 0
-                winrate_ai = 0
-                gross_profit_ai = 0
-                st.warning(f"ไม่พบคอลัมน์กำไร/ขาดทุน (Profit หรือ Risk $) ในข้อมูลสำหรับ AI.")
-
+            total_trades = df_log.shape[0]
+            win_trades = df_log[df_log["Risk $"].astype(float) > 0].shape[0]
+            loss_trades = df_log[df_log["Risk $"].astype(float) <= 0].shape[0]
+            winrate = 100 * win_trades / total_trades if total_trades > 0 else 0
             st.write(f"จำนวนแผนเทรด: {total_trades}")
-            st.write(f"Winrate: {winrate_ai:.2f}%")
-            st.write(f"กำไร/ขาดทุนสุทธิ: {gross_profit_ai:,.2f} USD")
-
-            try:
-                if "GOOGLE_API_KEY" in st.secrets.get("google_api", {}):
-                    model = genai.GenerativeModel('gemini-pro')
-
-                    prompt_text = (
-                        f"Based on this trading data: Total trades: {total_trades}, "
-                        f"Winrate: {winrate_ai:.2f}%, Gross Profit/Loss: {gross_profit_ai:,.2f} USD. "
-                        f"If this is a trading performance report, analyze it and provide a concise trading insight "
-                        f"and recommendation for improvement. What are the strengths and weaknesses of this trading performance? "
-                        f"Focus on practical advice for a trader. Respond in Thai."
-                    )
-
-                    with st.spinner("AI กำลังวิเคราะห์ข้อมูล..."):
-                        response = model.generate_content(prompt_text)
-                    st.markdown("---")
-                    st.markdown("**จาก Gemini AI:**")
-                    st.write(response.text)
-                    st.markdown("---")
-                else:
-                    st.info("โปรดตั้งค่า Google API Key ใน `.streamlit/secrets.toml` เพื่อเปิดใช้งาน AI Assistant")
-            except Exception as e:
-                st.error(f"❌ เกิดข้อผิดพลาดในการเรียกใช้ Google AI: {e}")
-                st.info("โปรดตรวจสอบว่าได้ตั้งค่า GOOGLE_API_KEY ถูกต้อง และมีโควต้าการใช้งาน AI เพียงพอ หรือ Generative Language API ถูกเปิดใช้งานใน Google Cloud Console แล้ว.")
-
-            st.markdown("### 🤖 AI Insight (จากกฎที่คุณกำหนดเอง)")
+            st.write(f"Winrate: {winrate:.2f}%")
             insight = []
-            if winrate_ai >= 60:
+            if winrate >= 60:
                 insight.append("Winrate สูง ระบบเสถียรภาพดี")
-            elif winrate_ai < 40:
+            elif winrate < 40:
                 insight.append("Winrate ต่ำ ควรพิจารณากลยุทธ์ใหม่")
-
-            rr_list_ai_tab = []
-            if "RR" in df_data.columns:
-                rr_list_ai_tab = pd.to_numeric(df_data["RR"], errors='coerce').dropna().tolist()
-            avg_rr_ai_tab = np.mean(rr_list_ai_tab) if len(rr_list_ai_tab) > 0 else None
-            if avg_rr_ai_tab is not None and avg_rr_ai_tab < 2:
-                insight.append("RR ต่ำกว่าค่าเฉลี่ยตลาด (<2) อาจเสี่ยงเกินไป")
-
-            current_balance_ai_tab = acc_balance
-            max_balance_ai_tab = current_balance_ai_tab
-            drawdowns_ai_tab = []
-            if profit_col_ai in df_data.columns:
-                for profit_val in df_data[profit_col_ai].astype(float):
-                    current_balance_ai_tab += profit_val
-                    if current_balance_ai_tab > max_balance_ai_tab:
-                        max_balance_ai_tab = current_balance_ai_tab
-                    drawdown = max_balance_ai_tab - current_balance_ai_tab
-                    drawdowns_ai_tab.append(drawdown)
-                max_drawdown_ai_tab = max(drawdowns_ai_tab) if drawdowns_ai_tab else 0
-                if max_drawdown_ai_tab > acc_balance * 0.05:
-                    insight.append("Drawdown สูงกว่าปลอดภัย (5%) ควรควบคุม Money Management")
-
             if not insight:
                 insight.append("ยังไม่พบความเสี่ยงสำคัญ")
             for msg in insight:
                 st.info(msg)
+            # ขยายเพิ่มคำแนะนำ/alert ได้
+        except Exception as e:
+            st.error(f"Error loading AI Recommendation: {e}")
+    else:
+        st.info("ยังไม่มีข้อมูล log_file สำหรับ AI Recommendation")
 
-
-    with tab_export:
-        if df_data.empty:
-            st.info("ยังไม่มีข้อมูลสำหรับ Export/Report")
-        else:
+# ----------- Tab 6: Export/Report -----------
+with tab_export:
+    if os.path.exists(log_file):
+        try:
+            df_log = pd.read_csv(log_file)
             st.markdown("### Export/Download Report")
-            st.download_button("Download Report (CSV)", df_data.to_csv(index=False), file_name="report.csv")
+            st.download_button("Download log_file (CSV)", df_log.to_csv(index=False), file_name="log_file.csv")
+            # ถ้าต้องการ export รูปภาพ chart หรือ export Excel เพิ่มเติมแจ้งได้
+        except Exception as e:
+            st.error(f"Error loading Export/Report: {e}")
+    else:
+        st.info("ยังไม่มีข้อมูล log_file สำหรับ Export/Report")
+
 
 
 # ======================= SEC 6: LOG VIEWER (ล่างสุด + EXPANDER เดียว) =======================
-with st.expander("📚 Trade Log Viewer (แผนเทรด)", expanded=False):
+with st.expander("📚 Log Viewer (คลิกเพื่อเปิด/ปิด)", expanded=False):
     if os.path.exists(log_file):
         try:
             df_log = pd.read_csv(log_file)
             col1, col2, col3 = st.columns(3)
             with col1:
-                mode_filter = st.selectbox("Mode", ["ทั้งหมด"] + sorted(df_log["Mode"].unique().tolist()), key="log_mode_filter")
+                mode_filter = st.selectbox("Mode", ["ทั้งหมด"] + sorted(df_log["Mode"].unique().tolist()))
             with col2:
-                asset_filter = st.selectbox("Asset", ["ทั้งหมด"] + sorted(df_log["Asset"].unique().tolist()), key="log_asset_filter")
+                asset_filter = st.selectbox("Asset", ["ทั้งหมด"] + sorted(df_log["Asset"].unique().tolist()))
             with col3:
-                date_filter = st.text_input("ค้นหาวันที่ (YYYY-MM-DD)", value="", key="log_date_filter")
+                date_filter = st.text_input("ค้นหาวันที่ (YYYY-MM-DD)", value="")
             df_show = df_log.copy()
             if mode_filter != "ทั้งหมด":
                 df_show = df_show[df_show["Mode"] == mode_filter]
