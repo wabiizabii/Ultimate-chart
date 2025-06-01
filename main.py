@@ -1816,48 +1816,51 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
 
                     
 
-                        # ***** START MODIFICATION: Filter Deals based on essential columns as per your suggestion *****
+                        # ***** START MODIFICATION: Filter Deals based on your new specific logic *****
                         if section_name == "Deals" and not df_section.empty:
                             original_deal_rows = len(df_section)
                             
-                            # รายชื่อคอลัมน์ที่คุณระบุว่า "ต้องมีข้อมูล" สำหรับ Deal ที่ถูกต้อง
-                            # ผมขอเพิ่ม "Time_Deal" และ "Deal_ID" เข้าไปด้วยนะครับ เพราะ Deal ปกติควรจะมีสองอันนี้ด้วย
-                            essential_deal_columns = [
-                                "Time_Deal", 
-                                "Deal_ID", 
-                                "Symbol_Deal", 
-                                "Type_Deal", 
-                                "Direction_Deal", 
-                                "Volume_Deal", 
-                                "Price_Deal"
-                                # คุณอาจจะเพิ่มคอลัมน์อื่นๆ ที่คิดว่าจำเป็นเข้ามาใน list นี้ได้อีก
-                            ]
-                            
-                            # เริ่มต้นด้วยการสมมติว่าทุกแถวผ่านเงื่อนไข (เป็น True ทั้งหมด)
-                            valid_rows_mask = pd.Series([True] * len(df_section), index=df_section.index)
-                            
-                            columns_present_in_df = df_section.columns.tolist()
+                            # เก็บ DataFrame เดิมไว้ก่อน เผื่อ Debug
+                            df_original_deals = df_section.copy()
 
-                            for col_name in essential_deal_columns:
-                                if col_name in columns_present_in_df:
-                                    # ตรวจสอบว่าข้อมูลในคอลัมน์นั้น (หลังจากแปลงเป็น string และตัดช่องว่าง) ไม่ใช่ค่าว่าง
-                                    is_present_and_not_empty = df_section[col_name].astype(str).str.strip() != ""
-                                    valid_rows_mask &= is_present_and_not_empty
-                                else:
-                                    # ถ้าคอลัมน์ที่จำเป็นนี้ไม่มีอยู่ใน DataFrame เลย ให้ถือว่าทุกแถวไม่ผ่านเงื่อนไขนี้
-                                    # (เพื่อความปลอดภัย หรือคุณอาจจะแจ้งเตือนแล้วข้ามการกรองส่วนนี้ไป)
-                                    st.warning(f"DEBUG: Essential column '{col_name}' not found in Deals DataFrame. Filtering might be affected.")
-                                    valid_rows_mask &= pd.Series([False] * len(df_section), index=df_section.index) # Mark all as invalid for this missing column
+                            # Columns that indicate financial summary if Time_Deal is missing
+                            financial_columns_to_check = ["Commission_Deal", "Fee_Deal", "Swap_Deal", "Profit_Deal", "Balance_Deal"]
+                            
+                            # Start with a mask that keeps all rows
+                            rows_to_keep_mask = pd.Series([True] * len(df_section), index=df_section.index)
 
-                            df_section = df_section[valid_rows_mask]
+                            # Check for missing Time_Deal
+                            if "Time_Deal" in df_section.columns:
+                                missing_time_deal_mask = (df_section["Time_Deal"].astype(str).str.strip() == "")
+                                
+                                # For rows with missing Time_Deal, check if any of the financial columns have data
+                                if missing_time_deal_mask.any(): # Only proceed if there are rows with missing Time_Deal
+                                    has_financial_data_mask = pd.Series([False] * len(df_section), index=df_section.index)
+                                    for fin_col in financial_columns_to_check:
+                                        if fin_col in df_section.columns:
+                                            # A financial column has data if it's not empty AND not just "0.00" or "0" (or similar zero values)
+                                            # We need to be careful with "0.00" as it can be a valid financial value in some contexts,
+                                            # but for summary rows that are otherwise blank, non-zero financials are a good indicator.
+                                            # For simplicity now, let's consider any non-empty string as having data.
+                                            # A more robust check might involve trying to convert to float and checking if non-zero.
+                                            has_financial_data_mask |= (df_section[fin_col].astype(str).str.strip() != "")
+                                    
+                                    # Rows to EXCLUDE: missing Time_Deal AND has some financial data
+                                    rows_to_exclude_mask = missing_time_deal_mask & has_financial_data_mask
+                                    rows_to_keep_mask &= ~rows_to_exclude_mask # Invert the exclude mask to get rows to keep
+                            
+                            df_section = df_section[rows_to_keep_mask]
 
                             if st.session_state.get("debug_statement_processing_v2", False):
-                                st.write(f"DEBUG: Deals DataFrame original rows: {original_deal_rows}")
-                                st.write(f"DEBUG: Deals DataFrame after filtering based on essential columns presence ({len(df_section)} rows left):")
+                                st.write(f"DEBUG: Deals DataFrame original_deal_rows: {original_deal_rows}")
+                                st.write(f"DEBUG: Deals DataFrame after filtering (No Time_Deal BUT has Financials) ({len(df_section)} rows left):")
                                 if not df_section.empty:
                                     st.dataframe(df_section.head())
                                 else:
                                     st.write("No Deals left after filtering.")
+                                # You can also display the excluded rows for verification:
+                                # st.write("DEBUG: Excluded rows:")
+                                # st.dataframe(df_original_deals[~rows_to_keep_mask])
                         # ***** END MODIFICATION *****
 
                         if not df_section.empty:
