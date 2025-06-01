@@ -1727,19 +1727,19 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
 
     # --- ฟังก์ชันสำหรับแยกข้อมูลจากเนื้อหาไฟล์ Statement (CSV) ---
     # [ฟังก์ชันนี้มีการแก้ไขเพื่อกรองแถวสรุปของ Deals]
+    # --- ฟังก์ชันสำหรับแยกข้อมูลจากเนื้อหาไฟล์ Statement (CSV) ---
     def extract_data_from_report_content(file_content_str_input):
         extracted_data = {}
+        
         def safe_float_convert(value_str):
             if isinstance(value_str, (int, float)): return value_str
             try:
                 clean_value = str(value_str).replace(" ", "").replace(",", "").replace("%", "")
                 if clean_value.count('.') > 1:
-                    parts = clean_value.split('.')
-                    integer_part = "".join(parts[:-1]); decimal_part = parts[-1]
+                    parts = clean_value.split('.'); integer_part = "".join(parts[:-1]); decimal_part = parts[-1]
                     clean_value = integer_part + "." + decimal_part
                 return float(clean_value)
-            except ValueError: return None
-            except Exception: return None
+            except (ValueError, Exception): return None
 
         lines = []
         if isinstance(file_content_str_input, str): lines = file_content_str_input.strip().split('\n')
@@ -1764,104 +1764,80 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
         }
         section_order_for_tables = ["Positions", "Orders", "Deals"]
         section_header_indices = {}
+        
         for line_idx, current_line_str in enumerate(lines):
             stripped_line = current_line_str.strip()
             for section_name, raw_header_template in section_raw_headers.items():
                 if section_name not in section_header_indices:
                     first_col_of_template = raw_header_template.split(',')[0].strip()
                     if stripped_line.startswith(first_col_of_template) and raw_header_template in stripped_line:
-                        section_header_indices[section_name] = line_idx
-                        break
+                        section_header_indices[section_name] = line_idx; break
+        
         for table_idx, section_name in enumerate(section_order_for_tables):
             section_key_lower = section_name.lower()
-            extracted_data[section_key_lower] = pd.DataFrame() 
-
+            extracted_data[section_key_lower] = pd.DataFrame()
             if section_name in section_header_indices:
-                # ... (ส่วนการหา data_start_line_num, data_end_line_num เหมือนเดิม) ...
+                header_line_num = section_header_indices[section_name]
+                data_start_line_num = header_line_num + 1
+                data_end_line_num = len(lines)
+                for next_table_name_idx in range(table_idx + 1, len(section_order_for_tables)):
+                    next_table_section_name = section_order_for_tables[next_table_name_idx]
+                    if next_table_section_name in section_header_indices:
+                        data_end_line_num = section_header_indices[next_table_section_name]; break
                 
                 current_table_data_lines = []
-                raw_lines_for_section = [] # เก็บ raw lines ก่อนกรอง (สำหรับ Debug)
-
+                if st.session_state.get("debug_statement_processing_v2", False) and section_name == "Deals":
+                    st.write(f"--- DEBUG: Raw lines being considered for Deals (before any filtering) ---")
+                
                 for line_num_for_data in range(data_start_line_num, data_end_line_num):
                     line_content_for_data = lines[line_num_for_data].strip()
-                    if not line_content_for_data: 
-                        if any(current_table_data_lines) or any(raw_lines_for_section): # Check both
-                            break
-                        else:
-                            continue 
-
-                    if line_content_for_data.startswith(("Balance:", "Credit Facility:", "Floating P/L:", "Equity:", "Results", "Total Net Profit:")):
-                        break
+                    if not line_content_for_data:
+                        if any(current_table_data_lines): break
+                        else: continue
+                    if line_content_for_data.startswith(("Balance:", "Credit Facility:", "Floating P/L:", "Equity:", "Results", "Total Net Profit:")): break
                     is_another_header = False
                     for other_sec_name, other_raw_hdr in section_raw_headers.items():
                         if other_sec_name != section_name and line_content_for_data.startswith(other_raw_hdr.split(',')[0]) and other_raw_hdr in line_content_for_data:
                             is_another_header = True; break
                     if is_another_header: break
                     
-                    raw_lines_for_section.append(line_content_for_data) # Store raw line
-
-                    # ***** START MODIFICATION: Filter "balance" rows for Deals BEFORE creating DataFrame *****
+                    # ***** START MODIFICATION: Filter "balance" rows for Deals BEFORE adding to current_table_data_lines *****
                     if section_name == "Deals":
-                        # ตรวจสอบว่ามีคำว่า "balance" เป็นคำเดี่ยวๆ หรือเป็นส่วนหนึ่งของ Type หรือไม่
-                        # และอาจจะตรวจสอบว่าคอลัมน์แรกๆ (ที่ควรเป็น Time/Deal ID) เป็นค่าว่างหรือไม่
-                        # เราจะใช้ , (comma) เป็นตัวแบ่งคอลัมน์คร่าวๆ
                         cols_in_line = [col.strip() for col in line_content_for_data.split(',')]
-                        
-                        # เงื่อนไขการกรอง (คุณอาจจะต้องปรับให้แม่นยำขึ้นตามลักษณะไฟล์ของคุณ)
-                        # 1. คอลัมน์ที่ 4 (index 3) มีคำว่า "balance" (ไม่สนใจตัวพิมพ์เล็ก/ใหญ่) หรือไม่
-                        # 2. คอลัมน์ที่ 2 (index 1, ควรเป็น Deal_ID) และ คอลัมน์ที่ 3 (index 2, ควรเป็น Symbol) เป็นค่าว่างหรือไม่
-                        
-                        is_balance_row = False
-                        if len(cols_in_line) > 3 and "balance" in cols_in_line[3].lower(): # Check Type_Deal for "balance"
-                            is_balance_row = True
-                        
-                        # เพิ่มเงื่อนไข ถ้า Time_Deal (cols_in_line[0]) หรือ Deal_ID (cols_in_line[1]) ว่าง ก็อาจจะกรองออก
-                        # if len(cols_in_line) > 1 and (not cols_in_line[0] or not cols_in_line[1]):
-                        #     is_likely_summary_or_bad_row = True
-                        # else:
-                        #     is_likely_summary_or_bad_row = False
-
-                        if is_balance_row: # and is_likely_summary_or_bad_row (ถ้าจะใช้เงื่อนไข Deal_ID ว่างร่วมด้วย)
+                        # Check if the 4th column (index 3, expected to be Type_Deal) contains "balance" (case-insensitive)
+                        if len(cols_in_line) > 3 and "balance" in cols_in_line[3].lower():
                             if st.session_state.get("debug_statement_processing_v2", False):
-                                st.write(f"DEBUG: Skipping Deals row (likely balance/summary): {line_content_for_data}")
-                            continue # ข้ามบรรทัดนี้ ไม่ต้องเพิ่มเข้า current_table_data_lines
+                                st.write(f"DEBUG [extract_data]: Skipping Deals row (identified as balance type): {line_content_for_data}")
+                            continue # Skip this line, do not add to current_table_data_lines
                     # ***** END MODIFICATION *****
                         
                     current_table_data_lines.append(line_content_for_data)
 
                 if st.session_state.get("debug_statement_processing_v2", False) and section_name == "Deals":
-                    st.write(f"DEBUG: Raw lines collected for Deals (before pd.read_csv): {len(raw_lines_for_section)}")
-                    st.text("\n".join(raw_lines_for_section[:10])) # แสดง 10 แถวแรกที่อ่านได้
-                    st.write(f"DEBUG: Filtered lines to be parsed for Deals: {len(current_table_data_lines)}")
-                    st.text("\n".join(current_table_data_lines[:10])) # แสดง 10 แถวแรกที่จะถูก parse
+                    st.write(f"--- DEBUG: Lines for Deals after initial 'balance' string filter (to be parsed by pd.read_csv): {len(current_table_data_lines)} ---")
+                    if current_table_data_lines: st.text("\n".join(current_table_data_lines[:10]))
+
 
                 if current_table_data_lines:
                     csv_data_str = "\n".join(current_table_data_lines)
                     try:
                         df_section = pd.read_csv(io.StringIO(csv_data_str),
-                                                 header=None, 
-                                                 names=expected_cleaned_columns[section_name],
-                                                 skipinitialspace=True,
-                                                 on_bad_lines='warn', 
-                                                 engine='python',
-                                                 dtype=str) 
-                        
-                        df_section.dropna(how='all', inplace=True) 
+                                                 header=None, names=expected_cleaned_columns[section_name],
+                                                 skipinitialspace=True, on_bad_lines='warn', engine='python', dtype=str)
+                        df_section.dropna(how='all', inplace=True)
                         final_cols = expected_cleaned_columns[section_name]
-                        for col in final_cols: 
-                            if col not in df_section.columns:
-                                df_section[col] = "" 
-                        df_section = df_section[final_cols] 
+                        for col in final_cols:
+                            if col not in df_section.columns: df_section[col] = ""
+                        df_section = df_section[final_cols]
 
-                        # การกรองหลังจากสร้าง DataFrame อาจจะไม่จำเป็นแล้วถ้ากรองจาก current_table_data_lines ได้ผลดี
-                        # แต่เก็บไว้เผื่อกรณียังมีแถวหลุดรอดมา
+                        # Optional: Further filtering on DataFrame if needed, though string filtering above should be primary
                         if section_name == "Deals" and not df_section.empty:
-                            if "Type_Deal" in df_section.columns:
-                                condition_is_not_balance_type = ~(df_section["Type_Deal"].astype(str).str.strip().str.lower() == "balance")
-                                df_section = df_section[condition_is_not_balance_type]
-                            if st.session_state.get("debug_statement_processing_v2", False):
-                                st.write(f"DEBUG: Deals DataFrame after secondary filtering in DataFrame ({len(df_section)} rows left):")
-                                st.dataframe(df_section.head())
+                             # Example: Ensure Symbol_Deal is not empty for a valid trade record (after balance rows are already filtered)
+                             if "Symbol_Deal" in df_section.columns:
+                                 df_section = df_section[df_section["Symbol_Deal"].astype(str).str.strip() != ""]
+                             if st.session_state.get("debug_statement_processing_v2", False):
+                                st.write(f"DEBUG: Deals DataFrame after pd.read_csv and potential secondary filtering ({len(df_section)} rows left):")
+                                if not df_section.empty: st.dataframe(df_section.head())
 
 
                         if not df_section.empty:
