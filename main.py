@@ -15,7 +15,7 @@ import uuid # <<< เพิ่ม import uuid
 import hashlib
 import time # For potential delays if strictly necessary, though we aim to avoid
 
-
+st.set_page_config(page_title="Ultimate-Chart", layout="wide")
 acc_balance = 10000 # ยอดคงเหลือเริ่มต้นของบัญชีเทรด (อาจจะดึงมาจาก Active Portfolio ในอนาคต)
 
 # กำหนดชื่อ Google Sheet และ Worksheet ที่จะใช้เก็บข้อมูล
