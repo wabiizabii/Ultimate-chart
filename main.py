@@ -1573,7 +1573,7 @@ with st.expander("📋 Entry Table (FIBO/CUSTOM)", expanded=True):
             for col_name_original, col_name_display in display_column_names.items():
                 if col_name_display in df_to_show_in_table.columns:
                     if col_name_original in ["Entry", "SL", "TP", "Recommended_TP_RR3"]:
-                        df_to_show_in_table[col_name_display] = df_to_show_in_table[col_name_display].apply(lambda x: f"{x:.5f}" if isinstance(x, float) else x)
+                        df_to_show_in_table[col_name_display] = df_to_show_in_table[col_name_display].apply(lambda x: f"{x:.2f}" if isinstance(x, float) else x)
                     elif col_name_original in ["Lot", "Risk $", "RR"]:
                          df_to_show_in_table[col_name_display] = df_to_show_in_table[col_name_display].apply(lambda x: f"{x:.2f}" if isinstance(x, float) else x)
 
