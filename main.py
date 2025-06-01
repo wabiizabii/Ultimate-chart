@@ -168,18 +168,47 @@ elif df_portfolios_gs.empty:
 
 # ========== Function Utility (ต่อจากของเดิม) ==========
 def get_today_drawdown(log_source_df, acc_balance_input): # Renamed acc_balance to avoid conflict
-    # ... (โค้ดเดิมของลูกพี่ตั้ม) ...
     if log_source_df.empty:
         return 0
     today_str = datetime.now().strftime("%Y-%m-%d")
     try:
-        log_source_df['Timestamp'] = pd.to_datetime(log_source_df['Timestamp'], errors='coerce')
-        log_source_df['Risk $'] = pd.to_numeric(log_source_df['Risk $'], errors='coerce').fillna(0)
-        df_today = log_source_df[log_source_df["Timestamp"].dt.strftime("%Y-%m-%d") == today_str]
-        drawdown = df_today["Risk $"].sum()
+        active_portfolio_id_dd = st.session_state.get('active_portfolio_id_gs', None)
+        df_filtered_by_portfolio = log_source_df.copy() # Use .copy() to avoid SettingWithCopyWarning
+
+        if active_portfolio_id_dd and 'PortfolioID' in df_filtered_by_portfolio.columns:
+            # Ensure consistent type for comparison
+            df_filtered_by_portfolio['PortfolioID'] = df_filtered_by_portfolio['PortfolioID'].astype(str)
+            df_filtered_by_portfolio = df_filtered_by_portfolio[df_filtered_by_portfolio['PortfolioID'] == str(active_portfolio_id_dd)]
+
+        if df_filtered_by_portfolio.empty:
+            return 0
+
+        if 'Timestamp' not in df_filtered_by_portfolio.columns:
+            return 0
+        df_filtered_by_portfolio['Timestamp'] = pd.to_datetime(df_filtered_by_portfolio['Timestamp'], errors='coerce')
+
+        df_today = df_filtered_by_portfolio[df_filtered_by_portfolio["Timestamp"].dt.strftime("%Y-%m-%d") == today_str]
+
+        if df_today.empty:
+            return 0
+
+        if 'Risk $' not in df_today.columns:
+            return 0
+        # Ensure 'Risk $' is numeric on a copy to avoid SettingWithCopyWarning
+        df_today_copy = df_today.copy()
+        df_today_copy['Risk $'] = pd.to_numeric(df_today_copy['Risk $'], errors='coerce').fillna(0)
+
+        planned_risk_sum_today = df_today_copy["Risk $"].sum()
+        # --- START: แก้ไขจุดนี้ ---
+        drawdown = -abs(planned_risk_sum_today) # ทำให้เป็นค่าลบเสมอ เพื่อสะท้อนการขาดทุนตามแผน
+        # --- END: แก้ไขจุดนี้ ---
         return drawdown
-    except KeyError: return 0
-    except Exception: return 0
+    except KeyError as e:
+        # st.error(f"KeyError in get_today_drawdown: {e}") # For debugging
+        return 0
+    except Exception as e:
+        # st.error(f"Exception in get_today_drawdown: {e}") # For debugging
+        return 0
 
 
 def get_performance(log_source_df, mode="week"):
