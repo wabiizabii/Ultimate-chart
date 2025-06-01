@@ -1633,8 +1633,9 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
                     if not ok: overall_processing_successful = False
                 else: save_results_details['Positions'] = {'ok': True, 'new': 0, 'skipped': 0, 'notes': "Positions: No data in file."}
                 
+                # Summaries
                 balance_summary = extracted_sections.get('balance_summary', {})
-                results_summary_data_ext = extracted_sections.get('results_summary', {})
+                results_summary_data_ext = extracted_sections.get('results_summary', {}) # Renamed to avoid conflict
                 summary_save_attempted = False
                 summary_save_ok = True 
 
@@ -1647,6 +1648,13 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
                 if should_save_summary_now:
                     if balance_summary or results_summary_data_ext:
                         summary_save_attempted = True
+                        
+                        # ***** START ADDING DELAY *****
+                        if st.session_state.get("debug_statement_processing_v2", False):
+                            st.write("DEBUG: Pausing for 1 second before saving summary...")
+                        time.sleep(1) # หน่วงเวลา 1 วินาที ก่อนเรียก API ของ Summary
+                        # ***** END ADDING DELAY *****
+
                         ok_summary_save = save_results_summary_to_gsheets(
                             ws_dict[WORKSHEET_STATEMENT_SUMMARIES], balance_summary, results_summary_data_ext, 
                             active_portfolio_id_for_actual, active_portfolio_name_for_actual, 
@@ -1683,6 +1691,12 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
             else: final_status = "Success_NoNewRecords"
         
         try:
+            # ***** START ADDING DELAY *****
+            if st.session_state.get("debug_statement_processing_v2", False):
+                st.write("DEBUG: Pausing for 1 second before updating UploadHistory status...")
+            time.sleep(1) # หน่วงเวลา 1 วินาที ก่อนเรียก API ของ UploadHistory
+            # ***** END ADDING DELAY *****
+
             history_rows_for_update = ws_dict[WORKSHEET_UPLOAD_HISTORY].get_all_values() 
             row_to_update_idx = None
             for idx_update, row_val_update in reversed(list(enumerate(history_rows_for_update))):
