@@ -168,7 +168,7 @@ elif df_portfolios_gs.empty:
 
 
 # ========== Function Utility (ต่อจากของเดิม) ==========
-def (log_source_df, acc_balance_input): # Renamed acc_balance to avoid conflict
+def get_today_drawdown(log_source_df, acc_balance_input): # Renamed acc_balance to avoid conflict
     if log_source_df.empty:
         return 0
     today_str = datetime.now().strftime("%Y-%m-%d")
