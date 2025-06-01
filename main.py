@@ -24,8 +24,7 @@ WORKSHEET_ACTUAL_TRADES = "ActualTrades"
 WORKSHEET_ACTUAL_ORDERS = "ActualOrders"
 WORKSHEET_ACTUAL_POSITIONS = "ActualPositions"
 WORKSHEET_STATEMENT_SUMMARIES = "StatementSummaries"
-
-# ฟังก์ชันสำหรับเชื่อมต่อ gspread
+WORKSHEET_UPLOAD_HISTORY = "UploadHistory" #
 @st.cache_resource # ใช้ cache_resource สำหรับ gspread client object
 def get_gspread_client():
     try:
