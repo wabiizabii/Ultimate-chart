@@ -1786,6 +1786,9 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
                         data_end_line_num = section_header_indices[next_table_section_name]; break
                 
                 current_table_data_lines = []
+                if st.session_state.get("debug_statement_processing_v2", False) and section_name == "Deals":
+                    st.write(f"--- DEBUG: Raw lines being considered for Deals (before any filtering) ---")
+                
                 for line_num_for_data in range(data_start_line_num, data_end_line_num):
                     line_content_for_data = lines[line_num_for_data].strip()
                     if not line_content_for_data:
@@ -1802,22 +1805,9 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
                     if section_name == "Deals":
                         cols_in_line = [col.strip() for col in line_content_for_data.split(',')]
                         # Check if the 4th column (index 3, expected to be Type_Deal) contains "balance" (case-insensitive)
-                        # AND if essential identifiers like Symbol (index 2) or Deal_ID (index 1) are empty,
-                        # which is characteristic of balance/summary rows in some MT reports.
-                        is_likely_balance_or_summary_row = False
                         if len(cols_in_line) > 3 and "balance" in cols_in_line[3].lower():
-                            is_likely_balance_or_summary_row = True
-                        
-                        # Also consider rows as non-deals if essential fields like Symbol or Deal_ID are missing
-                        # This is a stricter check than the one you suggested, but might be more robust
-                        # if len(cols_in_line) > 2 and (not cols_in_line[1] or not cols_in_line[2]): # Deal_ID or Symbol is empty
-                        #    if "balance" not in cols_in_line[3].lower(): # If it's not already marked as balance, but still looks like summary
-                        #        is_likely_balance_or_summary_row = True
-
-
-                        if is_likely_balance_or_summary_row:
                             if st.session_state.get("debug_statement_processing_v2", False):
-                                st.write(f"DEBUG [extract_data]: Skipping Deals row (filtered as balance/summary): {line_content_for_data}")
+                                st.write(f"DEBUG [extract_data]: Skipping Deals row (identified as balance type): {line_content_for_data}")
                             continue # Skip this line, do not add to current_table_data_lines
                     # ***** END MODIFICATION *****
                         
@@ -1840,12 +1830,10 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
                             if col not in df_section.columns: df_section[col] = ""
                         df_section = df_section[final_cols]
 
-                        # Secondary filter on DataFrame (optional, if string filtering wasn't enough)
-                        # The primary filtering is now done on raw string lines above.
-                        # You can add more df-level filters here if needed.
+                        # Optional: Further filtering on DataFrame if needed, though string filtering above should be primary
                         if section_name == "Deals" and not df_section.empty:
-                             # Ensure Symbol_Deal is not empty for a valid trade record (after balance rows are already filtered)
-                             if "Symbol_Deal" in df_section.columns: # Redundant if already filtered string lines well
+                             # Example: Ensure Symbol_Deal is not empty for a valid trade record (after balance rows are already filtered)
+                             if "Symbol_Deal" in df_section.columns:
                                  df_section = df_section[df_section["Symbol_Deal"].astype(str).str.strip() != ""]
                              if st.session_state.get("debug_statement_processing_v2", False):
                                 st.write(f"DEBUG: Deals DataFrame after pd.read_csv and potential secondary filtering ({len(df_section)} rows left):")
