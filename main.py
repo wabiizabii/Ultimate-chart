@@ -1270,12 +1270,13 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
     # [โค้ดฟังก์ชันนี้เหมือนเดิมกับเวอร์ชันล่าสุด ที่มีการส่ง expected_headers เข้า get_all_records]
     # [เฉพาะฟังก์ชัน save_transactional_data_to_gsheets ที่แก้ไข ส่วนอื่นคงเดิม]
 
+    # [เฉพาะฟังก์ชัน save_transactional_data_to_gsheets ที่แก้ไข ส่วนอื่นคงเดิม]
+
     def save_transactional_data_to_gsheets(ws, df_input, unique_id_col, expected_headers, data_type_name, portfolio_id, portfolio_name, source_file_name="N/A", import_batch_id="N/A"):
         if df_input is None or df_input.empty:
             return True, 0, 0 
         try:
             current_headers = []
-            # Ensure worksheet object 'ws' is valid
             if ws is None:
                 st.error(f"({data_type_name}) Worksheet object is None. Cannot proceed.")
                 return False, 0, 0
@@ -1283,21 +1284,18 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
             if ws.row_count > 0: 
                 try: current_headers = ws.row_values(1) 
                 except Exception: pass 
-            
+
             if not current_headers or all(h == "" for h in current_headers) or set(current_headers) != set(expected_headers):
                 try:
-                    ws.update([expected_headers], value_input_option='USER_ENTERED') # Ensure USER_ENTERED for headers
+                    ws.update([expected_headers], value_input_option='USER_ENTERED') 
                     st.info(f"({ws.title}) Headers written/updated.")
                 except Exception as e_update_header:
                     st.error(f"({ws.title}) Failed to write/update headers: {e_update_header}")
                     return False, 0, 0
 
-
             existing_ids = set()
-            # *** START MODIFICATION: Skip get_all_records if sheet is new/empty (only has header) ***
-            if ws.row_count > 1: # Only try to get records if there's more than just a header row
+            if ws.row_count > 1: 
                 try:
-                    # st.write(f"Debug: ({ws.title}) Trying to get existing records. Row count: {ws.row_count}") # Debug
                     all_sheet_records = ws.get_all_records(
                         expected_headers=expected_headers, 
                         numericise_ignore=['all']
@@ -1310,17 +1308,13 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
                             if not df_portfolio_data.empty and unique_id_col in df_portfolio_data.columns:
                                 existing_ids = set(df_portfolio_data[unique_id_col].astype(str).tolist())
                 except Exception as e_get_records:
-                    # If get_all_records fails (e.g. header issue still, though less likely now)
-                    # we log a warning but proceed as if there are no existing records to compare against for this run,
-                    # rather than failing the entire upload.
                     st.warning(f"({ws.title}) ไม่สามารถดึงข้อมูลที่มีอยู่เพื่อตรวจสอบซ้ำ ({data_type_name}): {e_get_records}. จะดำเนินการต่อโดยถือว่าไม่มีข้อมูลเก่าที่ตรงกันในรอบนี้")
-            # *** END MODIFICATION ***
 
             df_to_check = df_input.copy()
             if unique_id_col not in df_to_check.columns:
                 st.error(f"({ws.title}) คอลัมน์ '{unique_id_col}' ที่จำเป็นสำหรับการตรวจสอบข้อมูลซ้ำ ไม่พบในข้อมูล {data_type_name} ที่อัปโหลด")
                 return False, 0, 0 
-            
+
             df_to_check[unique_id_col] = df_to_check[unique_id_col].astype(str) 
             new_df = df_to_check[~df_to_check[unique_id_col].isin(existing_ids)]
             num_new = len(new_df)
@@ -1329,6 +1323,12 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
             if new_df.empty:
                 return True, num_new, num_duplicates_skipped
 
+            # --- START DEBUGGING: Check new_df before preparing to save ---
+            if st.session_state.get("debug_statement_processing_v2", False) and data_type_name == "Deals": # Debug specific to Deals
+                st.write(f"DEBUG ({ws.title}): DataFrame `new_df` for {data_type_name} (before save, {num_new} rows):")
+                st.dataframe(new_df.head())
+            # --- END DEBUGGING ---
+
             df_to_save = pd.DataFrame(columns=expected_headers) 
             for col in expected_headers:
                 if col in new_df.columns: df_to_save[col] = new_df[col]
@@ -1336,14 +1336,37 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
             df_to_save["PortfolioName"] = str(portfolio_name)
             df_to_save["SourceFile"] = str(source_file_name)
             df_to_save["ImportBatchID"] = str(import_batch_id)
-            df_to_save = df_to_save[expected_headers]
+
+            # Ensure all expected columns are present before reordering, fill with empty string if not.
+            for col in expected_headers:
+                if col not in df_to_save.columns:
+                    df_to_save[col] = "" # Or pd.NA if you prefer, but fillna("") later handles it
+
+            df_to_save = df_to_save[expected_headers] # Reorder to match expected headers
 
             list_of_lists = df_to_save.astype(str).replace('nan', '').replace('None', '').fillna("").values.tolist()
+
+            # --- START DEBUGGING: Check list_of_lists ---
+            if st.session_state.get("debug_statement_processing_v2", False) and data_type_name == "Deals":
+                st.write(f"DEBUG ({ws.title}): `list_of_lists` for {data_type_name} (first 5 rows if available):")
+                st.json(list_of_lists[:5]) # Show first 5 rows as JSON
+                st.write(f"Number of rows in list_of_lists for {data_type_name}: {len(list_of_lists)}")
+            # --- END DEBUGGING ---
+
             if list_of_lists:
-                ws.append_rows(list_of_lists, value_input_option='USER_ENTERED')
+                try:
+                    ws.append_rows(list_of_lists, value_input_option='USER_ENTERED')
+                    # st.success(f"({ws.title}) Successfully appended {len(list_of_lists)} rows for {data_type_name}.") # Optional success message
+                except Exception as e_append:
+                    st.error(f"({ws.title}) Error during append_rows for {data_type_name}: {e_append}")
+                    return False, 0, num_duplicates_skipped # Indicate failure but report skipped
                 return True, num_new, num_duplicates_skipped
-            
-            return True, 0, num_duplicates_skipped 
+            else: # list_of_lists is empty, but new_df was not. This shouldn't happen if new_df had rows.
+                if num_new > 0 : # If new_df had rows, but list_of_lists is empty, something is wrong in conversion
+                     st.warning(f"({ws.title}) new_df for {data_type_name} had {num_new} rows, but list_of_lists for appending was empty. Data not saved.")
+                     return False, 0, num_duplicates_skipped # Data was not saved.
+                return True, 0, num_duplicates_skipped # No new data to append.
+
         except gspread.exceptions.APIError as e_api:
             st.error(f"❌ ({ws.title}) Google Sheets API Error ({data_type_name}): {e_api}")
             return False, 0, 0
