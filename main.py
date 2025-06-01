@@ -2274,23 +2274,26 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
         user_choice_made = False # Flag to see if user made a choice on duplicate
 
         for record_idx, record in enumerate(history_records):
-    st.write(f"--- DEBUG: Checking record {record_idx} ---")
-    st.write(f"Record PortfolioID: {record.get('PortfolioID')} (Type: {type(record.get('PortfolioID'))}) vs Active: {active_portfolio_id_for_actual} (Type: {type(active_portfolio_id_for_actual)})")
-    st.write(f"Record FileName: {record.get('FileName')} vs Active: {file_name_for_saving}")
-    st.write(f"Record FileSize: {record.get('FileSize')} (Type: {type(record.get('FileSize'))}) vs Active: {file_size_for_saving} (Type: {type(file_size_for_saving)})")
-    st.write(f"Record FileHash: {record.get('FileHash')} vs Active: {file_hash_for_saving}")
-    st.write(f"Record Status: {record.get('Status')}")
+                # บรรทัด 2277 และต่อๆ ไปที่อยู่ใน for loop ต้องย่อหน้าเข้ามา
+                st.write(f"--- DEBUG: Checking record {record_idx} ---")
+                st.write(f"Record PortfolioID: {record.get('PortfolioID')} (Type: {type(record.get('PortfolioID'))}) vs Active: {active_portfolio_id_for_actual} (Type: {type(active_portfolio_id_for_actual)})")
+                st.write(f"Record FileName: {record.get('FileName')} vs Active: {file_name_for_saving}")
+                st.write(f"Record FileSize: {record.get('FileSize')} (Type: {type(record.get('FileSize'))}) vs Active: {file_size_for_saving} (Type: {type(file_size_for_saving)})")
+                st.write(f"Record FileHash: {record.get('FileHash')} vs Active: {file_hash_for_saving}")
+                st.write(f"Record Status: {record.get('Status')}")
 
-    # เงื่อนไขเดิม
-    if str(record.get("PortfolioID")) == str(active_portfolio_id_for_actual) and \
-       record.get("FileName") == file_name_for_saving and \
-       int(record.get("FileSize", 0)) == int(file_size_for_saving) and \
-       (not file_hash_for_saving or record.get("FileHash") == file_hash_for_saving) and \
-       record.get("Status") == "Success":
-        is_duplicate_found = True
-        # ...
-        break
-st.write(f"DEBUG: After loop, is_duplicate_found = {is_duplicate_found}")
+                if str(record.get("PortfolioID")) == str(active_portfolio_id_for_actual) and \
+                   record.get("FileName") == file_name_for_saving and \
+                   int(record.get("FileSize", 0)) == int(file_size_for_saving) and \
+                   (not file_hash_for_saving or record.get("FileHash") == file_hash_for_saving) and \
+                   record.get("Status") == "Success":
+                    is_duplicate_found = True
+                    existing_batch_id_info = record.get("ImportBatchID", "N/A")
+                    st.write(f"DEBUG: Duplicate found! Batch ID: {existing_batch_id_info}") # เพิ่ม Debug
+                    break
+            
+            st.write(f"DEBUG: After loop, is_duplicate_found = {is_duplicate_found}")
+            # ... (โค้ดส่วน if is_duplicate_found: ที่เราแก้ไขล่าสุด) ...
         
         proceed_with_upload = True # Default to proceed unless stopped
         user_confirmed_duplicate_action = False # Tracks if user clicked a button for duplicate
