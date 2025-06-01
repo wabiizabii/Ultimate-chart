@@ -1774,29 +1774,67 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
                         break
         for table_idx, section_name in enumerate(section_order_for_tables):
             section_key_lower = section_name.lower()
-            extracted_data[section_key_lower] = pd.DataFrame()
+            extracted_data[section_key_lower] = pd.DataFrame() 
+
             if section_name in section_header_indices:
-                header_line_num = section_header_indices[section_name]
-                data_start_line_num = header_line_num + 1
-                data_end_line_num = len(lines)
-                for next_table_name_idx in range(table_idx + 1, len(section_order_for_tables)):
-                    next_table_section_name = section_order_for_tables[next_table_name_idx]
-                    if next_table_section_name in section_header_indices:
-                        data_end_line_num = section_header_indices[next_table_section_name]
-                        break
+                # ... (ส่วนการหา data_start_line_num, data_end_line_num เหมือนเดิม) ...
+                
                 current_table_data_lines = []
+                raw_lines_for_section = [] # เก็บ raw lines ก่อนกรอง (สำหรับ Debug)
+
                 for line_num_for_data in range(data_start_line_num, data_end_line_num):
                     line_content_for_data = lines[line_num_for_data].strip()
-                    if not line_content_for_data:
-                        if any(current_table_data_lines): break
-                        else: continue
-                    if line_content_for_data.startswith(("Balance:", "Credit Facility:", "Floating P/L:", "Equity:", "Results", "Total Net Profit:")): break
+                    if not line_content_for_data: 
+                        if any(current_table_data_lines) or any(raw_lines_for_section): # Check both
+                            break
+                        else:
+                            continue 
+
+                    if line_content_for_data.startswith(("Balance:", "Credit Facility:", "Floating P/L:", "Equity:", "Results", "Total Net Profit:")):
+                        break
                     is_another_header = False
                     for other_sec_name, other_raw_hdr in section_raw_headers.items():
                         if other_sec_name != section_name and line_content_for_data.startswith(other_raw_hdr.split(',')[0]) and other_raw_hdr in line_content_for_data:
                             is_another_header = True; break
                     if is_another_header: break
+                    
+                    raw_lines_for_section.append(line_content_for_data) # Store raw line
+
+                    # ***** START MODIFICATION: Filter "balance" rows for Deals BEFORE creating DataFrame *****
+                    if section_name == "Deals":
+                        # ตรวจสอบว่ามีคำว่า "balance" เป็นคำเดี่ยวๆ หรือเป็นส่วนหนึ่งของ Type หรือไม่
+                        # และอาจจะตรวจสอบว่าคอลัมน์แรกๆ (ที่ควรเป็น Time/Deal ID) เป็นค่าว่างหรือไม่
+                        # เราจะใช้ , (comma) เป็นตัวแบ่งคอลัมน์คร่าวๆ
+                        cols_in_line = [col.strip() for col in line_content_for_data.split(',')]
+                        
+                        # เงื่อนไขการกรอง (คุณอาจจะต้องปรับให้แม่นยำขึ้นตามลักษณะไฟล์ของคุณ)
+                        # 1. คอลัมน์ที่ 4 (index 3) มีคำว่า "balance" (ไม่สนใจตัวพิมพ์เล็ก/ใหญ่) หรือไม่
+                        # 2. คอลัมน์ที่ 2 (index 1, ควรเป็น Deal_ID) และ คอลัมน์ที่ 3 (index 2, ควรเป็น Symbol) เป็นค่าว่างหรือไม่
+                        
+                        is_balance_row = False
+                        if len(cols_in_line) > 3 and "balance" in cols_in_line[3].lower(): # Check Type_Deal for "balance"
+                            is_balance_row = True
+                        
+                        # เพิ่มเงื่อนไข ถ้า Time_Deal (cols_in_line[0]) หรือ Deal_ID (cols_in_line[1]) ว่าง ก็อาจจะกรองออก
+                        # if len(cols_in_line) > 1 and (not cols_in_line[0] or not cols_in_line[1]):
+                        #     is_likely_summary_or_bad_row = True
+                        # else:
+                        #     is_likely_summary_or_bad_row = False
+
+                        if is_balance_row: # and is_likely_summary_or_bad_row (ถ้าจะใช้เงื่อนไข Deal_ID ว่างร่วมด้วย)
+                            if st.session_state.get("debug_statement_processing_v2", False):
+                                st.write(f"DEBUG: Skipping Deals row (likely balance/summary): {line_content_for_data}")
+                            continue # ข้ามบรรทัดนี้ ไม่ต้องเพิ่มเข้า current_table_data_lines
+                    # ***** END MODIFICATION *****
+                        
                     current_table_data_lines.append(line_content_for_data)
+
+                if st.session_state.get("debug_statement_processing_v2", False) and section_name == "Deals":
+                    st.write(f"DEBUG: Raw lines collected for Deals (before pd.read_csv): {len(raw_lines_for_section)}")
+                    st.text("\n".join(raw_lines_for_section[:10])) # แสดง 10 แถวแรกที่อ่านได้
+                    st.write(f"DEBUG: Filtered lines to be parsed for Deals: {len(current_table_data_lines)}")
+                    st.text("\n".join(current_table_data_lines[:10])) # แสดง 10 แถวแรกที่จะถูก parse
+
                 if current_table_data_lines:
                     csv_data_str = "\n".join(current_table_data_lines)
                     try:
@@ -1806,62 +1844,25 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
                                                  skipinitialspace=True,
                                                  on_bad_lines='warn', 
                                                  engine='python',
-                                                 dtype=str)
-                        df_section.dropna(how='all', inplace=True)
+                                                 dtype=str) 
+                        
+                        df_section.dropna(how='all', inplace=True) 
                         final_cols = expected_cleaned_columns[section_name]
-                        for col in final_cols:
+                        for col in final_cols: 
                             if col not in df_section.columns:
                                 df_section[col] = "" 
-                        df_section = df_section[final_cols]
+                        df_section = df_section[final_cols] 
 
-                    
-
-                        # ***** START MODIFICATION: Filter Deals based on your new specific logic *****
+                        # การกรองหลังจากสร้าง DataFrame อาจจะไม่จำเป็นแล้วถ้ากรองจาก current_table_data_lines ได้ผลดี
+                        # แต่เก็บไว้เผื่อกรณียังมีแถวหลุดรอดมา
                         if section_name == "Deals" and not df_section.empty:
-                            original_deal_rows = len(df_section)
-                            
-                            # เก็บ DataFrame เดิมไว้ก่อน เผื่อ Debug
-                            df_original_deals = df_section.copy()
-
-                            # Columns that indicate financial summary if Time_Deal is missing
-                            financial_columns_to_check = ["Commission_Deal", "Fee_Deal", "Swap_Deal", "Profit_Deal", "Balance_Deal"]
-                            
-                            # Start with a mask that keeps all rows
-                            rows_to_keep_mask = pd.Series([True] * len(df_section), index=df_section.index)
-
-                            # Check for missing Time_Deal
-                            if "Time_Deal" in df_section.columns:
-                                missing_time_deal_mask = (df_section["Time_Deal"].astype(str).str.strip() == "")
-                                
-                                # For rows with missing Time_Deal, check if any of the financial columns have data
-                                if missing_time_deal_mask.any(): # Only proceed if there are rows with missing Time_Deal
-                                    has_financial_data_mask = pd.Series([False] * len(df_section), index=df_section.index)
-                                    for fin_col in financial_columns_to_check:
-                                        if fin_col in df_section.columns:
-                                            # A financial column has data if it's not empty AND not just "0.00" or "0" (or similar zero values)
-                                            # We need to be careful with "0.00" as it can be a valid financial value in some contexts,
-                                            # but for summary rows that are otherwise blank, non-zero financials are a good indicator.
-                                            # For simplicity now, let's consider any non-empty string as having data.
-                                            # A more robust check might involve trying to convert to float and checking if non-zero.
-                                            has_financial_data_mask |= (df_section[fin_col].astype(str).str.strip() != "")
-                                    
-                                    # Rows to EXCLUDE: missing Time_Deal AND has some financial data
-                                    rows_to_exclude_mask = missing_time_deal_mask & has_financial_data_mask
-                                    rows_to_keep_mask &= ~rows_to_exclude_mask # Invert the exclude mask to get rows to keep
-                            
-                            df_section = df_section[rows_to_keep_mask]
-
+                            if "Type_Deal" in df_section.columns:
+                                condition_is_not_balance_type = ~(df_section["Type_Deal"].astype(str).str.strip().str.lower() == "balance")
+                                df_section = df_section[condition_is_not_balance_type]
                             if st.session_state.get("debug_statement_processing_v2", False):
-                                st.write(f"DEBUG: Deals DataFrame original_deal_rows: {original_deal_rows}")
-                                st.write(f"DEBUG: Deals DataFrame after filtering (No Time_Deal BUT has Financials) ({len(df_section)} rows left):")
-                                if not df_section.empty:
-                                    st.dataframe(df_section.head())
-                                else:
-                                    st.write("No Deals left after filtering.")
-                                # You can also display the excluded rows for verification:
-                                # st.write("DEBUG: Excluded rows:")
-                                # st.dataframe(df_original_deals[~rows_to_keep_mask])
-                        # ***** END MODIFICATION *****
+                                st.write(f"DEBUG: Deals DataFrame after secondary filtering in DataFrame ({len(df_section)} rows left):")
+                                st.dataframe(df_section.head())
+
 
                         if not df_section.empty:
                             extracted_data[section_key_lower] = df_section
