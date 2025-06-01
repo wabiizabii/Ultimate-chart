@@ -302,10 +302,9 @@ def save_new_portfolio_to_gsheets(portfolio_data_dict):
             'OverallProfitTarget', 'TargetEndDate', 'WeeklyProfitTarget', 'DailyProfitTarget',
             'MaxAcceptableDrawdownOverall', 'MaxAcceptableDrawdownDaily',
             'EnableScaling', 'ScalingCheckFrequency',
-            'ScaleUp_MinWinRate', 'ScaleUp_MinGainPercent', 'ScaleUp_RiskIncrementPercent',
-            'ScaleDown_MaxLossPercent', 'ScaleDown_LowWinRate', 'ScaleDown_RiskDecrementPercent',
-            'MinRiskPercentAllowed', 'MaxRiskPercentAllowed', 'CurrentRiskPercent',
-            'Notes'
+            'ScaleUp_MinWinRate', 'ScaleUp_MinGainPercent': float, 'ScaleUp_RiskIncrementPercent': float,
+            'ScaleDown_MaxLossPercent': float, 'ScaleDown_LowWinRate': float, 'ScaleDown_RiskDecrementPercent': float,
+            'MinRiskPercentAllowed': float, 'MaxRiskPercentAllowed': float, 'CurrentRiskPercent': float
         ]
         
         # Check if headers exist, if not, add them
@@ -1835,7 +1834,8 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
             num_duplicates_skipped = len(df_deals_to_check) - num_new_deals
 
             if new_deals_df.empty:
-                st.info(f"({WORKSHEET_ACTUAL_TRADES}) ไม่มีข้อมูล Deals ใหม่ที่จะบันทึกสำหรับพอร์ต '{portfolio_name}' (ข้าม {num_duplicates_skipped} รายการที่ซ้ำซ้อน/มีอยู่แล้ว)")
+                # This message is now handled outside if num_new_deals is 0 after the call
+                # st.info(f"({WORKSHEET_ACTUAL_TRADES}) ไม่มีข้อมูล Deals ใหม่ที่จะบันทึกสำหรับพอร์ต '{portfolio_name}' (ข้าม {num_duplicates_skipped} รายการที่ซ้ำซ้อน/มีอยู่แล้ว)")
                 return True, num_new_deals, num_duplicates_skipped
 
             df_deals_to_save = pd.DataFrame(columns=expected_headers)
@@ -1903,7 +1903,8 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
             num_duplicates_skipped = len(df_positions_to_check) - num_new_positions
 
             if new_positions_df.empty:
-                st.info(f"({WORKSHEET_ACTUAL_POSITIONS}) ไม่มีข้อมูล Positions ใหม่ที่จะบันทึกสำหรับพอร์ต '{portfolio_name}' (ข้าม {num_duplicates_skipped} รายการที่ซ้ำซ้อน/มีอยู่แล้ว)")
+                # This message is now handled outside
+                # st.info(f"({WORKSHEET_ACTUAL_POSITIONS}) ไม่มีข้อมูล Positions ใหม่ที่จะบันทึกสำหรับพอร์ต '{portfolio_name}' (ข้าม {num_duplicates_skipped} รายการที่ซ้ำซ้อน/มีอยู่แล้ว)")
                 return True, num_new_positions, num_duplicates_skipped
 
             df_positions_to_save = pd.DataFrame(columns=expected_headers)
@@ -1971,7 +1972,8 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
             num_duplicates_skipped = len(df_orders_to_check) - num_new_orders
 
             if new_orders_df.empty:
-                st.info(f"({WORKSHEET_ACTUAL_ORDERS}) ไม่มีข้อมูล Orders ใหม่ที่จะบันทึกสำหรับพอร์ต '{portfolio_name}' (ข้าม {num_duplicates_skipped} รายการที่ซ้ำซ้อน/มีอยู่แล้ว)")
+                # This message is now handled outside
+                # st.info(f"({WORKSHEET_ACTUAL_ORDERS}) ไม่มีข้อมูล Orders ใหม่ที่จะบันทึกสำหรับพอร์ต '{portfolio_name}' (ข้าม {num_duplicates_skipped} รายการที่ซ้ำซ้อน/มีอยู่แล้ว)")
                 return True, num_new_orders, num_duplicates_skipped
 
             df_orders_to_save = pd.DataFrame(columns=expected_headers)
@@ -2153,12 +2155,14 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
                 previous_upload_time_for_duplicate = record.get("UploadTimestamp", "ไม่ทราบเวลา")
                 break
         
+        # This message is now a warning, and processing will continue to check for new *records*.
         if is_duplicate_file_found:
             st.warning(
                 f"ℹ️ ไฟล์ '{file_name_for_saving}' นี้ ดูเหมือนเคยถูกอัปโหลดและประมวลผลสำเร็จไปแล้ว "
                 f"สำหรับพอร์ต '{active_portfolio_name_for_actual}' เมื่อ {previous_upload_time_for_duplicate} "
                 f"(ImportBatchID: {existing_batch_id_info}). \nระบบจะยังคงประมวลผลไฟล์นี้ "
-                f"แต่จะเพิ่มเฉพาะรายการ (Deals, Orders, Positions) ใหม่ที่ยังไม่มีในชีตเท่านั้น"
+                f"แต่จะเพิ่มเฉพาะรายการ (Deals, Orders, Positions) ใหม่ที่ยังไม่มีในชีตเท่านั้น. "
+                f"ข้อมูล Summary จากไฟล์นี้จะไม่ถูกบันทึกซ้ำหากไฟล์เหมือนเดิมทุกประการ"
             )
 
         import_batch_id = str(uuid.uuid4()) 
@@ -2223,10 +2227,12 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
                     )
                     if not save_deals_ok:
                         overall_processing_successful = False
-                        # Error message already shown in save_deals_to_actual_trades
                         processing_notes.append(f"Deals: Save failed.")
                     else:
-                        st.success(f"({WORKSHEET_ACTUAL_TRADES}) ประมวลผล Deals สำเร็จ: เพิ่ม {new_deals_count} รายการใหม่, ข้าม {skipped_deals_count} รายการซ้ำ.")
+                        if new_deals_count == 0 and skipped_deals_count > 0:
+                            st.info(f"({WORKSHEET_ACTUAL_TRADES}) ไม่มีข้อมูล Deals ใหม่ที่จะบันทึกสำหรับพอร์ต '{active_portfolio_name_for_actual}' (ข้าม {skipped_deals_count} รายการที่ซ้ำซ้อน/มีอยู่แล้ว)")
+                        else:
+                            st.success(f"({WORKSHEET_ACTUAL_TRADES}) ประมวลผล Deals สำเร็จ: เพิ่ม {new_deals_count} รายการใหม่, ข้าม {skipped_deals_count} รายการซ้ำ.")
                         processing_notes.append(f"Deals: Added {new_deals_count}, Skipped {skipped_deals_count}.")
                         if new_deals_count > 0: any_new_data_added = True
                 else:
@@ -2244,7 +2250,10 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
                         overall_processing_successful = False
                         processing_notes.append(f"Orders: Save failed.")
                     else:
-                        st.success(f"({WORKSHEET_ACTUAL_ORDERS}) ประมวลผล Orders สำเร็จ: เพิ่ม {new_orders_count} รายการใหม่, ข้าม {skipped_orders_count} รายการซ้ำ.")
+                        if new_orders_count == 0 and skipped_orders_count > 0:
+                            st.info(f"({WORKSHEET_ACTUAL_ORDERS}) ไม่มีข้อมูล Orders ใหม่ที่จะบันทึกสำหรับพอร์ต '{active_portfolio_name_for_actual}' (ข้าม {skipped_orders_count} รายการที่ซ้ำซ้อน/มีอยู่แล้ว)")
+                        else:
+                            st.success(f"({WORKSHEET_ACTUAL_ORDERS}) ประมวลผล Orders สำเร็จ: เพิ่ม {new_orders_count} รายการใหม่, ข้าม {skipped_orders_count} รายการซ้ำ.")
                         processing_notes.append(f"Orders: Added {new_orders_count}, Skipped {skipped_orders_count}.")
                         if new_orders_count > 0: any_new_data_added = True
                 else:
@@ -2262,34 +2271,59 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
                         overall_processing_successful = False
                         processing_notes.append(f"Positions: Save failed.")
                     else:
-                        st.success(f"({WORKSHEET_ACTUAL_POSITIONS}) ประมวลผล Positions สำเร็จ: เพิ่ม {new_positions_count} รายการใหม่, ข้าม {skipped_positions_count} รายการซ้ำ.")
+                        if new_positions_count == 0 and skipped_positions_count > 0:
+                            st.info(f"({WORKSHEET_ACTUAL_POSITIONS}) ไม่มีข้อมูล Positions ใหม่ที่จะบันทึกสำหรับพอร์ต '{active_portfolio_name_for_actual}' (ข้าม {skipped_positions_count} รายการที่ซ้ำซ้อน/มีอยู่แล้ว)")
+                        else:
+                            st.success(f"({WORKSHEET_ACTUAL_POSITIONS}) ประมวลผล Positions สำเร็จ: เพิ่ม {new_positions_count} รายการใหม่, ข้าม {skipped_positions_count} รายการซ้ำ.")
                         processing_notes.append(f"Positions: Added {new_positions_count}, Skipped {skipped_positions_count}.")
                         if new_positions_count > 0: any_new_data_added = True
                 else:
                     st.info(f"({WORKSHEET_ACTUAL_POSITIONS}) ไม่พบข้อมูล Positions ในไฟล์ หรือ DataFrame ว่างเปล่า.")
                     processing_notes.append("Positions: No data in file or empty DataFrame.")
                 
-                # Process Summaries 
+                # Process Summaries - Only save if the file itself is NOT a known duplicate OR if new data was added from it
                 balance_summary_data = extracted_sections.get('balance_summary', {})
                 results_summary_data = extracted_sections.get('results_summary', {})
-                if balance_summary_data or results_summary_data:
-                    if not save_results_summary_to_gsheets(ws_statement_summaries, balance_summary_data, results_summary_data, active_portfolio_id_for_actual, active_portfolio_name_for_actual, file_name_for_saving, import_batch_id):
-                        overall_processing_successful = False
-                        processing_notes.append(f"Summary: Save failed.")
+                
+                # Condition to save summary:
+                # 1. File is not a known duplicate (is_duplicate_file_found is False)
+                # OR
+                # 2. File IS a known duplicate, BUT new data (deals, orders, positions) was added from it this time.
+                #    (This implies the user *wants* to re-process and there's something new at record level,
+                #     so a new summary reflecting this specific import batch might be desired).
+                #    However, if the file is a duplicate and NO new records were added, we skip the summary.
+                
+                save_summary_flag = False
+                if not is_duplicate_file_found:
+                    save_summary_flag = True
+                    processing_notes.append("Summary: File is new, will save summary.")
+                elif is_duplicate_file_found and any_new_data_added:
+                    save_summary_flag = True
+                    processing_notes.append("Summary: File is a duplicate but new records were added from it; will save a new summary for this import batch.")
+                else: # is_duplicate_file_found is True AND no new data was added
+                    st.info(f"({WORKSHEET_STATEMENT_SUMMARIES}) ข้อมูล Summary จะไม่ถูกบันทึกซ้ำสำหรับไฟล์ '{file_name_for_saving}' ที่เคยประมวลผลสำเร็จแล้วและไม่มีรายการข้อมูลใหม่เพิ่มในครั้งนี้")
+                    processing_notes.append(f"Summary: Skipped for known duplicate file with no new records added (Batch: {existing_batch_id_info}).")
+
+                if save_summary_flag:
+                    if balance_summary_data or results_summary_data:
+                        if not save_results_summary_to_gsheets(ws_statement_summaries, balance_summary_data, results_summary_data, active_portfolio_id_for_actual, active_portfolio_name_for_actual, file_name_for_saving, import_batch_id):
+                            overall_processing_successful = False # Mark as failed if summary save fails
+                            # Error message already shown in save_results_summary_to_gsheets
+                            processing_notes.append(f"Summary: Save failed for this batch.") # Update note
+                        else:
+                            st.success(f"({WORKSHEET_STATEMENT_SUMMARIES}) บันทึก Summary Data (Balance & Results) สำหรับ Batch ID: {import_batch_id} สำเร็จ!")
+                            # This doesn't set any_new_data_added to True, as summary is per-batch.
                     else:
-                        st.success(f"({WORKSHEET_STATEMENT_SUMMARIES}) บันทึก Summary Data (Balance & Results) สำเร็จ!")
-                        processing_notes.append(f"Summary: Saved successfully for this batch.")
-                else:
-                    st.info(f"({WORKSHEET_STATEMENT_SUMMARIES}) ไม่พบข้อมูล Summary (Balance หรือ Results) ในไฟล์.")
-                    processing_notes.append("Summary: No data in file.")
+                        st.info(f"({WORKSHEET_STATEMENT_SUMMARIES}) ไม่พบข้อมูล Summary (Balance หรือ Results) ในไฟล์สำหรับ Batch ID: {import_batch_id}.")
+                        processing_notes.append(f"Summary: No summary data in file for this batch.")
                 
                 if overall_processing_successful:
                     if any_new_data_added:
                         st.balloons()
                         st.success("ประมวลผลไฟล์สำเร็จและมีการเพิ่มข้อมูลใหม่!")
-                    elif is_duplicate_file_found: # File was duplicate, and no new records were added
-                         st.info(f"ไฟล์ '{file_name_for_saving}' เป็นไฟล์ซ้ำที่เคยอัปโหลดสำเร็จแล้ว และไม่พบรายการข้อมูลใหม่ในครั้งนี้")
-                    else: # File was new, but no relevant data sections or all records already existed (unlikely if file is truly new)
+                    elif is_duplicate_file_found: 
+                         st.info(f"ไฟล์ '{file_name_for_saving}' เป็นไฟล์ซ้ำที่เคยอัปโหลดสำเร็จแล้ว และไม่พบรายการข้อมูลใหม่ในครั้งนี้ (Summary ก็ไม่ถูกบันทึกซ้ำ)")
+                    else: 
                         st.info("ประมวลผลไฟล์สำเร็จ แต่ไม่พบข้อมูลใหม่ที่จะเพิ่ม (ข้อมูลทั้งหมดอาจมีอยู่แล้ว หรือไฟล์ไม่มีข้อมูลส่วนนั้นๆ)")
         
         except UnicodeDecodeError as e_decode_main:
@@ -2316,10 +2350,11 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
 
         
         final_notes_str = " | ".join(processing_notes) if processing_notes else "Processing complete."
-        if is_duplicate_file_found and not any_new_data_added and overall_processing_successful:
-            final_notes_str = f"File was a duplicate of a previous successful upload (BatchID: {existing_batch_id_info}). No new records found in this re-processing attempt. " + final_notes_str
-        elif is_duplicate_file_found and any_new_data_added and overall_processing_successful:
-             final_notes_str = f"File was a duplicate of a previous successful upload (BatchID: {existing_batch_id_info}). However, new records were found and added in this re-processing. " + final_notes_str
+        # Note for duplicate file is already part of processing_notes if summary was skipped.
+        # if is_duplicate_file_found and not any_new_data_added and overall_processing_successful:
+        #     final_notes_str = f"File was a duplicate of a previous successful upload (BatchID: {existing_batch_id_info}). No new records found in this re-processing attempt. " + final_notes_str
+        # elif is_duplicate_file_found and any_new_data_added and overall_processing_successful:
+        #      final_notes_str = f"File was a duplicate of a previous successful upload (BatchID: {existing_batch_id_info}). However, new records were found and added in this re-processing. " + final_notes_str
 
 
         try:
