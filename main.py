@@ -1814,38 +1814,52 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
                                 df_section[col] = "" 
                         df_section = df_section[final_cols]
 
-                        # ***** START MODIFICATION: More specific filtering for Deals *****
+                        5555 ครับ เข้าใจเลยว่ามันน่าหงุดหงิดจริงๆ ที่แถว "balance" เจ้าปัญหานั่นมันไม่ยอมหายไปสักที!
+
+โอเคครับ ไม่เป็นไรครับ เรามาลองอีกวิธีนึงที่อาจจะ ตรงประเด็นและได้ผลกว่าเดิม ในการกำจัดแถว "balance" ที่ไม่ต้องการนี้ออกจากข้อมูล Deals ของคุณโดยเฉพาะครับ
+
+จาก Screenshot ล่าสุด (Screenshot 2025-06-01 at 22.15.20.png) ที่คุณส่งมา แถว "balance" ที่ไม่ต้องการนั้นมีลักษณะเด่นคือ:
+
+คอลัมน์ D (ถ้าอ้างอิงตามลำดับ A, B, C, D... ใน Screenshot และสมมติว่าเป็น Type_Deal): มีคำว่า "balance"
+คอลัมน์อื่นๆ ที่ควรจะมีข้อมูลสำหรับ Deal ปกติ (เช่น Time_Deal, Deal_ID, Symbol_Deal) ในแถว "balance" นั้น เป็นค่าว่าง
+เราจะใช้เงื่อนไขที่ "เข้มงวด" ขึ้นในการกรองแถวเหล่านี้ออกไปในฟังก์ชัน extract_data_from_report_content ครับ
+
+วิธีแก้ไข (ในฟังก์ชัน extract_data_from_report_content ในไฟล์ mainโหลดได้หมด.py ของคุณ):
+
+เราจะแก้ไขส่วนที่กรองข้อมูล "Deals" ให้มีการตรวจสอบคอลัมน์ Type_Deal โดยตรง และถ้าเจอคำว่า "balance" (ไม่ว่าจะเป็นตัวพิมพ์เล็กหรือใหญ่ และตัดช่องว่างแล้ว) ก็ให้ ลบแถวนั้นทิ้งไปเลย
+
+นี่คือโค้ดเฉพาะส่วนที่แก้ไขในฟังก์ชัน extract_data_from_report_content:
+(คุณจะต้องนำโค้ดนี้ไป แทนที่โค้ดส่วนกรอง Deals เดิม ในฟังก์ชัน extract_data_from_report_content ของคุณ)
+
+Python
+
+# [ภายในฟังก์ชัน extract_data_from_report_content ของคุณ]
+# ... (ส่วนต้นของฟังก์ชันเหมือนเดิม) ...
+
+                        # ***** START MODIFICATION: More DIRECT filtering for "balance" rows in Deals *****
                         if section_name == "Deals" and not df_section.empty:
-                            # Condition 1: Filter out rows where 'Type_Deal' is 'balance' (case-insensitive, strip whitespace)
-                            # This is the primary condition for removing balance rows.
+                            # Save original number of rows for debugging
+                            original_deal_rows = len(df_section)
+
+                            # Condition 1: Remove rows where 'Type_Deal' is 'balance'
                             if "Type_Deal" in df_section.columns:
+                                # Create a boolean Series: True if 'Type_Deal' is NOT 'balance'
                                 condition_is_not_balance_type = ~(df_section["Type_Deal"].astype(str).str.strip().str.lower() == "balance")
                                 df_section = df_section[condition_is_not_balance_type]
-                            
-                            # Condition 2 (Optional but recommended): 
-                            # Further ensure that actual deal rows have some essential identifiers.
-                            # For example, a valid deal might need a Time_Deal and a Symbol_Deal.
-                            # This helps remove other potentially malformed or non-deal rows.
+
+                            # Condition 2 (Optional but recommended): Also remove rows missing essential deal identifiers
+                            # A valid deal should have a Time_Deal AND a Deal_ID AND a Symbol.
+                            # This helps remove other potentially malformed or non-deal rows that are not "balance" type.
                             if "Time_Deal" in df_section.columns:
-                                condition_time_deal_present = df_section["Time_Deal"].astype(str).str.strip() != ""
-                                df_section = df_section[condition_time_deal_present]
-                            
-                            if "Symbol_Deal" in df_section.columns: # Check if Symbol_Deal is not empty
-                                condition_symbol_deal_present = df_section["Symbol_Deal"].astype(str).str.strip() != ""
-                                df_section = df_section[condition_symbol_deal_present]
+                                df_section = df_section[df_section["Time_Deal"].astype(str).str.strip() != ""]
+                            if "Deal_ID" in df_section.columns:
+                                df_section = df_section[df_section["Deal_ID"].astype(str).str.strip() != ""]
+                            if "Symbol_Deal" in df_section.columns: 
+                                df_section = df_section[df_section["Symbol_Deal"].astype(str).str.strip() != ""]
                                 
-                            # You might not need to check Deal_ID for non-emptiness here if 'balance' rows
-                            # already get filtered out by the Type_Deal check, and other valid deals might
-                            # temporarily have an empty Deal_ID if it's only assigned later (though less ideal).
-                            # However, if 'Deal_ID' is crucial for a row to be considered a deal AT ALL,
-                            # you can add:
-                            # if "Deal_ID" in df_section.columns:
-                            #     condition_deal_id_present = df_section["Deal_ID"].astype(str).str.strip() != ""
-                            #     df_section = df_section[condition_deal_id_present]
-
-
                             if st.session_state.get("debug_statement_processing_v2", False):
-                                st.write(f"DEBUG: Deals DataFrame after final filtering ({len(df_section)} rows left):")
+                                st.write(f"DEBUG: Deals DataFrame original rows: {original_deal_rows}")
+                                st.write(f"DEBUG: Deals DataFrame after filtering 'balance' and empty identifiers ({len(df_section)} rows left):")
                                 st.dataframe(df_section.head())
                         # ***** END MODIFICATION *****
 
