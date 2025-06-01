@@ -1007,19 +1007,22 @@ elif mode == "CUSTOM":
                             profit_at_user_tp_custom = lot_custom * target_custom
                         temp_custom_rr_list.append(rr_custom)
                         
-                        if rr_custom < 3.0 and rr_custom >= 0: 
+                    
+
+                        if rr_custom < 3.0 and rr_custom >= 0: # เงื่อนไขเดิม: RR น้อยกว่า 3 และไม่ติดลบ
                             recommended_tp_target_distance = 3 * stop_custom
-                            if sl_val < entry_val: 
+                            if sl_val < entry_val: # Likely a Long trade
                                 recommended_tp_price = entry_val + recommended_tp_target_distance
-                            elif sl_val > entry_val: 
+                            elif sl_val > entry_val: # Likely a Short trade
                                 recommended_tp_price = entry_val - recommended_tp_target_distance
-                            else: 
-                                recommended_tp_price = tp_val 
-                            
-                            if sl_val != entry_val : 
-                                custom_tp_recommendation_messages.append(
+                            else: # SL == Entry, cannot determine direction or recommend TP
+                                recommended_tp_price = tp_val # keep original if cannot determine
+
+                            if sl_val != entry_val : # Only recommend if SL is not at entry
+                                custom_tp_recommendation_messages.append( # <--- จุดสำคัญคือการ append เข้า list นี้
                                     f"ไม้ {i+1}: หากต้องการ RR≈3, TP ควรเป็น ≈ {recommended_tp_price:.5f} (TP ปัจจุบัน RR={rr_custom:.2f})"
                                 )
+                        # ... (ส่วนที่เหลือในการคำนวณและ append เข้า temp_custom_legs_for_saving)
                     else: 
                          actual_risk_dollar_custom = risk_dollar_per_entry_custom 
                     
