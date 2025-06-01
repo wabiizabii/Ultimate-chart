@@ -1917,7 +1917,6 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
     st.markdown("### 📊 จัดการ Statement และข้อมูลดิบ")
 
     # --- ฟังก์ชันสำหรับแยกข้อมูลจากเนื้อหาไฟล์ Statement (CSV) ---
-    # (ฟังก์ชัน extract_data_from_report_content เดิมของคุณอยู่ที่นี่ - ไม่มีการเปลี่ยนแปลงในฟังก์ชันนี้)
     def extract_data_from_report_content(file_content_str_input):
         extracted_data = {}
         def safe_float_convert(value_str):
@@ -1936,7 +1935,7 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
         elif isinstance(file_content_str_input, bytes): lines = file_content_str_input.decode('utf-8', errors='replace').strip().split('\n')
         else:
             st.error("Error: Invalid file_content type for processing in extract_data_from_report_content.")
-            return extracted_data # Return empty if type is invalid
+            return extracted_data
         section_raw_headers = {
             "Positions": "Time,Position,Symbol,Type,Volume,Price,S / L,T / P,Time,Price,Commission,Swap,Profit",
             "Orders": "Open Time,Order,Symbol,Type,Volume,Price,S / L,T / P,Time,State,,Comment",
@@ -2066,7 +2065,7 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
             elif results_start_line_idx != -1 and results_section_processed_lines >= max_lines_for_results: break
         extracted_data['balance_summary'] = balance_summary_dict
         extracted_data['results_summary'] = results_summary_dict
-        if st.session_state.get("debug_statement_processing_v2", False): # Use direct session state key
+        if st.session_state.get("debug_statement_processing_v2", False):
             st.subheader("DEBUG: Final Parsed Summaries (after extract_data_from_report_content)")
             st.write("Balance Summary (Equity, Free Margin, etc.):"); st.json(balance_summary_dict if balance_summary_dict else "Balance summary not parsed or empty.")
             st.write("Results Summary (Profit Factor, Trades, etc.):"); st.json(results_summary_dict if results_summary_dict else "Results summary not parsed or empty.")
@@ -2224,7 +2223,7 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
     uploaded_file_statement = st.file_uploader(
         "ลากและวางไฟล์ Statement Report (CSV) ที่นี่ หรือคลิกเพื่อเลือกไฟล์",
         type=["csv"],
-        key="full_stmt_uploader_final_v3_sec7_unique_final_corrected" # Ensuring an even more unique key
+        key="full_stmt_uploader_final_v3_sec7_unique_final_corrected_v2" # Ensuring an even more unique key
     )
 
     if "debug_statement_processing_v2" not in st.session_state:
@@ -2240,15 +2239,14 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
         file_hash_for_saving = ""
 
         try:
-            # Ensure calculate_file_hash is defined or handled
             if 'calculate_file_hash' in globals() and callable(calculate_file_hash):
                  file_hash_for_saving = calculate_file_hash(uploaded_file_statement)
             else:
-                st.warning("ฟังก์ชัน calculate_file_hash ไม่ได้ถูก define. จะข้ามการตรวจสอบ FileHash ที่แม่นยำ.")
-                file_hash_for_saving = f"hash_not_available_{random.randint(1000,9999)}"
+                st.warning("ฟังก์ชัน calculate_file_hash ไม่ได้ถูก define. การตรวจสอบ FileHash อาจไม่แม่นยำ.")
+                file_hash_for_saving = f"hash_not_available_{random.randint(1000,9999)}" # Fallback
         except Exception as e_hash:
             st.warning(f"ไม่สามารถคำนวณ File Hash ได้: {e_hash}")
-            file_hash_for_saving = f"error_calculating_hash_{random.randint(1000,9999)}"
+            file_hash_for_saving = f"error_calculating_hash_{random.randint(1000,9999)}" # Fallback
 
         if not active_portfolio_id_for_actual:
             st.error("กรุณาเลือกพอร์ตที่ใช้งาน (Active Portfolio) ใน Sidebar ก่อนประมวลผล Statement.")
@@ -2266,43 +2264,72 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
         try:
             sh_trade_log = gc_for_sheets.open(GOOGLE_SHEET_NAME)
             ws_history = sh_trade_log.worksheet("UploadHistory")
-            if ws_history.row_count == 0:
+            if ws_history.row_count == 0: # If sheet is brand new (only has 0 rows or just created)
                  expected_headers_history = ["UploadTimestamp", "PortfolioID", "PortfolioName", "FileName", "FileSize", "FileHash", "Status", "ImportBatchID", "Notes"]
-                 ws_history.append_row(expected_headers_history)
+                 ws_history.append_row(expected_headers_history) # Add headers if it's a new sheet
         except gspread.exceptions.WorksheetNotFound:
-            st.error("❌ ไม่พบ Worksheet 'UploadHistory'. กรุณาสร้างชีตนี้และใส่ Headers ให้ถูกต้อง")
+            st.error("❌ ไม่พบ Worksheet 'UploadHistory'. กรุณาสร้างชีตนี้และใส่ Headers ที่ถูกต้อง (UploadTimestamp, PortfolioID, PortfolioName, FileName, FileSize, FileHash, Status, ImportBatchID, Notes)")
             st.stop()
         except Exception as e_hist_setup:
             st.error(f"❌ เกิดข้อผิดพลาดในการเข้าถึงหรือตั้งค่า UploadHistory: {e_hist_setup}")
             st.exception(e_hist_setup)
             st.stop()
 
-        history_records = ws_history.get_all_records()
+        history_records = ws_history.get_all_records() # Get records AFTER potentially adding headers
         is_duplicate_found = False
         existing_batch_id_info = "N/A"
         previous_upload_time_for_duplicate = "ไม่ทราบเวลา"
 
+        # Debug: Show what's being checked against history
+        if st.session_state.debug_statement_processing_v2:
+            st.write("--- DEBUG: VALUES FOR DUPLICATE CHECK ---")
+            st.write(f"Active Portfolio ID: {active_portfolio_id_for_actual} (Type: {type(active_portfolio_id_for_actual)})")
+            st.write(f"File Name for Saving: {file_name_for_saving} (Type: {type(file_name_for_saving)})")
+            st.write(f"File Size for Saving: {file_size_for_saving} (Type: {type(file_size_for_saving)})")
+            st.write(f"File Hash for Saving: {file_hash_for_saving} (Type: {type(file_hash_for_saving)})")
+            st.write(f"Number of records in UploadHistory to check: {len(history_records)}")
+            st.write("--- END DEBUG ---")
 
-        for record in history_records:
+        for record_idx, record in enumerate(history_records):
+            # Ensure FileSize from sheet is treated as int for comparison
             record_file_size_val = 0
-            try: # Convert FileSize from sheet to int for comparison
-                record_file_size_val = int(float(str(record.get("FileSize","0")).replace(",","")))
-            except ValueError: pass # Keep 0 if conversion fails
+            try:
+                raw_size = record.get("FileSize","0")
+                record_file_size_val = int(float(str(raw_size).replace(",",""))) if raw_size not in [None, ""] else 0
+            except ValueError:
+                 if st.session_state.debug_statement_processing_v2: st.write(f"DEBUG: Could not convert FileSize '{raw_size}' to int for record {record_idx}")
+                 pass # Keep 0 if conversion fails
 
-            if str(record.get("PortfolioID","")) == str(active_portfolio_id_for_actual) and \
-               record.get("FileName","") == file_name_for_saving and \
-               record_file_size_val == file_size_for_saving and \
-               (not file_hash_for_saving or record.get("FileHash","") == file_hash_for_saving or file_hash_for_saving.startswith("error_") or file_hash_for_saving.startswith("hash_not_")) and \
-               record.get("Status","") == "Success":
+            # Debugging each part of the condition
+            cond_portfolio_id = str(record.get("PortfolioID","")) == str(active_portfolio_id_for_actual)
+            cond_file_name = record.get("FileName","") == file_name_for_saving
+            cond_file_size = record_file_size_val == file_size_for_saving
+            cond_file_hash = (not file_hash_for_saving or record.get("FileHash","") == file_hash_for_saving or file_hash_for_saving.startswith("error_") or file_hash_for_saving.startswith("hash_not_"))
+            cond_status = record.get("Status","") == "Success"
+
+            if st.session_state.debug_statement_processing_v2:
+                st.write(f"--- DEBUG: Checking Record {record_idx} from History ---")
+                st.write(f"  Record PortfolioID: '{record.get('PortfolioID', 'N/A')}', Match: {cond_portfolio_id}")
+                st.write(f"  Record FileName: '{record.get('FileName', 'N/A')}', Match: {cond_file_name}")
+                st.write(f"  Record FileSize (processed): {record_file_size_val}, SheetRaw: '{record.get('FileSize', 'N/A')}', Match: {cond_file_size}")
+                st.write(f"  Record FileHash: '{record.get('FileHash', 'N/A')}', Match_Logic: {cond_file_hash}")
+                st.write(f"  Record Status: '{record.get('Status', 'N/A')}', Match: {cond_status}")
+                st.write(f"  DEBUG Overall Condition for Duplicate: {cond_portfolio_id and cond_file_name and cond_file_size and cond_file_hash and cond_status}")
+
+            if cond_portfolio_id and cond_file_name and cond_file_size and cond_file_hash and cond_status:
                 is_duplicate_found = True
                 existing_batch_id_info = record.get("ImportBatchID", "N/A")
                 previous_upload_time_for_duplicate = record.get("UploadTimestamp", "ไม่ทราบเวลา")
+                if st.session_state.debug_statement_processing_v2:
+                    st.write(f"DEBUG: Duplicate FOUND! Batch ID: {existing_batch_id_info}, Prev Upload: {previous_upload_time_for_duplicate}")
                 break
         
         if st.session_state.debug_statement_processing_v2:
             st.write(f"DEBUG: After loop, is_duplicate_found = {is_duplicate_found}")
 
         if is_duplicate_found:
+            if st.session_state.debug_statement_processing_v2:
+                st.error("DEBUG: INSIDE is_duplicate_found BLOCK - SHOULD STOP HERE FOR DUPLICATE!")
             st.error(
                 f"🚫 ไฟล์ '{file_name_for_saving}' นี้ ดูเหมือนเคยถูกอัปโหลดและประมวลผลสำเร็จไปแล้ว "
                 f"สำหรับพอร์ต '{active_portfolio_name_for_actual}' เมื่อ {previous_upload_time_for_duplicate} "
@@ -2401,7 +2428,7 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
                     else: save_flags['summary'] = True; st.success("บันทึก Summary Data (Balance & Results) สำเร็จ!")
                 else: st.info("ไม่พบข้อมูล Summary (Balance หรือ Results) ไม่มีการบันทึก Summary."); save_flags['summary'] = True
                 
-                all_saves_successful = all(save_flags.values()) if save_flags else False # Check if save_flags is not empty
+                all_saves_successful = all(save_flags.values()) if save_flags else False
                 if all_saves_successful:
                     st.balloons()
         
@@ -2424,8 +2451,8 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
                     break
             
             if row_to_update_idx != -1:
-                ws_history.update_cell(row_to_update_idx, 7, final_status_for_history) 
-                ws_history.update_cell(row_to_update_idx, 9, f"Processing finished: {final_status_for_history}. Notes: {initial_notes}") 
+                ws_history.update_cell(row_to_update_idx, 7, final_status_for_history) # Column G (index 6 in 0-based) is Status
+                ws_history.update_cell(row_to_update_idx, 9, f"Processing finished: {final_status_for_history}. Notes: {initial_notes}") # Column I (index 8) is Notes
                 st.info(f"อัปเดตสถานะ ImportBatchID '{import_batch_id}' เป็น '{final_status_for_history}' ใน UploadHistory แล้ว")
             else: 
                 st.warning(f"ไม่พบ ImportBatchID '{import_batch_id}' ใน UploadHistory เพื่ออัปเดตสถานะสุดท้าย.")
@@ -2436,6 +2463,7 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
         st.info("โปรดอัปโหลดไฟล์ Statement Report (CSV) เพื่อเริ่มต้นประมวลผล.")
 
     st.markdown("---")
+
 
     
 # ===================== SEC 9: MAIN AREA - TRADE LOG VIEWER =======================
