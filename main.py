@@ -1350,54 +1350,116 @@ if mode == "FIBO":
     risk_pct_to_save = st.session_state.get("risk_pct_fibo_val_v2", 1.0)
     direction_to_save = st.session_state.get("direction_fibo_val_v2", "Long")
     current_data_to_save = entry_data_summary_sec3 # From new SEC 3 calculations
+# ... (ส่วนเริ่มต้นของ SEC 3 และ FIBO mode เหมือนเดิม) ...
+
 elif mode == "CUSTOM":
-    asset_to_save = st.session_state.get("asset_custom_val_v2", "XAUUSD")
-    risk_pct_to_save = st.session_state.get("risk_pct_custom_val_v2", 1.0)
-    
-    # Infer direction for CUSTOM mode
-    if custom_entries_summary_sec3: # Check if there are entries to infer from
-        long_count = 0
-        short_count = 0
-        valid_trade_count = 0
-        for item in custom_entries_summary_sec3:
-            try:
-                # Ensure 'Entry' and 'SL' keys exist and are valid numbers
-                entry_price_str = item.get("Entry")
-                sl_price_str = item.get("SL")
-                if entry_price_str is None or sl_price_str is None: continue
+    # The variable 'custom_entries_summary_sec3' is already initialized as [] globally for SEC 3.
+    try:
+        n_entry_custom = st.session_state.get("n_entry_custom_val_v2", 1)
+        risk_pct_custom = st.session_state.get("risk_pct_custom_val_v2", 1.0)
 
-                entry_price = float(entry_price_str)
-                sl_price = float(sl_price_str)
-                
-                if pd.notna(entry_price) and pd.notna(sl_price) and entry_price != sl_price:
-                    valid_trade_count += 1
-                    if entry_price > sl_price: # Standard: SL is below entry for Long
-                        long_count += 1
-                    elif entry_price < sl_price: # Standard: SL is above entry for Short
-                        short_count += 1
-            except (ValueError, TypeError):
-                # Silently skip if conversion to float fails or keys missing
-                pass 
-
-        if valid_trade_count > 0:
-            if long_count == valid_trade_count and short_count == 0:
-                direction_to_save = "Long"
-            elif short_count == valid_trade_count and long_count == 0:
-                direction_to_save = "Short"
-            elif long_count > 0 and short_count > 0: # Mixed
-                direction_to_save = "Mixed"
-            elif long_count > 0: # Only longs, but maybe not all trades were valid for direction
-                 direction_to_save = "Long"
-            elif short_count > 0: # Only shorts
-                 direction_to_save = "Short"
-            else: # No clear direction from valid trades (e.g., all SL=Entry or invalid numbers)
-                direction_to_save = "N/A"
+        if risk_pct_custom <= 0:
+            st.sidebar.warning("Risk % (CUSTOM) ต้องมากกว่า 0")
+        elif n_entry_custom <=0:
+            st.sidebar.warning("จำนวนไม้ (CUSTOM) ต้องมากกว่า 0")
         else:
-            direction_to_save = "N/A" # No valid trades to infer direction from
-    else:
-        direction_to_save = "N/A" # No custom entries available
+            risk_per_trade_custom_total = active_balance_to_use * (risk_pct_custom / 100.0)
+            risk_dollar_per_entry_custom = risk_per_trade_custom_total / n_entry_custom
+            
+            temp_custom_rr_list = []
+            temp_custom_legs_for_saving = [] 
+            current_total_actual_risk_custom = 0.0
+            
+            # --- START: Clear custom_tp_recommendation_messages for fresh recommendations ---
+            custom_tp_recommendation_messages = [] # Clear previous recommendations
+            # --- END: Clear custom_tp_recommendation_messages ---
+            
+            for i in range(int(n_entry_custom)):
+                entry_str = st.session_state.get(f"custom_entry_{i}_v3", "0.00")
+                sl_str = st.session_state.get(f"custom_sl_{i}_v3", "0.00")
+                tp_str = st.session_state.get(f"custom_tp_{i}_v3", "0.00") # User's TP input
 
-    current_data_to_save = custom_entries_summary_sec3 # From new SEC 3 calculations
+                recommended_tp_price_for_rr3 = None # Initialize for this leg
+
+                try:
+                    entry_val = float(entry_str)
+                    sl_val = float(sl_str)
+                    tp_val = float(tp_str) if tp_str and tp_str.strip() != "" else None # User TP can be None if not entered
+
+                    stop_custom = abs(entry_val - sl_val)
+                    lot_custom, actual_risk_dollar_custom, rr_custom, profit_at_user_tp_custom = 0.0, 0.0, 0.0, 0.0
+
+                    # --- START: Calculate Recommended TP for RR=3 ---
+                    if stop_custom > 1e-9:
+                        recommended_tp_target_distance_rr3 = 3 * stop_custom
+                        if sl_val < entry_val: # Long trade
+                            recommended_tp_price_for_rr3 = entry_val + recommended_tp_target_distance_rr3
+                        elif sl_val > entry_val: # Short trade
+                            recommended_tp_price_for_rr3 = entry_val - recommended_tp_target_distance_rr3
+                        # If sl_val == entry_val, recommended_tp_price_for_rr3 remains None
+                    # --- END: Calculate Recommended TP for RR=3 ---
+
+                    if stop_custom > 1e-9:
+                        lot_custom = risk_dollar_per_entry_custom / stop_custom 
+                        actual_risk_dollar_custom = lot_custom * stop_custom 
+                        if tp_val is not None: # Calculate RR and Profit only if user entered a TP
+                            target_custom = abs(tp_val - entry_val)
+                            if target_custom > 1e-9 : 
+                                rr_custom = target_custom / stop_custom
+                                profit_at_user_tp_custom = lot_custom * target_custom
+                            temp_custom_rr_list.append(rr_custom)
+                        else: # No user TP, so RR and profit from user TP are 0 or N/A
+                            rr_custom = 0.0 
+                            profit_at_user_tp_custom = 0.0
+
+                        # Existing TP recommendation message logic (for sidebar, if still desired)
+                        # This can be kept if you still want sidebar messages in addition to the table column
+                        if tp_val is not None and rr_custom < 3.0 and rr_custom >= 0 and recommended_tp_price_for_rr3 is not None:
+                            if sl_val != entry_val : 
+                                custom_tp_recommendation_messages.append(
+                                    f"ไม้ {i+1}: หากต้องการ RR≈3, TP ควรเป็น ≈ {recommended_tp_price_for_rr3:.5f} (TP ปัจจุบัน RR={rr_custom:.2f})"
+                                )
+                    else: 
+                         actual_risk_dollar_custom = risk_dollar_per_entry_custom 
+                    
+                    summary_total_lots += lot_custom
+                    current_total_actual_risk_custom += actual_risk_dollar_custom
+                    summary_total_profit_at_primary_tp += profit_at_user_tp_custom
+                    
+                    temp_custom_legs_for_saving.append({
+                        "Entry": round(entry_val, 5), 
+                        "SL": round(sl_val, 5), 
+                        "TP": round(tp_val, 5) if tp_val is not None else None, # Store user's TP (can be None)
+                        "Recommended_TP_RR3": round(recommended_tp_price_for_rr3, 5) if recommended_tp_price_for_rr3 is not None else None, # Store recommended TP
+                        "Lot": round(lot_custom, 2), 
+                        "Risk $": round(actual_risk_dollar_custom, 2), 
+                        "RR": round(rr_custom, 2) # RR based on user's TP
+                    })
+
+                except ValueError: 
+                    current_total_actual_risk_custom += risk_dollar_per_entry_custom 
+                    temp_custom_legs_for_saving.append({
+                        "Entry": entry_str, "SL": sl_str, "TP": tp_str, # Keep as string if error
+                        "Recommended_TP_RR3": None, # No recommendation if error
+                        "Lot": "0.00", "Risk $": f"{risk_dollar_per_entry_custom:.2f}", "RR": "Error"
+                    })
+            
+            custom_entries_summary_sec3 = temp_custom_legs_for_saving
+            summary_total_risk_dollar = current_total_actual_risk_custom 
+
+            if temp_custom_rr_list: # This list contains RRs from user-defined TPs
+                valid_rrs = [r for r in temp_custom_rr_list if isinstance(r, (float, int)) and r > 0]
+                summary_avg_rr = np.mean(valid_rrs) if valid_rrs else 0.0
+            else:
+                summary_avg_rr = 0.0
+                
+    except ValueError:
+        st.sidebar.warning("กรอกข้อมูล CUSTOM ไม่ถูกต้อง (ตรวจสอบค่าตัวเลข)")
+    except Exception as e_custom_summary:
+        st.sidebar.error(f"คำนวณ CUSTOM Summary ไม่สำเร็จ: {e_custom_summary}")
+        st.exception(e_custom_summary)
+
+# ... (ส่วน Display Summaries in Sidebar และ สิ้นสุด SEC 3) ...
 
 if save_button_pressed_flag:
     if not current_data_to_save:
@@ -1480,40 +1542,72 @@ with st.expander("📋 Entry Table (FIBO/CUSTOM)", expanded=True):
             except Exception as e_tp_fibo:
                 st.info(f"📌 เกิดข้อผิดพลาดในการคำนวณ TP (FIBO): {e_tp_fibo}")
 
+    # ... (ส่วนเริ่มต้นของ SEC 4 และ FIBO mode เหมือนเดิม) ...
+
     elif mode == "CUSTOM":
         st.markdown("### 🎯 Entry & Take Profit Zones (CUSTOM)")
-        # ใช้ตัวแปรใหม่จาก SEC 3 และตรวจสอบว่าถูก define และมีข้อมูลหรือไม่
         if 'custom_entries_summary_sec3' in locals() and custom_entries_summary_sec3:
             custom_df_main = pd.DataFrame(custom_entries_summary_sec3)
             
-            # เลือกคอลัมน์ที่จะแสดงผล (ไม่รวม "ไม้ที่" ถ้าไม่ต้องการ หรือจัดลำดับใหม่)
-            cols_to_display_custom = [col for col in ["Entry", "SL", "TP", "Lot", "Risk $", "RR"] if col in custom_df_main.columns]
-            if cols_to_display_custom:
-                 st.dataframe(custom_df_main[cols_to_display_custom], hide_index=True, use_container_width=True)
-            else: # กรณีที่ custom_entries_summary_sec3 อาจมีโครงสร้างอื่น หรือ คอลัมน์ที่คาดหวังไม่มี
-                 st.dataframe(custom_df_main, hide_index=True, use_container_width=True)
+            # --- START: Define columns to display, including the new Recommended TP ---
+            cols_to_display_custom = ["Entry", "SL", "TP", "Recommended_TP_RR3", "Lot", "Risk $", "RR"]
+            
+            # Rename columns for display if needed (optional, but good for clarity)
+            display_column_names = {
+                "Entry": "Entry",
+                "SL": "SL",
+                "TP": "TP (User)", # Clarify this is user's TP
+                "Recommended_TP_RR3": "TP แนะนำ (RR≈3)",
+                "Lot": "Lot",
+                "Risk $": "Risk $",
+                "RR": "RR (User)" # Clarify this is RR from user's TP
+            }
+            
+            # Filter out columns that might not exist in custom_df_main (e.g., if an error occurred)
+            # and select them in the desired order
+            final_cols_for_df_display = [col for col in cols_to_display_custom if col in custom_df_main.columns]
+            
+            # Create a new DataFrame for display with renamed columns
+            df_to_show_in_table = custom_df_main[final_cols_for_df_display].copy()
+            df_to_show_in_table.rename(columns=display_column_names, inplace=True)
+            # --- END: Define columns to display ---
+
+            # Format numerical columns for display (optional, but improves readability)
+            for col_name_original, col_name_display in display_column_names.items():
+                if col_name_display in df_to_show_in_table.columns:
+                    if col_name_original in ["Entry", "SL", "TP", "Recommended_TP_RR3"]:
+                        df_to_show_in_table[col_name_display] = df_to_show_in_table[col_name_display].apply(lambda x: f"{x:.5f}" if isinstance(x, float) else x)
+                    elif col_name_original in ["Lot", "Risk $", "RR"]:
+                         df_to_show_in_table[col_name_display] = df_to_show_in_table[col_name_display].apply(lambda x: f"{x:.2f}" if isinstance(x, float) else x)
 
 
-            for i, row_data_dict in enumerate(custom_entries_summary_sec3): # ใช้ตัวแปรใหม่
+            if not df_to_show_in_table.empty:
+                 st.dataframe(df_to_show_in_table, hide_index=True, use_container_width=True)
+            else:
+                 st.dataframe(custom_df_main, hide_index=True, use_container_width=True) # Fallback to original df if empty
+
+            # Original RR Warning logic (based on user's TP) can remain if needed
+            # This loop iterated through custom_entries_summary_sec3, which contains the original data structure
+            for i, row_data_dict in enumerate(custom_entries_summary_sec3): 
                 try:
-                    rr_val_str = row_data_dict.get("RR", "0")
-                    # ตรวจสอบค่า RR ก่อนแปลง เพื่อหลีกเลี่ยง error ถ้าเป็น None, "", "NaN", หรือ "Error"
-                    if rr_val_str is None or str(rr_val_str).strip() == "" or \
-                       str(rr_val_str).lower() == "nan" or "error" in str(rr_val_str).lower():
+                    rr_val_str = str(row_data_dict.get("RR", "0")) # RR is from user's TP
+                    if rr_val_str is None or rr_val_str.strip() == "" or \
+                       rr_val_str.lower() == "nan" or "error" in rr_val_str.lower() or \
+                       row_data_dict.get("TP") is None: # Also check if user TP was entered
                         continue 
                     
                     rr_val = float(rr_val_str)
-                    if 0 < rr_val < 2: # ตรวจสอบว่า RR อยู่ระหว่าง 0 และ 2 (ไม่รวม 0)
-                        # พยายามใช้ "ไม้ที่" จาก dict ถ้ามี, ถ้าไม่มีให้ใช้ i+1
-                        entry_label = row_data_dict.get("ไม้ที่", i + 1)
-                        st.warning(f"🎯 Entry {entry_label} มี RR ค่อนข้างต่ำ ({rr_val:.2f}) — ลองปรับ TP/SL เพื่อ Risk:Reward ที่ดีขึ้น")
-                except ValueError: 
-                    # กรณี RR ไม่สามารถแปลงเป็น float ได้ (เช่น ยังเป็น "Error" จากการคำนวณก่อนหน้า)
+                    if 0 < rr_val < 2: 
+                        entry_label = i + 1 
+                        st.warning(f"🎯 Entry {entry_label} (TP ผู้ใช้): RR ค่อนข้างต่ำ ({rr_val:.2f}) — ลองพิจารณา 'TP แนะนำ (RR≈3)' หรือปรับใหม่")
+                except (ValueError, TypeError): 
                     pass
-                except Exception: # ดักจับ error อื่นๆ ที่อาจเกิดขึ้น
+                except Exception: 
                     pass
         else:
             st.info("กรอกข้อมูล Custom ใน Sidebar เพื่อดู Entry & TP Zones (หรือยังไม่มีข้อมูลสรุป).")
+
+# ... (ส่วนที่เหลือของ SEC 4) ...
 
 # ===================== SEC 5: MAIN AREA - CHART VISUALIZER =======================
 with st.expander("📈 Chart Visualizer", expanded=False):
