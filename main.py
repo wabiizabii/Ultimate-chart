@@ -1815,27 +1815,31 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
                         df_section = df_section[final_cols]
 
                         # ***** START MODIFICATION: Filter out summary-like and balance rows for Deals *****
-                        if section_name == "Deals" and not df_section.empty:
-                            # Condition 1: A valid deal should ideally have a Time_Deal and a Deal_ID
-                            # Rows where both are empty (or just whitespace) are likely summary/irrelevant rows
-                            condition_valid_deal_identifiers = pd.Series([True] * len(df_section)) # Default to True
-                            if "Time_Deal" in df_section.columns and "Deal_ID" in df_section.columns:
-                                time_deal_present = df_section["Time_Deal"].astype(str).str.strip() != ""
-                                deal_id_present = df_section["Deal_ID"].astype(str).str.strip() != ""
-                                condition_valid_deal_identifiers = time_deal_present & deal_id_present
-                            
-                            # Condition 2: Filter out rows where 'Type_Deal' is 'balance'
-                            condition_not_balance_op = pd.Series([True] * len(df_section)) # Default to True
-                            if "Type_Deal" in df_section.columns:
-                                condition_not_balance_op = df_section["Type_Deal"].astype(str).str.lower().str.strip() != "balance"
-                            
-                            # Combine conditions: must have valid identifiers AND not be a balance operation
-                            df_section = df_section[condition_valid_deal_identifiers & condition_not_balance_op]
+                    if section_name == "Deals" and not df_section.empty:
+                        # A valid deal should have a Time_Deal AND a Deal_ID AND a Symbol.
+                        # Balance rows typically have "balance" in the Type_Deal column and might miss other identifiers.
 
-                            if st.session_state.get("debug_statement_processing_v2", False):
-                                st.write(f"DEBUG: Deals DataFrame after filtering summary & balance rows ({len(df_section)} rows left):")
-                                st.dataframe(df_section.head())
-                        # ***** END MODIFICATION *****
+                        condition_is_valid_deal = pd.Series([True] * len(df_section)) # Start by assuming all are valid
+
+                        if "Time_Deal" in df_section.columns:
+                            condition_is_valid_deal &= (df_section["Time_Deal"].astype(str).str.strip() != "")
+                        if "Deal_ID" in df_section.columns:
+                            condition_is_valid_deal &= (df_section["Deal_ID"].astype(str).str.strip() != "")
+                        if "Symbol_Deal" in df_section.columns: # Adding check for Symbol
+                            condition_is_valid_deal &= (df_section["Symbol_Deal"].astype(str).str.strip() != "")
+
+                        # Explicitly filter out rows where 'Type_Deal' is 'balance'
+                        condition_is_not_balance_type = pd.Series([True] * len(df_section))
+                        if "Type_Deal" in df_section.columns:
+                            condition_is_not_balance_type = (df_section["Type_Deal"].astype(str).str.lower().str.strip() != "balance")
+
+                        # Combine conditions: Keep rows that are valid deals AND are not balance type
+                        df_section = df_section[condition_is_valid_deal & condition_is_not_balance_type]
+
+                        if st.session_state.get("debug_statement_processing_v2", False):
+                            st.write(f"DEBUG: Deals DataFrame after MORE aggressive filtering ({len(df_section)} rows left):")
+                            st.dataframe(df_section.head())
+                    # ***** END MODIFICATION *****
 
                         if not df_section.empty:
                             extracted_data[section_key_lower] = df_section
