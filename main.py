@@ -1816,31 +1816,48 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
 
                     
 
-                        # ***** START MODIFICATION: More DIRECT filtering for "balance" rows in Deals *****
+                        # ***** START MODIFICATION: Filter Deals based on essential columns as per your suggestion *****
                         if section_name == "Deals" and not df_section.empty:
-                            # Save original number of rows for debugging
                             original_deal_rows = len(df_section)
+                            
+                            # รายชื่อคอลัมน์ที่คุณระบุว่า "ต้องมีข้อมูล" สำหรับ Deal ที่ถูกต้อง
+                            # ผมขอเพิ่ม "Time_Deal" และ "Deal_ID" เข้าไปด้วยนะครับ เพราะ Deal ปกติควรจะมีสองอันนี้ด้วย
+                            essential_deal_columns = [
+                                "Time_Deal", 
+                                "Deal_ID", 
+                                "Symbol_Deal", 
+                                "Type_Deal", 
+                                "Direction_Deal", 
+                                "Volume_Deal", 
+                                "Price_Deal"
+                                # คุณอาจจะเพิ่มคอลัมน์อื่นๆ ที่คิดว่าจำเป็นเข้ามาใน list นี้ได้อีก
+                            ]
+                            
+                            # เริ่มต้นด้วยการสมมติว่าทุกแถวผ่านเงื่อนไข (เป็น True ทั้งหมด)
+                            valid_rows_mask = pd.Series([True] * len(df_section), index=df_section.index)
+                            
+                            columns_present_in_df = df_section.columns.tolist()
 
-                            # Condition 1: Remove rows where 'Type_Deal' is 'balance'
-                            if "Type_Deal" in df_section.columns:
-                                # Create a boolean Series: True if 'Type_Deal' is NOT 'balance'
-                                condition_is_not_balance_type = ~(df_section["Type_Deal"].astype(str).str.strip().str.lower() == "balance")
-                                df_section = df_section[condition_is_not_balance_type]
+                            for col_name in essential_deal_columns:
+                                if col_name in columns_present_in_df:
+                                    # ตรวจสอบว่าข้อมูลในคอลัมน์นั้น (หลังจากแปลงเป็น string และตัดช่องว่าง) ไม่ใช่ค่าว่าง
+                                    is_present_and_not_empty = df_section[col_name].astype(str).str.strip() != ""
+                                    valid_rows_mask &= is_present_and_not_empty
+                                else:
+                                    # ถ้าคอลัมน์ที่จำเป็นนี้ไม่มีอยู่ใน DataFrame เลย ให้ถือว่าทุกแถวไม่ผ่านเงื่อนไขนี้
+                                    # (เพื่อความปลอดภัย หรือคุณอาจจะแจ้งเตือนแล้วข้ามการกรองส่วนนี้ไป)
+                                    st.warning(f"DEBUG: Essential column '{col_name}' not found in Deals DataFrame. Filtering might be affected.")
+                                    valid_rows_mask &= pd.Series([False] * len(df_section), index=df_section.index) # Mark all as invalid for this missing column
 
-                            # Condition 2 (Optional but recommended): Also remove rows missing essential deal identifiers
-                            # A valid deal should have a Time_Deal AND a Deal_ID AND a Symbol.
-                            # This helps remove other potentially malformed or non-deal rows that are not "balance" type.
-                            if "Time_Deal" in df_section.columns:
-                                df_section = df_section[df_section["Time_Deal"].astype(str).str.strip() != ""]
-                            if "Deal_ID" in df_section.columns:
-                                df_section = df_section[df_section["Deal_ID"].astype(str).str.strip() != ""]
-                            if "Symbol_Deal" in df_section.columns: 
-                                df_section = df_section[df_section["Symbol_Deal"].astype(str).str.strip() != ""]
-                                
+                            df_section = df_section[valid_rows_mask]
+
                             if st.session_state.get("debug_statement_processing_v2", False):
                                 st.write(f"DEBUG: Deals DataFrame original rows: {original_deal_rows}")
-                                st.write(f"DEBUG: Deals DataFrame after filtering 'balance' and empty identifiers ({len(df_section)} rows left):")
-                                st.dataframe(df_section.head())
+                                st.write(f"DEBUG: Deals DataFrame after filtering based on essential columns presence ({len(df_section)} rows left):")
+                                if not df_section.empty:
+                                    st.dataframe(df_section.head())
+                                else:
+                                    st.write("No Deals left after filtering.")
                         # ***** END MODIFICATION *****
 
                         if not df_section.empty:
