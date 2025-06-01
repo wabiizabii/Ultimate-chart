@@ -1268,21 +1268,36 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
 
     # --- ฟังก์ชัน save_transactional_data_to_gsheets ---
     # [โค้ดฟังก์ชันนี้เหมือนเดิมกับเวอร์ชันล่าสุด ที่มีการส่ง expected_headers เข้า get_all_records]
+    # [เฉพาะฟังก์ชัน save_transactional_data_to_gsheets ที่แก้ไข ส่วนอื่นคงเดิม]
+
     def save_transactional_data_to_gsheets(ws, df_input, unique_id_col, expected_headers, data_type_name, portfolio_id, portfolio_name, source_file_name="N/A", import_batch_id="N/A"):
         if df_input is None or df_input.empty:
             return True, 0, 0 
         try:
             current_headers = []
+            # Ensure worksheet object 'ws' is valid
+            if ws is None:
+                st.error(f"({data_type_name}) Worksheet object is None. Cannot proceed.")
+                return False, 0, 0
+
             if ws.row_count > 0: 
                 try: current_headers = ws.row_values(1) 
                 except Exception: pass 
             
             if not current_headers or all(h == "" for h in current_headers) or set(current_headers) != set(expected_headers):
-                ws.update([expected_headers]) 
+                try:
+                    ws.update([expected_headers], value_input_option='USER_ENTERED') # Ensure USER_ENTERED for headers
+                    st.info(f"({ws.title}) Headers written/updated.")
+                except Exception as e_update_header:
+                    st.error(f"({ws.title}) Failed to write/update headers: {e_update_header}")
+                    return False, 0, 0
+
 
             existing_ids = set()
-            if ws.row_count > 1: 
+            # *** START MODIFICATION: Skip get_all_records if sheet is new/empty (only has header) ***
+            if ws.row_count > 1: # Only try to get records if there's more than just a header row
                 try:
+                    # st.write(f"Debug: ({ws.title}) Trying to get existing records. Row count: {ws.row_count}") # Debug
                     all_sheet_records = ws.get_all_records(
                         expected_headers=expected_headers, 
                         numericise_ignore=['all']
@@ -1295,12 +1310,46 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
                             if not df_portfolio_data.empty and unique_id_col in df_portfolio_data.columns:
                                 existing_ids = set(df_portfolio_data[unique_id_col].astype(str).tolist())
                 except Exception as e_get_records:
-                    st.warning(f"({ws.title}) ไม่สามารถดึงข้อมูลที่มีอยู่เพื่อตรวจสอบซ้ำ ({data_type_name}): {e_get_records}")
+                    # If get_all_records fails (e.g. header issue still, though less likely now)
+                    # we log a warning but proceed as if there are no existing records to compare against for this run,
+                    # rather than failing the entire upload.
+                    st.warning(f"({ws.title}) ไม่สามารถดึงข้อมูลที่มีอยู่เพื่อตรวจสอบซ้ำ ({data_type_name}): {e_get_records}. จะดำเนินการต่อโดยถือว่าไม่มีข้อมูลเก่าที่ตรงกันในรอบนี้")
+            # *** END MODIFICATION ***
 
             df_to_check = df_input.copy()
             if unique_id_col not in df_to_check.columns:
                 st.error(f"({ws.title}) คอลัมน์ '{unique_id_col}' ที่จำเป็นสำหรับการตรวจสอบข้อมูลซ้ำ ไม่พบในข้อมูล {data_type_name} ที่อัปโหลด")
                 return False, 0, 0 
+            
+            df_to_check[unique_id_col] = df_to_check[unique_id_col].astype(str) 
+            new_df = df_to_check[~df_to_check[unique_id_col].isin(existing_ids)]
+            num_new = len(new_df)
+            num_duplicates_skipped = len(df_to_check) - num_new
+
+            if new_df.empty:
+                return True, num_new, num_duplicates_skipped
+
+            df_to_save = pd.DataFrame(columns=expected_headers) 
+            for col in expected_headers:
+                if col in new_df.columns: df_to_save[col] = new_df[col]
+            df_to_save["PortfolioID"] = str(portfolio_id)
+            df_to_save["PortfolioName"] = str(portfolio_name)
+            df_to_save["SourceFile"] = str(source_file_name)
+            df_to_save["ImportBatchID"] = str(import_batch_id)
+            df_to_save = df_to_save[expected_headers]
+
+            list_of_lists = df_to_save.astype(str).replace('nan', '').replace('None', '').fillna("").values.tolist()
+            if list_of_lists:
+                ws.append_rows(list_of_lists, value_input_option='USER_ENTERED')
+                return True, num_new, num_duplicates_skipped
+            
+            return True, 0, num_duplicates_skipped 
+        except gspread.exceptions.APIError as e_api:
+            st.error(f"❌ ({ws.title}) Google Sheets API Error ({data_type_name}): {e_api}")
+            return False, 0, 0
+        except Exception as e: 
+            st.error(f"❌ ({ws.title}) เกิดข้อผิดพลาดในการบันทึก {data_type_name}: {e}")
+            return False, 0, 0
             
             df_to_check[unique_id_col] = df_to_check[unique_id_col].astype(str) 
             new_df = df_to_check[~df_to_check[unique_id_col].isin(existing_ids)]
