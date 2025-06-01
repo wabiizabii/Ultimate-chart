@@ -696,21 +696,7 @@ if mode == "FIBO": # mode ควรจะถูก define ใน SEC 2.1
     if risk_pct_fibo_v2 <= 0: # ใช้ risk_pct_fibo_v2
         st.sidebar.warning("Risk% ต้องมากกว่า 0")
 
-    st.sidebar.markdown("---")
-    try:
-        high_preview_fibo_v2 = float(swing_high_fibo_v2)
-        low_preview_fibo_v2 = float(swing_low_fibo_v2)
-        if high_preview_fibo_v2 > low_preview_fibo_v2 and any(st.session_state.fibo_flags_v2):
-            st.sidebar.markdown("**Preview (เบื้องต้น):**")
-            first_selected_fibo_index_v2 = st.session_state.fibo_flags_v2.index(True)
-            if direction_fibo_v2 == "Long":
-                preview_entry_fibo_v2 = low_preview_fibo_v2 + (high_preview_fibo_v2 - low_preview_fibo_v2) * fibos_fibo_v2[first_selected_fibo_index_v2]
-            else:
-                preview_entry_fibo_v2 = high_preview_fibo_v2 - (high_preview_fibo_v2 - low_preview_fibo_v2) * fibos_fibo_v2[first_selected_fibo_index_v2]
-            st.sidebar.markdown(f"Entry แรกที่เลือก ≈ **{preview_entry_fibo_v2:.2f}**")
-            st.sidebar.caption("Lot/TP/ผลลัพธ์เต็มอยู่ด้านล่าง (ใน Strategy Summary)")
-    except Exception:
-        pass
+
 
     save_fibo = st.sidebar.button("💾 Save Plan (FIBO)", key="save_fibo_v3") # Key ใหม่
 
@@ -1494,17 +1480,27 @@ if save_button_pressed_flag:
 
 # --- End of new SEC 3.2 ---
 
-# ===================== SEC 4: MAIN AREA - ENTRY PLAN DETAILS TABLE =======================
+   # ===================== SEC 4: MAIN AREA - ENTRY PLAN DETAILS TABLE =======================
 with st.expander("📋 Entry Table (FIBO/CUSTOM)", expanded=True):
     if mode == "FIBO":
         col1_main, col2_main = st.columns(2)
         with col1_main:
             st.markdown("### 🎯 Entry Levels (FIBO)")
-            # ใช้ตัวแปรใหม่จาก SEC 3 และตรวจสอบว่าถูก define และมีข้อมูลหรือไม่
             if 'entry_data_summary_sec3' in locals() and entry_data_summary_sec3:
-                entry_df_main = pd.DataFrame(entry_data_summary_sec3)
-                st.dataframe(entry_df_main, hide_index=True, use_container_width=True)
+                entry_df_for_display = pd.DataFrame(entry_data_summary_sec3)
+                # --- START: เลือกคอลัมน์ที่จะแสดงผลใหม่ ---
+                cols_to_show_in_entry_table = ["Fibo Level", "Entry", "SL", "Lot", "Risk $"]
+                # ตรวจสอบว่าคอลัมน์ที่ต้องการแสดงมีอยู่ใน DataFrame หรือไม่
+                existing_cols_to_show = [col for col in cols_to_show_in_entry_table if col in entry_df_for_display.columns]
+                if existing_cols_to_show:
+                    st.dataframe(entry_df_for_display[existing_cols_to_show], hide_index=True, use_container_width=True)
+                else:
+                    st.info("ไม่พบคอลัมน์ที่ต้องการแสดงผลสำหรับ Entry Levels (FIBO)")
+                # --- END: เลือกคอลัมน์ที่จะแสดงผลใหม่ ---
             else:
+                st.info("กรอกข้อมูล High/Low และเลือก Fibo Level ใน Sidebar เพื่อดู Entry Levels (หรือยังไม่มีข้อมูลสรุป).")
+        # ... (ส่วน with col2_main: สำหรับ Take Profit Zones เหมือนเดิม) ...
+    # ... (ส่วน elif mode == "CUSTOM": เหมือนเดิม) ...
                 st.info("กรอกข้อมูล High/Low และเลือก Fibo Level ใน Sidebar เพื่อดู Entry Levels (หรือยังไม่มีข้อมูลสรุป).")
         with col2_main:
             st.markdown("### 🎯 Take Profit Zones (FIBO)")
