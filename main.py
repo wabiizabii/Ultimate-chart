@@ -293,7 +293,7 @@ def save_new_portfolio_to_gsheets(portfolio_data_dict):
         ws = sh.worksheet(WORKSHEET_PORTFOLIOS)
 
         # !!! สำคัญมาก: ลูกพี่ตั้มต้องปรับแก้ลำดับและชื่อคอลัมน์ให้ตรงกับชีต "Portfolios" จริงๆ !!!
-        expected_gsheet_headers_portfolio = [ # Changed name to avoid conflict
+        expected_gsheet_headers_portfolio = [
             'PortfolioID', 'PortfolioName', 'ProgramType', 'EvaluationStep',
             'Status', 'InitialBalance', 'CreationDate',
             'ProfitTargetPercent', 'DailyLossLimitPercent', 'TotalStopoutPercent',
@@ -302,9 +302,9 @@ def save_new_portfolio_to_gsheets(portfolio_data_dict):
             'OverallProfitTarget', 'TargetEndDate', 'WeeklyProfitTarget', 'DailyProfitTarget',
             'MaxAcceptableDrawdownOverall', 'MaxAcceptableDrawdownDaily',
             'EnableScaling', 'ScalingCheckFrequency',
-            'ScaleUp_MinWinRate', 'ScaleUp_MinGainPercent': float, 'ScaleUp_RiskIncrementPercent': float,
-            'ScaleDown_MaxLossPercent': float, 'ScaleDown_LowWinRate': float, 'ScaleDown_RiskDecrementPercent': float,
-            'MinRiskPercentAllowed': float, 'MaxRiskPercentAllowed': float, 'CurrentRiskPercent': float
+            'ScaleUp_MinWinRate', 'ScaleUp_MinGainPercent', 'ScaleUp_RiskIncrementPercent',
+            'ScaleDown_MaxLossPercent', 'ScaleDown_LowWinRate', 'ScaleDown_RiskDecrementPercent',
+            'MinRiskPercentAllowed', 'MaxRiskPercentAllowed', 'CurrentRiskPercent'
         ]
         
         # Check if headers exist, if not, add them
