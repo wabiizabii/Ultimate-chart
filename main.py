@@ -1983,6 +1983,9 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
         # --- END: ส่วนที่คัดลอกมาจากโค้ดของคุณใน #35 ---
 
     # --- START: ฟังก์ชันใหม่/แก้ไข สำหรับบันทึกข้อมูลพร้อม Deduplication และ Header Handling ---
+    # [ภายใน SEC 7 ของไฟล์ mainโหลดได้หมด.py ของคุณ]
+# [ฟังก์ชัน extract_data_from_report_content และฟังก์ชัน save_... อื่นๆ ให้คงเดิมจากไฟล์ #35 ของคุณก่อน]
+
     def save_transactional_data_to_gsheets(ws, df_input, unique_id_col, expected_headers, data_type_name, portfolio_id, portfolio_name, source_file_name="N/A", import_batch_id="N/A"):
         if df_input is None or df_input.empty:
             return True, 0, 0 
@@ -1993,8 +1996,7 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
 
             current_headers = []
             if ws.row_count > 0:
-                try:
-                    current_headers = ws.row_values(1)
+                try: current_headers = ws.row_values(1)
                 except Exception as e_get_header:
                     st.warning(f"Could not get header for '{ws.title}': {e_get_header}. Will attempt to write headers.")
                     current_headers = []
@@ -2027,17 +2029,35 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
 
             df_to_check = df_input.copy()
             if unique_id_col not in df_to_check.columns:
-                st.error(f"Unique ID column '{unique_id_col}' not found in uploaded {data_type_name} data.")
+                # ***** START MODIFICATION: Provide more context on missing unique_id_col *****
+                st.error(f"Unique ID column '{unique_id_col}' is MISSING from the data extracted for '{data_type_name}'. Cannot perform deduplication.")
+                st.write(f"Available columns in df_input for {data_type_name}: {df_input.columns.tolist()}")
+                # ***** END MODIFICATION *****
                 return False, 0, 0
 
             df_to_check[unique_id_col] = df_to_check[unique_id_col].astype(str)
+            
+            # ***** START DEBUGGING: Show unique IDs and existing IDs *****
+            if data_type_name == "Deals" and st.session_state.get("debug_statement_processing_v2", False) :
+                st.write(f"DEBUG ({ws.title}): Unique IDs from new Deals data to check (df_to_check['{unique_id_col}']):")
+                st.dataframe(df_to_check[[unique_id_col]].head(10)) 
+                st.write(f"DEBUG ({ws.title}): Existing IDs in GSheet for this Portfolio to compare against ({len(existing_ids)} items):")
+                st.json(list(existing_ids)[:10] if existing_ids else "No existing IDs found in GSheet") 
+            # ***** END DEBUGGING *****
+
             new_df = df_to_check[~df_to_check[unique_id_col].isin(existing_ids)]
             num_new = len(new_df)
             num_duplicates_skipped = len(df_to_check) - num_new
 
+            # ***** START DEBUGGING: Show the 'new' deal(s) if any are found *****
+            if data_type_name == "Deals" and num_new > 0 and st.session_state.get("debug_statement_processing_v2", False): 
+                st.write(f"DEBUG ({ws.title}): Found {num_new} 'new' deal(s) to be added (content shown below):")
+                st.dataframe(new_df) 
+            # ***** END DEBUGGING *****
+
             if new_df.empty:
                 return True, num_new, num_duplicates_skipped
-
+            
             df_to_save = pd.DataFrame(columns=expected_headers)
             for col in expected_headers:
                 if col in new_df.columns:
@@ -2062,19 +2082,6 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
                 
                 ws.append_rows(list_of_lists, value_input_option='USER_ENTERED')
                 
-                if data_type_name == "Deals" and st.session_state.get("debug_statement_processing_v2", False) :
-                    # time.sleep(2) # Add small delay for GSheet to update
-                    try:
-                        # Check actual row count after append
-                        # This is a read operation, use with caution if quota is an issue
-                        # For debugging only.
-                        # check_records_after_append = ws.get_all_records(expected_headers=expected_headers, numericise_ignore=['all'])
-                        # st.write(f"DEBUG ({ws.title}): Records in sheet after append for Deals: {len(check_records_after_append)}")
-                        pass
-                    except Exception as e_debug_check:
-                        st.write(f"DEBUG ({ws.title}): Error checking records after append: {e_debug_check}")
-
-
             return True, num_new, num_duplicates_skipped
 
         except gspread.exceptions.APIError as e_api:
@@ -2082,7 +2089,7 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
             return False, 0, 0
         except Exception as e:
             st.error(f"❌ ({ws.title}) เกิดข้อผิดพลาดในการบันทึก {data_type_name}: {e}")
-            st.exception(e)
+            st.exception(e) # Show full traceback for other exceptions
             return False, 0, 0
 
     # แก้ไขฟังก์ชัน save_... ให้รับ ws และ import_batch_id
