@@ -168,48 +168,42 @@ elif df_portfolios_gs.empty:
 
 
 # ========== Function Utility (ต่อจากของเดิม) ==========
-def get_today_drawdown(log_source_df, acc_balance_input): # Renamed acc_balance to avoid conflict
+def get_today_drawdown(log_source_df, acc_balance_input):
     if log_source_df.empty:
-        return 0
+        return 0 # คืนค่า 0
     today_str = datetime.now().strftime("%Y-%m-%d")
     try:
         active_portfolio_id_dd = st.session_state.get('active_portfolio_id_gs', None)
-        df_filtered_by_portfolio = log_source_df.copy() # Use .copy() to avoid SettingWithCopyWarning
+        df_filtered_by_portfolio = log_source_df.copy()
 
         if active_portfolio_id_dd and 'PortfolioID' in df_filtered_by_portfolio.columns:
-            # Ensure consistent type for comparison
             df_filtered_by_portfolio['PortfolioID'] = df_filtered_by_portfolio['PortfolioID'].astype(str)
             df_filtered_by_portfolio = df_filtered_by_portfolio[df_filtered_by_portfolio['PortfolioID'] == str(active_portfolio_id_dd)]
 
         if df_filtered_by_portfolio.empty:
-            return 0
+            return 0 # คืนค่า 0
 
         if 'Timestamp' not in df_filtered_by_portfolio.columns:
-            return 0
+            return 0 # คืนค่า 0
         df_filtered_by_portfolio['Timestamp'] = pd.to_datetime(df_filtered_by_portfolio['Timestamp'], errors='coerce')
-
+        
         df_today = df_filtered_by_portfolio[df_filtered_by_portfolio["Timestamp"].dt.strftime("%Y-%m-%d") == today_str]
-
+        
         if df_today.empty:
-            return 0
-
+            return 0 # คืนค่า 0
+            
         if 'Risk $' not in df_today.columns:
-            return 0
-        # Ensure 'Risk $' is numeric on a copy to avoid SettingWithCopyWarning
+            return 0 # คืนค่า 0
         df_today_copy = df_today.copy()
         df_today_copy['Risk $'] = pd.to_numeric(df_today_copy['Risk $'], errors='coerce').fillna(0)
-
+        
         planned_risk_sum_today = df_today_copy["Risk $"].sum()
-        # --- START: แก้ไขจุดนี้ ---
-        drawdown = -abs(planned_risk_sum_today) # ทำให้เป็นค่าลบเสมอ เพื่อสะท้อนการขาดทุนตามแผน
-        # --- END: แก้ไขจุดนี้ ---
-        return drawdown
+        drawdown = -abs(planned_risk_sum_today) 
+        return drawdown # คืนค่าตัวเลข (float หรือ int)
     except KeyError as e:
-        # st.error(f"KeyError in : {e}") # For debugging
-        return 0
+        return 0 # คืนค่า 0
     except Exception as e:
-        # st.error(f"Exception in : {e}") # For debugging
-        return 0
+        return 0 # คืนค่า 0
 def calculate_file_hash(file_uploader_object):
     file_uploader_object.seek(0) # Go to the start of the file
     file_content = file_uploader_object.read()
@@ -1395,16 +1389,18 @@ if gc_drawdown:
 
 
 # Use active_balance_to_use for drawdown calculations if limit is portfolio-dependent
-drawdown_today = (df_drawdown_check.copy(), active_balance_to_use) # Pass active_balance_to_use
+drawdown_today = get_today_drawdown(df_drawdown_check.copy(), active_balance_to_use) # Pass active_balance_to_use
 drawdown_limit_pct_val = st.session_state.get('drawdown_limit_pct', 2.0)
-drawdown_limit_abs = -abs(active_balance_to_use * (drawdown_limit_pct_val / 100.0)) # Use active_balance_to_use
-
+drawdown_limit_abs = -abs(active_balance_to_use * (drawdown_limit_pct_val / 100.0))
 if drawdown_today < 0: # Only show if there's actual drawdown from plans
     st.sidebar.markdown(f"**ขาดทุนจากแผนวันนี้:** <font color='red'>{drawdown_today:,.2f} USD</font>", unsafe_allow_html=True)
     st.sidebar.markdown(f"**ลิมิตขาดทุนที่ตั้งไว้:** {drawdown_limit_abs:,.2f} USD ({drawdown_limit_pct_val:.1f}% ของ {active_balance_to_use:,.2f} USD)")
 else:
     st.sidebar.markdown(f"**ขาดทุนจากแผนวันนี้:** {drawdown_today:,.2f} USD")
 
+st.sidebar.write(f"DEBUG: drawdown_today = {drawdown_today}, type = {type(drawdown_today)}")
+# บรรทัด 1402 เดิม:
+if drawdown_today < 0: # Only show if there's actual drawdown from plans
 
 active_portfolio_id = st.session_state.get('active_portfolio_id_gs', None)
 active_portfolio_name = st.session_state.get('active_portfolio_name_gs', None)
