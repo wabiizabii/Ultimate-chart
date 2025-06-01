@@ -1036,6 +1036,9 @@ with st.expander("🤖 AI Assistant", expanded=True):
 # [โค้ดส่วนอื่นๆ ของ main.py จะยังคงเหมือนเดิมกับเวอร์ชันล่าสุดก่อนหน้านี้]
 # ... (โค้ด SEC 0 ถึง SEC 6 เหมือนเดิม) ...
 
+# [โค้ดส่วนอื่นๆ ของ main.py จะยังคงเหมือนเดิมกับเวอร์ชันล่าสุดก่อนหน้านี้]
+# ... (โค้ด SEC 0 ถึง SEC 6 เหมือนเดิม) ...
+
 # ===================== SEC 7: MAIN AREA - STATEMENT IMPORT & PROCESSING =======================
 with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=True):
     st.markdown("### 📊 จัดการ Statement และข้อมูลดิบ")
@@ -1062,8 +1065,7 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
             return extracted_data
         
         if not lines: 
-            # st.error("Error: File content is empty after splitting lines.") # Can be too noisy if file is just empty
-            return extracted_data # Return empty if no lines
+            return extracted_data 
         
         section_raw_headers = {
             "Positions": "Time,Position,Symbol,Type,Volume,Price,S / L,T / P,Time,Price,Commission,Swap,Profit", 
@@ -1264,6 +1266,8 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
             st.json(results_summary_dict if results_summary_dict else "Results summary not parsed or empty.")
         return extracted_data
 
+    # --- ฟังก์ชัน save_transactional_data_to_gsheets ---
+    # [โค้ดฟังก์ชันนี้เหมือนเดิมกับเวอร์ชันล่าสุด ที่มีการส่ง expected_headers เข้า get_all_records]
     def save_transactional_data_to_gsheets(ws, df_input, unique_id_col, expected_headers, data_type_name, portfolio_id, portfolio_name, source_file_name="N/A", import_batch_id="N/A"):
         if df_input is None or df_input.empty:
             return True, 0, 0 
@@ -1279,7 +1283,10 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
             existing_ids = set()
             if ws.row_count > 1: 
                 try:
-                    all_sheet_records = ws.get_all_records(numericise_ignore=['all']) 
+                    all_sheet_records = ws.get_all_records(
+                        expected_headers=expected_headers, 
+                        numericise_ignore=['all']
+                    ) 
                     if all_sheet_records:
                         df_existing_sheet_data = pd.DataFrame(all_sheet_records)
                         if unique_id_col in df_existing_sheet_data.columns and 'PortfolioID' in df_existing_sheet_data.columns:
@@ -1325,6 +1332,8 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
             st.error(f"❌ ({ws.title}) เกิดข้อผิดพลาดในการบันทึก {data_type_name}: {e}")
             return False, 0, 0
 
+    # --- ฟังก์ชัน save_deals_to_actual_trades, save_orders_to_gsheets, save_positions_to_gsheets ---
+    # [โค้ดฟังก์ชันเหล่านี้เหมือนเดิมกับเวอร์ชันล่าสุด]
     def save_deals_to_actual_trades(ws, df_deals_input, portfolio_id, portfolio_name, source_file_name="N/A", import_batch_id="N/A"):
         expected_headers_deals = ["Time_Deal", "Deal_ID", "Symbol_Deal", "Type_Deal", "Direction_Deal", "Volume_Deal", "Price_Deal", "Order_ID_Deal", "Commission_Deal", "Fee_Deal", "Swap_Deal", "Profit_Deal", "Balance_Deal", "Comment_Deal", "PortfolioID", "PortfolioName", "SourceFile", "ImportBatchID"]
         return save_transactional_data_to_gsheets(ws, df_deals_input, "Deal_ID", expected_headers_deals, "Deals", portfolio_id, portfolio_name, source_file_name, import_batch_id)
@@ -1336,7 +1345,9 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
     def save_positions_to_gsheets(ws, df_positions_input, portfolio_id, portfolio_name, source_file_name="N/A", import_batch_id="N/A"):
         expected_headers_positions = ["Time", "Position", "Symbol", "Type", "Volume", "Price", "S_L", "T_P", "Close_Time_Pos", "Close_Price_Pos", "Commission_Pos", "Swap_Pos", "Profit_Pos", "PortfolioID", "PortfolioName", "SourceFile", "ImportBatchID"]
         return save_transactional_data_to_gsheets(ws, df_positions_input, "Position", expected_headers_positions, "Positions", portfolio_id, portfolio_name, source_file_name, import_batch_id)
-
+    
+    # --- ฟังก์ชัน save_results_summary_to_gsheets ---
+    # [โค้ดฟังก์ชันนี้เหมือนเดิมกับเวอร์ชันล่าสุด]
     def save_results_summary_to_gsheets(ws, balance_summary_data, results_summary_data, portfolio_id, portfolio_name, source_file_name="N/A", import_batch_id="N/A"):
         try:
             expected_headers = ["Timestamp", "PortfolioID", "PortfolioName", "SourceFile", "ImportBatchID", "Balance", "Equity", "Free_Margin", "Margin", "Floating_P_L", "Margin_Level", "Total_Net_Profit", "Gross_Profit", "Gross_Loss", "Profit_Factor", "Expected_Payoff", "Recovery_Factor", "Sharpe_Ratio", "Balance_Drawdown_Absolute", "Balance_Drawdown_Maximal", "Balance_Drawdown_Maximal_Percent", "Balance_Drawdown_Relative_Percent", "Balance_Drawdown_Relative_Amount", "Total_Trades", "Short_Trades", "Short_Trades_won_Percent", "Long_Trades", "Long_Trades_won_Percent", "Profit_Trades", "Profit_Trades_Percent_of_total", "Loss_Trades", "Loss_Trades_Percent_of_total", "Largest_profit_trade", "Largest_loss_trade", "Average_profit_trade", "Average_loss_trade", "Maximum_consecutive_wins_Count", "Maximum_consecutive_wins_Profit", "Maximum_consecutive_losses_Count", "Maximum_consecutive_losses_Profit", "Maximal_consecutive_profit_Amount", "Maximal_consecutive_profit_Count", "Maximal_consecutive_loss_Amount", "Maximal_consecutive_loss_Count", "Average_consecutive_wins", "Average_consecutive_losses"]
@@ -1369,7 +1380,7 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
 
     st.markdown("---")
     st.subheader("📤 อัปโหลด Statement Report (CSV) เพื่อประมวลผลและบันทึก")
-    uploaded_file_statement = st.file_uploader("ลากและวางไฟล์ Statement Report (CSV) ที่นี่ หรือคลิกเพื่อเลือกไฟล์", type=["csv"], key="stmt_uploader_v5_final") # Changed key for potential reset
+    uploaded_file_statement = st.file_uploader("ลากและวางไฟล์ Statement Report (CSV) ที่นี่ หรือคลิกเพื่อเลือกไฟล์", type=["csv"], key="stmt_uploader_v5_final_2") # Changed key again
     st.checkbox("⚙️ เปิดโหมด Debug (แสดงข้อมูลที่แยกได้)", key="debug_statement_processing_v2", value=False)
     active_portfolio_id_for_actual = st.session_state.get('active_portfolio_id_gs', None)
     active_portfolio_name_for_actual = st.session_state.get('active_portfolio_name_gs', None)
@@ -1395,30 +1406,61 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
             st.stop()
 
         ws_dict = {}
+        # Define standard row/col counts for new sheets
+        default_sheet_specs = {"rows": "100", "cols": "26"} # Default A-Z
+        worksheet_definitions = {
+            WORKSHEET_UPLOAD_HISTORY: {"rows": "1000", "cols": "10", "headers": ["UploadTimestamp", "PortfolioID", "PortfolioName", "FileName", "FileSize", "FileHash", "Status", "ImportBatchID", "Notes"]},
+            WORKSHEET_ACTUAL_TRADES: {"rows": "1000", "cols": "20", "headers": ["Time_Deal", "Deal_ID", "Symbol_Deal", "Type_Deal", "Direction_Deal", "Volume_Deal", "Price_Deal", "Order_ID_Deal", "Commission_Deal", "Fee_Deal", "Swap_Deal", "Profit_Deal", "Balance_Deal", "Comment_Deal", "PortfolioID", "PortfolioName", "SourceFile", "ImportBatchID"]},
+            WORKSHEET_ACTUAL_ORDERS: {"rows": "1000", "cols": "15", "headers": ["Open_Time_Ord", "Order_ID_Ord", "Symbol_Ord", "Type_Ord", "Volume_Ord", "Price_Ord", "S_L_Ord", "T_P_Ord", "Close_Time_Ord", "State_Ord", "Comment_Ord", "PortfolioID", "PortfolioName", "SourceFile", "ImportBatchID"]},
+            WORKSHEET_ACTUAL_POSITIONS: {"rows": "1000", "cols": "20", "headers": ["Time", "Position", "Symbol", "Type", "Volume", "Price", "S_L", "T_P", "Close_Time_Pos", "Close_Price_Pos", "Commission_Pos", "Swap_Pos", "Profit_Pos", "PortfolioID", "PortfolioName", "SourceFile", "ImportBatchID"]},
+            WORKSHEET_STATEMENT_SUMMARIES: {"rows": "1000", "cols": "40", "headers": ["Timestamp", "PortfolioID", "PortfolioName", "SourceFile", "ImportBatchID", "Balance", "Equity", "Free_Margin", "Margin", "Floating_P_L", "Margin_Level", "Total_Net_Profit", "Gross_Profit", "Gross_Loss", "Profit_Factor", "Expected_Payoff", "Recovery_Factor", "Sharpe_Ratio", "Balance_Drawdown_Absolute", "Balance_Drawdown_Maximal", "Balance_Drawdown_Maximal_Percent", "Balance_Drawdown_Relative_Percent", "Balance_Drawdown_Relative_Amount", "Total_Trades", "Short_Trades", "Short_Trades_won_Percent", "Long_Trades", "Long_Trades_won_Percent", "Profit_Trades", "Profit_Trades_Percent_of_total", "Loss_Trades", "Loss_Trades_Percent_of_total", "Largest_profit_trade", "Largest_loss_trade", "Average_profit_trade", "Average_loss_trade", "Maximum_consecutive_wins_Count", "Maximum_consecutive_wins_Profit", "Maximum_consecutive_losses_Count", "Maximum_consecutive_losses_Profit", "Maximal_consecutive_profit_Amount", "Maximal_consecutive_profit_Count", "Maximal_consecutive_loss_Amount", "Maximal_consecutive_loss_Count", "Average_consecutive_wins", "Average_consecutive_losses"]}
+        }
+
         try:
             sh_trade_log = gc_for_sheets.open(GOOGLE_SHEET_NAME)
-            ws_names_to_fetch = [
-                WORKSHEET_UPLOAD_HISTORY, WORKSHEET_ACTUAL_TRADES, 
-                WORKSHEET_ACTUAL_ORDERS, WORKSHEET_ACTUAL_POSITIONS, 
-                WORKSHEET_STATEMENT_SUMMARIES
-            ]
-            for ws_name_key in ws_names_to_fetch:
-                ws_dict[ws_name_key] = sh_trade_log.worksheet(ws_name_key)
-            
-            if ws_dict[WORKSHEET_UPLOAD_HISTORY].row_count == 0: 
-                ws_dict[WORKSHEET_UPLOAD_HISTORY].append_row(["UploadTimestamp", "PortfolioID", "PortfolioName", "FileName", "FileSize", "FileHash", "Status", "ImportBatchID", "Notes"])
-        except (gspread.exceptions.APIError, gspread.exceptions.WorksheetNotFound, Exception) as e_setup:
-            st.error(f"❌ เกิดข้อผิดพลาดในการเข้าถึง Worksheet ที่จำเป็น: {type(e_setup).__name__} - {str(e_setup)[:200]}...")
+            for ws_name, specs in worksheet_definitions.items():
+                try:
+                    ws_dict[ws_name] = sh_trade_log.worksheet(ws_name)
+                    # Check if headers need to be written (e.g. for UploadHistory or if sheet was just created by another process but is empty)
+                    # The save_... functions themselves will handle headers for their respective sheets if they find them empty.
+                    # This explicit check is mainly for UploadHistory if it was just created.
+                    if ws_dict[ws_name].row_count == 0 and "headers" in specs: # If sheet is completely empty
+                         ws_dict[ws_name].update([specs["headers"]]) # Use update for a single list of headers
+                         st.info(f"Added headers to empty '{ws_name}' sheet.")
+                    elif ws_name == WORKSHEET_UPLOAD_HISTORY and ws_dict[ws_name].row_count == 0 : # Special case for UploadHistory if it exists but is empty
+                        ws_dict[WORKSHEET_UPLOAD_HISTORY].update([specs["headers"]])
+
+
+                except gspread.exceptions.WorksheetNotFound:
+                    st.info(f"Worksheet '{ws_name}' not found. Creating it now...")
+                    new_ws = sh_trade_log.add_worksheet(title=ws_name, rows=specs.get("rows", default_sheet_specs["rows"]), cols=specs.get("cols", default_sheet_specs["cols"]))
+                    ws_dict[ws_name] = new_ws
+                    if "headers" in specs: # Add headers to the newly created sheet
+                        new_ws.update([specs["headers"]]) # Use update for a single list of headers
+                        st.info(f"Created worksheet '{ws_name}' and added headers.")
+        
+        except gspread.exceptions.APIError as e_api:
+            st.error(f"❌ Google Sheets API Error (Initial Worksheet Access/Creation): {e_api}. Please check API quotas or permissions.")
+            st.stop()
+        except Exception as e_setup:
+            st.error(f"❌ เกิดข้อผิดพลาดในการเข้าถึงหรือสร้าง Worksheet ที่จำเป็น: {type(e_setup).__name__} - {str(e_setup)[:200]}...")
             st.stop()
 
+        # Ensure all required worksheet objects are in ws_dict after attempt to create
+        for ws_name_key in worksheet_definitions.keys():
+            if ws_name_key not in ws_dict or ws_dict[ws_name_key] is None:
+                st.error(f"❌ ไม่สามารถเข้าถึงหรือสร้าง Worksheet '{ws_name_key}' ได้อย่างสมบูรณ์ โปรดตรวจสอบ Google Sheets และลองอีกครั้ง")
+                st.stop()
+        
+        # --- The rest of SEC 7 (history check, data extraction, saving, etc.) using ws_dict[WORKSHEET_NAME] ---
         history_records = []
         try:
-            history_records = ws_dict[WORKSHEET_UPLOAD_HISTORY].get_all_records(numericise_ignore=['all'])
+            if WORKSHEET_UPLOAD_HISTORY in ws_dict:
+                history_records = ws_dict[WORKSHEET_UPLOAD_HISTORY].get_all_records(numericise_ignore=['all'])
         except gspread.exceptions.APIError as e_api_hist:
             st.warning(f"Google Sheets API Error ขณะดึง UploadHistory: {e_api_hist}. การตรวจสอบไฟล์ซ้ำอาจไม่สมบูรณ์")
         except Exception as e_hist_fetch:
             st.warning(f"Error fetching UploadHistory: {e_hist_fetch}. การตรวจสอบไฟล์ซ้ำอาจไม่สมบูรณ์")
-
 
         is_duplicate_file_found = False
         existing_batch_id_info = "N/A"
@@ -1454,8 +1496,8 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
         st.info(f"กำลังประมวลผลไฟล์: {file_name_for_saving}")
         
         overall_processing_successful = True
-        any_new_transactional_data_added = False # Changed from any_new_data_added for clarity
-        save_results_details = {} # To store detailed results from save functions
+        any_new_transactional_data_added = False 
+        save_results_details = {} 
         
         try:
             file_content_str = uploaded_file_statement.getvalue().decode("utf-8", errors="replace")
@@ -1468,7 +1510,6 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
             else:
                 st.subheader("💾 กำลังบันทึกข้อมูลส่วนต่างๆไปยัง Google Sheets...")
                 
-                # Deals
                 deals_df = extracted_sections.get('deals', pd.DataFrame())
                 if not deals_df.empty:
                     ok, new_count, skipped_count = save_deals_to_actual_trades(ws_dict[WORKSHEET_ACTUAL_TRADES], deals_df, active_portfolio_id_for_actual, active_portfolio_name_for_actual, file_name_for_saving, import_batch_id)
@@ -1477,9 +1518,8 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
                     else: st.error(f"❌ ({WORKSHEET_ACTUAL_TRADES}) Deals: การบันทึกล้มเหลว")
                     if new_count > 0: any_new_transactional_data_added = True
                     if not ok: overall_processing_successful = False
-                else: save_results_details['Deals'] = {'ok': True, 'notes': "Deals: No data in file."}
+                else: save_results_details['Deals'] = {'ok': True, 'new': 0, 'skipped': 0, 'notes': "Deals: No data in file."}
                 
-                # Orders
                 orders_df = extracted_sections.get('orders', pd.DataFrame())
                 if not orders_df.empty:
                     ok, new_count, skipped_count = save_orders_to_gsheets(ws_dict[WORKSHEET_ACTUAL_ORDERS], orders_df, active_portfolio_id_for_actual, active_portfolio_name_for_actual, file_name_for_saving, import_batch_id)
@@ -1488,9 +1528,8 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
                     else: st.error(f"❌ ({WORKSHEET_ACTUAL_ORDERS}) Orders: การบันทึกล้มเหลว")
                     if new_count > 0: any_new_transactional_data_added = True
                     if not ok: overall_processing_successful = False
-                else: save_results_details['Orders'] = {'ok': True, 'notes': "Orders: No data in file."}
+                else: save_results_details['Orders'] = {'ok': True, 'new': 0, 'skipped': 0, 'notes': "Orders: No data in file."}
 
-                # Positions
                 positions_df = extracted_sections.get('positions', pd.DataFrame())
                 if not positions_df.empty:
                     ok, new_count, skipped_count = save_positions_to_gsheets(ws_dict[WORKSHEET_ACTUAL_POSITIONS], positions_df, active_portfolio_id_for_actual, active_portfolio_name_for_actual, file_name_for_saving, import_batch_id)
@@ -1499,15 +1538,13 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
                     else: st.error(f"❌ ({WORKSHEET_ACTUAL_POSITIONS}) Positions: การบันทึกล้มเหลว")
                     if new_count > 0: any_new_transactional_data_added = True
                     if not ok: overall_processing_successful = False
-                else: save_results_details['Positions'] = {'ok': True, 'notes': "Positions: No data in file."}
+                else: save_results_details['Positions'] = {'ok': True, 'new': 0, 'skipped': 0, 'notes': "Positions: No data in file."}
                 
-                # Summaries
                 balance_summary = extracted_sections.get('balance_summary', {})
-                results_summary_data_ext = extracted_sections.get('results_summary', {}) # Renamed to avoid conflict
+                results_summary_data_ext = extracted_sections.get('results_summary', {})
                 summary_save_attempted = False
                 summary_save_ok = True 
 
-                # *** Conditional Summary Saving Logic ***
                 should_save_summary_now = True
                 if is_duplicate_file_found and not any_new_transactional_data_added:
                     st.info(f"({WORKSHEET_STATEMENT_SUMMARIES}) ข้ามการบันทึก Summary เนื่องจากไฟล์นี้เป็นไฟล์ซ้ำที่เคยประมวลผลสำเร็จแล้ว และไม่พบข้อมูล Deals/Orders/Positions ใหม่จากการประมวลผลไฟล์ครั้งนี้")
@@ -1523,45 +1560,34 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
                             file_name_for_saving, import_batch_id
                         )
                         save_results_details['Summary'] = {'ok': ok_summary_save, 'status': 'saved' if ok_summary_save else 'failed', 'notes': f"Summary: Attempted, Success={ok_summary_save}"}
-                        if ok_summary_save:
-                            st.write(f"✔️ ({WORKSHEET_STATEMENT_SUMMARIES}) Summary Data: บันทึกสำเร็จ")
-                        else:
-                            st.error(f"❌ ({WORKSHEET_STATEMENT_SUMMARIES}) Summary Data: การบันทึกล้มเหลว")
-                        summary_save_ok = ok_summary_save # This will be used to set overall_processing_successful
-                    else:
-                        save_results_details['Summary'] = {'ok': True, 'status': 'no_data_to_save', 'notes': "Summary: No data in file to save."}
+                        if ok_summary_save: st.write(f"✔️ ({WORKSHEET_STATEMENT_SUMMARIES}) Summary Data: บันทึกสำเร็จ")
+                        else: st.error(f"❌ ({WORKSHEET_STATEMENT_SUMMARIES}) Summary Data: การบันทึกล้มเหลว")
+                        summary_save_ok = ok_summary_save
+                    else: save_results_details['Summary'] = {'ok': True, 'status': 'no_data_to_save', 'notes': "Summary: No data in file to save."}
                 
-                if summary_save_attempted and not summary_save_ok: # If a save was tried and failed
+                if summary_save_attempted and not summary_save_ok: 
                     overall_processing_successful = False
 
-
                 if overall_processing_successful:
-                    if any_new_transactional_data_added or (summary_save_attempted and summary_save_ok and should_save_summary_now): # If new transactional OR new summary was saved
-                        st.balloons()
-                        st.success("ประมวลผลไฟล์สำเร็จและมีการเพิ่มข้อมูลใหม่!")
+                    if any_new_transactional_data_added or (save_results_details.get('Summary', {}).get('status') == 'saved'):
+                        st.balloons(); st.success("ประมวลผลไฟล์สำเร็จและมีการเพิ่มข้อมูลใหม่!")
                     elif is_duplicate_file_found and not any_new_transactional_data_added and not should_save_summary_now: 
                         st.info(f"ไฟล์ '{file_name_for_saving}' เป็นไฟล์ซ้ำ และไม่พบรายการข้อมูลใหม่ (รวมถึง Summary ที่ถูกข้ามไป)")
-                    else: 
-                        st.info("ประมวลผลไฟล์สำเร็จ แต่ไม่พบข้อมูลใหม่ที่จะเพิ่ม (อาจเนื่องจากข้อมูลทั้งหมดมีอยู่แล้ว หรือไฟล์ไม่มีข้อมูลส่วนที่เกี่ยวข้อง)")
+                    else: st.info("ประมวลผลไฟล์สำเร็จ แต่ไม่พบข้อมูลใหม่ที่จะเพิ่ม")
         
         except (UnicodeDecodeError, gspread.exceptions.APIError, Exception) as e_main:
             st.error(f"เกิดข้อผิดพลาดระหว่างประมวลผลหลัก: {type(e_main).__name__} - {str(e_main)[:200]}...")
             overall_processing_successful = False
             save_results_details['MainError'] = {'ok': False, 'notes': f"MainError: {type(e_main).__name__} - {str(e_main)[:100]}"}
         
-        # Consolidate all notes for UploadHistory
         final_processing_notes_list = [res.get('notes', '') for res in save_results_details.values() if res.get('notes')]
         final_notes_str = " | ".join(filter(None, final_processing_notes_list))[:49999] if final_processing_notes_list else "Processing notes unavailable."
 
-
-        final_status = "Failed" # Default to Failed
+        final_status = "Failed" 
         if overall_processing_successful:
-            if any_new_transactional_data_added or (save_results_details.get('Summary', {}).get('status') == 'saved'):
-                final_status = "Success"
-            elif is_duplicate_file_found and not any_new_transactional_data_added and save_results_details.get('Summary', {}).get('status') == 'skipped_duplicate_file_no_new_transactions':
-                final_status = "Success_DuplicateFile_NoNewRecords"
-            else: # Processed OK, but no new records of any kind (transactional or summary if attempted)
-                final_status = "Success_NoNewRecords"
+            if any_new_transactional_data_added or (save_results_details.get('Summary', {}).get('status') == 'saved'): final_status = "Success"
+            elif is_duplicate_file_found and not any_new_transactional_data_added and save_results_details.get('Summary', {}).get('status') == 'skipped_duplicate_file_no_new_transactions': final_status = "Success_DuplicateFile_NoNewRecords"
+            else: final_status = "Success_NoNewRecords"
         
         try:
             history_rows_for_update = ws_dict[WORKSHEET_UPLOAD_HISTORY].get_all_values() 
@@ -1577,13 +1603,14 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
                     {'range': f'I{row_to_update_idx}', 'values': [[final_notes_str]]} 
                 ], value_input_option='USER_ENTERED')
                 st.info(f"อัปเดตสถานะ ImportBatchID '{import_batch_id}' เป็น '{final_status}' ใน {WORKSHEET_UPLOAD_HISTORY}")
-            else: 
-                st.warning(f"ไม่พบ ImportBatchID '{import_batch_id}' ใน {WORKSHEET_UPLOAD_HISTORY} เพื่ออัปเดตสถานะสุดท้าย.")
-        except Exception as e_update_hist: 
-            st.warning(f"ไม่สามารถอัปเดตสถานะสุดท้ายใน {WORKSHEET_UPLOAD_HISTORY} ({import_batch_id}): {e_update_hist}")
-    else: 
-        st.info("โปรดอัปโหลดไฟล์ Statement Report (CSV) เพื่อเริ่มต้นประมวลผล.")
+            else: st.warning(f"ไม่พบ ImportBatchID '{import_batch_id}' ใน {WORKSHEET_UPLOAD_HISTORY} เพื่ออัปเดตสถานะสุดท้าย.")
+        except Exception as e_update_hist: st.warning(f"ไม่สามารถอัปเดตสถานะสุดท้ายใน {WORKSHEET_UPLOAD_HISTORY} ({import_batch_id}): {e_update_hist}")
+    else: st.info("โปรดอัปโหลดไฟล์ Statement Report (CSV) เพื่อเริ่มต้นประมวลผล.")
     st.markdown("---")
+    
+# ===================== SEC 9: MAIN AREA - TRADE LOG VIEWER =======================
+# [โค้ดส่วนนี้เหมือนเดิมกับเวอร์ชันล่าสุด]
+# ... (ส่วนที่เหลือของ main.py)
     
 # ===================== SEC 9: MAIN AREA - TRADE LOG VIEWER =======================
 # [โค้ดส่วนนี้เหมือนเดิมกับเวอร์ชันล่าสุด]
