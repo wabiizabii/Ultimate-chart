@@ -1814,19 +1814,27 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
                                 df_section[col] = "" 
                         df_section = df_section[final_cols]
 
-                        # ***** START MODIFICATION: Filter out summary-like rows for Deals *****
+                        # ***** START MODIFICATION: Filter out summary-like and balance rows for Deals *****
                         if section_name == "Deals" and not df_section.empty:
+                            # Condition 1: A valid deal should ideally have a Time_Deal and a Deal_ID
+                            # Rows where both are empty (or just whitespace) are likely summary/irrelevant rows
+                            condition_valid_deal_identifiers = pd.Series([True] * len(df_section)) # Default to True
                             if "Time_Deal" in df_section.columns and "Deal_ID" in df_section.columns:
-                                # A valid deal should have non-empty Time_Deal and non-empty Deal_ID
-                                # Rows where both are empty (or just whitespace) are likely summary/irrelevant rows
-                                condition_time_deal_present = df_section["Time_Deal"].astype(str).str.strip() != ""
-                                condition_deal_id_present = df_section["Deal_ID"].astype(str).str.strip() != ""
-                                
-                                df_section = df_section[condition_time_deal_present & condition_deal_id_present]
+                                time_deal_present = df_section["Time_Deal"].astype(str).str.strip() != ""
+                                deal_id_present = df_section["Deal_ID"].astype(str).str.strip() != ""
+                                condition_valid_deal_identifiers = time_deal_present & deal_id_present
+                            
+                            # Condition 2: Filter out rows where 'Type_Deal' is 'balance'
+                            condition_not_balance_op = pd.Series([True] * len(df_section)) # Default to True
+                            if "Type_Deal" in df_section.columns:
+                                condition_not_balance_op = df_section["Type_Deal"].astype(str).str.lower().str.strip() != "balance"
+                            
+                            # Combine conditions: must have valid identifiers AND not be a balance operation
+                            df_section = df_section[condition_valid_deal_identifiers & condition_not_balance_op]
 
-                                if st.session_state.get("debug_statement_processing_v2", False):
-                                    st.write(f"DEBUG: Deals DataFrame after filtering summary-like rows ({len(df_section)} rows left):")
-                                    st.dataframe(df_section.head())
+                            if st.session_state.get("debug_statement_processing_v2", False):
+                                st.write(f"DEBUG: Deals DataFrame after filtering summary & balance rows ({len(df_section)} rows left):")
+                                st.dataframe(df_section.head())
                         # ***** END MODIFICATION *****
 
                         if not df_section.empty:
