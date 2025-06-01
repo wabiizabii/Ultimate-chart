@@ -1819,26 +1819,26 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
                         # A valid deal should have a Time_Deal AND a Deal_ID AND a Symbol.
                         # Balance rows typically have "balance" in the Type_Deal column and might miss other identifiers.
 
-                        condition_is_valid_deal = pd.Series([True] * len(df_section)) # Start by assuming all are valid
-
-                        if "Time_Deal" in df_section.columns:
-                            condition_is_valid_deal &= (df_section["Time_Deal"].astype(str).str.strip() != "")
-                        if "Deal_ID" in df_section.columns:
-                            condition_is_valid_deal &= (df_section["Deal_ID"].astype(str).str.strip() != "")
-                        if "Symbol_Deal" in df_section.columns: # Adding check for Symbol
-                            condition_is_valid_deal &= (df_section["Symbol_Deal"].astype(str).str.strip() != "")
-
-                        # Explicitly filter out rows where 'Type_Deal' is 'balance'
-                        condition_is_not_balance_type = pd.Series([True] * len(df_section))
-                        if "Type_Deal" in df_section.columns:
-                            condition_is_not_balance_type = (df_section["Type_Deal"].astype(str).str.lower().str.strip() != "balance")
-
-                        # Combine conditions: Keep rows that are valid deals AND are not balance type
-                        df_section = df_section[condition_is_valid_deal & condition_is_not_balance_type]
-
-                        if st.session_state.get("debug_statement_processing_v2", False):
-                            st.write(f"DEBUG: Deals DataFrame after MORE aggressive filtering ({len(df_section)} rows left):")
-                            st.dataframe(df_section.head())
+                            condition_is_valid_deal = pd.Series([True] * len(df_section)) # Start by assuming all are valid
+    
+                            if "Time_Deal" in df_section.columns:
+                                condition_is_valid_deal &= (df_section["Time_Deal"].astype(str).str.strip() != "")
+                            if "Deal_ID" in df_section.columns:
+                                condition_is_valid_deal &= (df_section["Deal_ID"].astype(str).str.strip() != "")
+                            if "Symbol_Deal" in df_section.columns: # Adding check for Symbol
+                                condition_is_valid_deal &= (df_section["Symbol_Deal"].astype(str).str.strip() != "")
+    
+                            # Explicitly filter out rows where 'Type_Deal' is 'balance'
+                            condition_is_not_balance_type = pd.Series([True] * len(df_section))
+                            if "Type_Deal" in df_section.columns:
+                                condition_is_not_balance_type = (df_section["Type_Deal"].astype(str).str.lower().str.strip() != "balance")
+    
+                            # Combine conditions: Keep rows that are valid deals AND are not balance type
+                            df_section = df_section[condition_is_valid_deal & condition_is_not_balance_type]
+    
+                            if st.session_state.get("debug_statement_processing_v2", False):
+                                st.write(f"DEBUG: Deals DataFrame after MORE aggressive filtering ({len(df_section)} rows left):")
+                                st.dataframe(df_section.head())
                     # ***** END MODIFICATION *****
 
                         if not df_section.empty:
