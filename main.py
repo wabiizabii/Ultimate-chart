@@ -1401,7 +1401,16 @@ else:
 st.sidebar.write(f"DEBUG: drawdown_today = {drawdown_today}, type = {type(drawdown_today)}")
 # บรรทัด 1402 เดิม:
 if drawdown_today < 0: # Only show if there's actual drawdown from plans
+    # บรรทัดต่อมาที่อยู่ใต้ if นี้ ต้องย่อหน้าเข้าไป
+    st.sidebar.markdown(f"**ขาดทุนจากแผนวันนี้:** <font color='red'>{drawdown_today:,.2f} USD</font>", unsafe_allow_html=True)
+    st.sidebar.markdown(f"**ลิมิตขาดทุนที่ตั้งไว้:** {drawdown_limit_abs:,.2f} USD ({drawdown_limit_pct_val:.1f}% ของ {active_balance_to_use:,.2f} USD)")
+else: # <--- else ก็ต้องอยู่ในระดับเดียวกับ if
+    # บรรทัดต่อมาที่อยู่ใต้ else นี้ ก็ต้องย่อหน้าเข้าไป
+    st.sidebar.markdown(f"**ขาดทุนจากแผนวันนี้:** {drawdown_today:,.2f} USD")
 
+# บรรทัด 1405 (active_portfolio_id = ...) ควรจะอยู่นอก if/else block นี้ หรือถ้าจะให้อยู่ข้างใน ก็ต้องย่อหน้าให้ถูก
+active_portfolio_id = st.session_state.get('active_portfolio_id_gs', None) # <--- ระดับการย่อหน้าของบรรทัดนี้สำคัญ
+# ... (โค้ดส่วนที่เหลือของ SEC 3.2) .
 active_portfolio_id = st.session_state.get('active_portfolio_id_gs', None)
 active_portfolio_name = st.session_state.get('active_portfolio_name_gs', None)
 
