@@ -12,8 +12,9 @@ import random
 # import csv # อาจจะไม่จำเป็นถ้าใช้ io.StringIO กับ pandas โดยตรง
 import io 
 import uuid # <<< เพิ่ม import uuid
+import hashlib
 
-st.set_page_config(page_title="Ultimate-Chart", layout="wide")
+
 acc_balance = 10000 # ยอดคงเหลือเริ่มต้นของบัญชีเทรด (อาจจะดึงมาจาก Active Portfolio ในอนาคต)
 
 # กำหนดชื่อ Google Sheet และ Worksheet ที่จะใช้เก็บข้อมูล
@@ -167,7 +168,7 @@ elif df_portfolios_gs.empty:
 
 
 # ========== Function Utility (ต่อจากของเดิม) ==========
-def get_today_drawdown(log_source_df, acc_balance_input): # Renamed acc_balance to avoid conflict
+def (log_source_df, acc_balance_input): # Renamed acc_balance to avoid conflict
     if log_source_df.empty:
         return 0
     today_str = datetime.now().strftime("%Y-%m-%d")
@@ -204,12 +205,16 @@ def get_today_drawdown(log_source_df, acc_balance_input): # Renamed acc_balance 
         # --- END: แก้ไขจุดนี้ ---
         return drawdown
     except KeyError as e:
-        # st.error(f"KeyError in get_today_drawdown: {e}") # For debugging
+        # st.error(f"KeyError in : {e}") # For debugging
         return 0
     except Exception as e:
-        # st.error(f"Exception in get_today_drawdown: {e}") # For debugging
+        # st.error(f"Exception in : {e}") # For debugging
         return 0
-
+def calculate_file_hash(file_uploader_object):
+    file_uploader_object.seek(0) # Go to the start of the file
+    file_content = file_uploader_object.read()
+    file_uploader_object.seek(0) # Reset seek to the start for other functions to read
+    return hashlib.md5(file_content).hexdigest()
 
 def get_performance(log_source_df, mode="week"):
     # ... (โค้ดเดิมของลูกพี่ตั้ม) ...
@@ -1375,7 +1380,7 @@ if gc_drawdown:
         records_drawdown = ws_planned_logs_drawdown.get_all_records()
         if records_drawdown:
             df_drawdown_check = pd.DataFrame(records_drawdown)
-            # Ensure 'Timestamp' and 'Risk $' columns are correctly typed for get_today_drawdown
+            # Ensure 'Timestamp' and 'Risk $' columns are correctly typed for 
             if 'Timestamp' in df_drawdown_check.columns:
                 df_drawdown_check['Timestamp'] = pd.to_datetime(df_drawdown_check['Timestamp'], errors='coerce')
             if 'Risk $' in df_drawdown_check.columns:
@@ -1390,7 +1395,7 @@ if gc_drawdown:
 
 
 # Use active_balance_to_use for drawdown calculations if limit is portfolio-dependent
-drawdown_today = get_today_drawdown(df_drawdown_check.copy(), active_balance_to_use) # Pass active_balance_to_use
+drawdown_today = (df_drawdown_check.copy(), active_balance_to_use) # Pass active_balance_to_use
 drawdown_limit_pct_val = st.session_state.get('drawdown_limit_pct', 2.0)
 drawdown_limit_abs = -abs(active_balance_to_use * (drawdown_limit_pct_val / 100.0)) # Use active_balance_to_use
 
@@ -2368,104 +2373,208 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
     active_portfolio_id_for_actual = st.session_state.get('active_portfolio_id_gs', None)
     active_portfolio_name_for_actual = st.session_state.get('active_portfolio_name_gs', None)
 
-    if uploaded_file_statement:
-        file_name_for_saving = uploaded_file_statement.name
-        
-        try:
-            file_content_bytes = uploaded_file_statement.getvalue()
-            file_content_str = file_content_bytes.decode("utf-8")
-        except Exception as e_decode:
-            st.error(f"เกิดข้อผิดพลาดในการอ่านหรือ decode ไฟล์: {e_decode}")
-            # st.stop() # Stop further execution for this upload if file can't be read
-            extracted_sections = {} # Ensure extracted_sections is defined to avoid NameError
-        else: # Only proceed if file decoding was successful
-            if st.session_state.get("debug_statement_processing_v2", False):
-                st.subheader("Raw File Content (Debug)")
-                st.text_area("File Content", file_content_str, height=200, key="raw_file_content_debug_area")
+    # This code goes inside the 'if uploaded_file_statement:' block in SEC 7
+            # replacing the existing logic there.
 
-            st.info(f"กำลังประมวลผลไฟล์: {uploaded_file_statement.name}")
-            with st.spinner(f"กำลังแยกส่วนข้อมูลจาก {uploaded_file_statement.name}..."):
-                # Call the main extraction function
-                extracted_sections = extract_data_from_report_content(file_content_str) 
-            
-            if st.session_state.get("debug_statement_processing_v2", False):
-                st.subheader("📄 ข้อมูลที่แยกได้ (Debug)")
-                if extracted_sections:
-                    for section_name, data_item in extracted_sections.items():
-                        st.write(f"#### {section_name.replace('_',' ').title()}")
-                        if isinstance(data_item, pd.DataFrame):
-                            if not data_item.empty:
-                                st.dataframe(data_item.head()) # Show head for brevity
-                            else:
-                                st.info(f"DataFrame for {section_name.replace('_',' ').title()} is empty.")
-                        elif isinstance(data_item, dict):
-                            st.json(data_item if data_item else f"Dictionary for {section_name} is empty.")
-                        else:
-                            st.write(data_item if data_item is not None else f"Data for {section_name} is None.")
-                else:
-                    st.warning("ไม่สามารถแยกส่วนข้อมูลใดๆ ได้จากไฟล์")
+            file_name_for_saving = uploaded_file_statement.name
+            file_size_for_saving = uploaded_file_statement.size
+            file_hash_for_saving = calculate_file_hash(uploaded_file_statement) # Assuming calculate_file_hash is defined
 
             if not active_portfolio_id_for_actual:
                 st.error("กรุณาเลือกพอร์ตที่ใช้งาน (Active Portfolio) ใน Sidebar ก่อนประมวลผล Statement.")
-            elif not extracted_sections:
-                 st.error("ไม่สามารถประมวลผลข้อมูลจากไฟล์ Statement ได้ กรุณาตรวจสอบไฟล์หรือโหมด Debug")
-            else:
-                st.markdown("---")
-                st.subheader("💾 กำลังบันทึกข้อมูลไปยัง Google Sheets...")
-                
-                gc_for_save = get_gspread_client()
-                if gc_for_save:
-                    save_successful_flags = {}
+                st.stop()
+
+            st.info(f"ไฟล์ที่อัปโหลด: {file_name_for_saving} (ขนาด: {file_size_for_saving} bytes, Hash: {file_hash_for_saving})")
+
+            gc_for_sheets = get_gspread_client() # Renamed for clarity, used for all sheet operations
+            if not gc_for_sheets:
+                st.error("ไม่สามารถเชื่อมต่อ Google Sheets Client ได้")
+                st.stop()
+
+            ws_history = None
+            try:
+                sh_trade_log = gc_for_sheets.open(GOOGLE_SHEET_NAME) # Open the main spreadsheet once
+                ws_history = sh_trade_log.worksheet("UploadHistory")
+
+                # Ensure UploadHistory headers (do this less frequently or check if sheet is empty)
+                # For simplicity, assuming headers are present if ws_history.row_count > 0
+                if ws_history.row_count == 0: # Simplified check: if sheet is brand new
+                     expected_headers_history = ["UploadTimestamp", "PortfolioID", "PortfolioName", "FileName", "FileSize", "FileHash", "Status", "ImportBatchID", "Notes"]
+                     ws_history.append_row(expected_headers_history) # Use append_row for a new sheet
+
+            except gspread.exceptions.WorksheetNotFound:
+                st.error("❌ ไม่พบ Worksheet 'UploadHistory'. กรุณาสร้างชีตนี้และใส่ Headers ให้ถูกต้อง")
+                st.stop()
+            except Exception as e_hist_setup:
+                st.error(f"❌ เกิดข้อผิดพลาดในการเข้าถึงหรือตั้งค่า UploadHistory: {e_hist_setup}")
+                st.stop()
+
+            history_records = ws_history.get_all_records()
+            is_duplicate_found = False
+            existing_batch_id_info = "N/A"
+
+            for record in history_records:
+                if str(record.get("PortfolioID")) == str(active_portfolio_id_for_actual) and \
+                   record.get("FileName") == file_name_for_saving and \
+                   record.get("FileSize") == file_size_for_saving and \
+                   record.get("FileHash") == file_hash_for_saving and \
+                   record.get("Status") == "Success":
+                    is_duplicate_found = True
+                    existing_batch_id_info = record.get("ImportBatchID", "N/A")
+                    break
+            
+            proceed_with_upload = True
+            user_confirmed_duplicate = False
+
+            if is_duplicate_found:
+                st.warning(f"⚠️ ไฟล์ '{file_name_for_saving}' นี้ ดูเหมือนเคยถูกอัปโหลดและประมวลผลสำเร็จแล้วสำหรับพอร์ต '{active_portfolio_name_for_actual}' (ImportBatchID: {existing_batch_id_info})")
+                dup_col1, dup_col2 = st.columns(2)
+                if dup_col1.button("ดำเนินการต่อ (อัปโหลดซ้ำ)", key=f"confirm_dup_{file_hash_for_saving}"):
+                    st.info("ผู้ใช้ยืนยันที่จะอัปโหลดไฟล์ซ้ำ...")
+                    user_confirmed_duplicate = True
+                    # proceed_with_upload remains True
+                elif dup_col2.button("ยกเลิกการอัปโหลดนี้", key=f"cancel_dup_{file_hash_for_saving}"):
+                    st.info("ยกเลิกการอัปโหลดไฟล์ซ้ำซ้อนแล้ว")
                     try:
-                        sh_for_save = gc_for_save.open(GOOGLE_SHEET_NAME)
-                        
+                        ws_history.append_row([
+                            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                            str(active_portfolio_id_for_actual), str(active_portfolio_name_for_actual),
+                            file_name_for_saving, file_size_for_saving, file_hash_for_saving,
+                            "Skipped_Duplicate_User_Cancelled", "", f"User cancelled. Duplicate of BatchID: {existing_batch_id_info}"
+                        ])
+                    except Exception as e_log_cancel: st.warning(f"ไม่สามารถบันทึก Log การยกเลิกได้: {e_log_cancel}")
+                    proceed_with_upload = False
+                    st.stop()
+                else: # Neither button pressed yet
+                    proceed_with_upload = False 
+                    st.stop() # Wait for user action
+
+            if proceed_with_upload:
+                import_batch_id = str(uuid.uuid4())
+                current_upload_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                initial_status = "Processing_Confirmed_Duplicate" if user_confirmed_duplicate else "Processing"
+                initial_notes = "User confirmed duplicate upload." if user_confirmed_duplicate else "New upload processing."
+
+                try:
+                    ws_history.append_row([
+                        current_upload_timestamp, str(active_portfolio_id_for_actual), str(active_portfolio_name_for_actual),
+                        file_name_for_saving, file_size_for_saving, file_hash_for_saving,
+                        initial_status, import_batch_id, initial_notes
+                    ])
+                except Exception as e_log_process_start:
+                    st.error(f"ไม่สามารถบันทึก Log เริ่มต้นใน UploadHistory: {e_log_process_start}")
+                    st.stop()
+
+                st.markdown("---")
+                st.markdown(f"**Import Batch ID: `{import_batch_id}`**")
+                st.info(f"กำลังประมวลผลไฟล์: {file_name_for_saving}")
+
+                success_parsing_and_all_saves = False
+                try:
+                    file_content_bytes = uploaded_file_statement.getvalue()
+                    file_content_str = file_content_bytes.decode("utf-8", errors="replace") # Added errors='replace'
+
+                    with st.spinner(f"กำลังแยกส่วนข้อมูลจาก {file_name_for_saving}..."):
+                        extracted_sections = extract_data_from_report_content(file_content_str)
+                    
+                    if st.session_state.get("debug_statement_processing_v2", False):
+                        st.subheader("📄 ข้อมูลที่แยกได้ (Debug)")
+                        # ... (ส่วน Debug display เหมือนเดิม) ...
+                        if extracted_sections:
+                            for section_name_debug, data_item_debug in extracted_sections.items():
+                                st.write(f"#### {section_name_debug.replace('_',' ').title()}")
+                                if isinstance(data_item_debug, pd.DataFrame):
+                                    st.dataframe(data_item_debug.head() if not data_item_debug.empty else "Empty DataFrame")
+                                elif isinstance(data_item_debug, dict):
+                                    st.json(data_item_debug if data_item_debug else "Empty Dict")
+                                else: st.write(data_item_debug)
+                        else: st.warning("ไม่สามารถแยกส่วนข้อมูลใดๆ ได้จากไฟล์ (Debug)")
+
+
+                    if not extracted_sections:
+                        st.error("ไม่สามารถประมวลผลข้อมูลจากไฟล์ Statement ได้ กรุณาตรวจสอบไฟล์หรือโหมด Debug")
+                    else:
+                        st.subheader("💾 กำลังบันทึกข้อมูลไปยัง Google Sheets...")
+                        save_flags = {} # To track individual save successes
+
+                        # Pass sh_trade_log which is already gc.open(GOOGLE_SHEET_NAME)
                         deals_df = extracted_sections.get('deals')
                         if deals_df is not None and not deals_df.empty:
-                            if save_deals_to_actual_trades(sh_for_save, deals_df, active_portfolio_id_for_actual, active_portfolio_name_for_actual, file_name_for_saving):
+                            if save_deals_to_actual_trades(sh_trade_log, deals_df, active_portfolio_id_for_actual, active_portfolio_name_for_actual, file_name_for_saving, import_batch_id): # Pass import_batch_id
                                 st.success(f"บันทึก Deals ({len(deals_df)} รายการ) สำเร็จ!")
-                                save_successful_flags['deals'] = True
-                            else: st.error("บันทึก Deals ไม่สำเร็จ.")
-                        else: st.warning("ไม่พบข้อมูล Deals ใน Statement หรือไม่สามารถประมวลผลได้.")
+                                save_flags['deals'] = True
+                            else: st.error("บันทึก Deals ไม่สำเร็จ."); save_flags['deals'] = False
+                        else: st.warning("ไม่พบข้อมูล Deals ใน Statement หรือไม่สามารถประมวลผลได้."); save_flags['deals'] = True # Consider as "success" if no data to save
 
                         orders_df = extracted_sections.get('orders')
                         if orders_df is not None and not orders_df.empty:
-                            if save_orders_to_gsheets(sh_for_save, orders_df, active_portfolio_id_for_actual, active_portfolio_name_for_actual, file_name_for_saving):
+                            if save_orders_to_gsheets(sh_trade_log, orders_df, active_portfolio_id_for_actual, active_portfolio_name_for_actual, file_name_for_saving, import_batch_id): # Pass import_batch_id
                                 st.success(f"บันทึก Orders ({len(orders_df)} รายการ) สำเร็จ!")
-                                save_successful_flags['orders'] = True
-                            else: st.error("บันทึก Orders ไม่สำเร็จ.")
-                        else: st.warning("ไม่พบข้อมูล Orders ใน Statement หรือไม่สามารถประมวลผลได้.")
-                        
+                                save_flags['orders'] = True
+                            else: st.error("บันทึก Orders ไม่สำเร็จ."); save_flags['orders'] = False
+                        else: st.warning("ไม่พบข้อมูล Orders ใน Statement หรือไม่สามารถประมวลผลได้."); save_flags['orders'] = True
+
                         positions_df = extracted_sections.get('positions')
                         if positions_df is not None and not positions_df.empty:
-                            if save_positions_to_gsheets(sh_for_save, positions_df, active_portfolio_id_for_actual, active_portfolio_name_for_actual, file_name_for_saving):
+                            if save_positions_to_gsheets(sh_trade_log, positions_df, active_portfolio_id_for_actual, active_portfolio_name_for_actual, file_name_for_saving, import_batch_id): # Pass import_batch_id
                                 st.success(f"บันทึก Positions ({len(positions_df)} รายการ) สำเร็จ!")
-                                save_successful_flags['positions'] = True
-                            else: st.error("บันทึก Positions ไม่สำเร็จ.")
-                        else: st.warning("ไม่พบข้อมูล Positions ใน Statement หรือไม่สามารถประมวลผลได้.")
+                                save_flags['positions'] = True
+                            else: st.error("บันทึก Positions ไม่สำเร็จ."); save_flags['positions'] = False
+                        else: st.warning("ไม่พบข้อมูล Positions ใน Statement หรือไม่สามารถประมวลผลได้."); save_flags['positions'] = True
 
-                        balance_summary_data = extracted_sections.get('balance_summary', {}) # Default to empty dict
-                        results_summary_data = extracted_sections.get('results_summary', {}) # Default to empty dict
-
+                        balance_summary_data = extracted_sections.get('balance_summary', {})
+                        results_summary_data = extracted_sections.get('results_summary', {})
                         if balance_summary_data or results_summary_data:
-                            if save_results_summary_to_gsheets(sh_for_save, balance_summary_data, results_summary_data, active_portfolio_id_for_actual, active_portfolio_name_for_actual, file_name_for_saving):
+                            if save_results_summary_to_gsheets(sh_trade_log, balance_summary_data, results_summary_data, active_portfolio_id_for_actual, active_portfolio_name_for_actual, file_name_for_saving, import_batch_id): # Pass import_batch_id
                                 st.success("บันทึก Summary Data (Balance & Results) สำเร็จ!")
-                                save_successful_flags['summary'] = True
-                            else: st.error("บันทึก Summary Data ไม่สำเร็จ.")
-                        else: st.warning("ไม่พบข้อมูล Summary (Balance หรือ Results) ใน Statement.")
+                                save_flags['summary'] = True
+                            else: st.error("บันทึก Summary Data ไม่สำเร็จ."); save_flags['summary'] = False
+                        else: st.warning("ไม่พบข้อมูล Summary (Balance หรือ Results) ใน Statement."); save_flags['summary'] = True
                         
-                        if any(save_successful_flags.values()):
+                        # Check if all save operations were successful (or considered successful if no data)
+                        success_parsing_and_all_saves = all(save_flags.values())
+                        if success_parsing_and_all_saves:
                             st.balloons()
 
-                    except Exception as e_save_all:
-                        st.error(f"❌ เกิดข้อผิดพลาดในการเข้าถึง Google Sheet หรือระหว่างการบันทึก: {e_save_all}")
-                        st.exception(e_save_all)
-                else:
-                    st.error("ไม่สามารถเชื่อมต่อ Google Sheets Client เพื่อบันทึกข้อมูลได้.")
-    else:
-        st.info("โปรดอัปโหลดไฟล์ Statement Report (CSV) เพื่อเริ่มต้นประมวลผล.")
+                except UnicodeDecodeError as e_decode_main:
+                    st.error(f"เกิดข้อผิดพลาดในการ Decode ไฟล์: {e_decode_main}. กรุณาตรวจสอบ Encoding ของไฟล์ (ควรเป็น UTF-8).")
+                    success_parsing_and_all_saves = False # Mark as failed
+                except Exception as e_main_process:
+                    st.error(f"เกิดข้อผิดพลาดรุนแรงระหว่างการประมวลผลหรือบันทึก Statement: {e_main_process}")
+                    st.exception(e_main_process)
+                    success_parsing_and_all_saves = False # Mark as failed
+                
+                # --- อัปเดตสถานะสุดท้ายใน UploadHistory ---
+                final_status_for_history = "Success" if success_parsing_and_all_saves else "Failed"
+                try:
+                    # Find the row with the current import_batch_id to update its status
+                    all_history_values = ws_history.get_all_values() # Get all cell values
+                    row_to_update_idx = -1
+                    for idx, row_vals in enumerate(all_history_values):
+                        if len(row_vals) > 7 and row_vals[7] == import_batch_id: # Column H is index 7 (ImportBatchID)
+                            row_to_update_idx = idx + 1 # gspread rows are 1-indexed
+                            break
+                    
+                    if row_to_update_idx != -1:
+                        ws_history.update_cell(row_to_update_idx, 7, final_status_for_history) # Column G is index 6 (Status)
+                        ws_history.update_cell(row_to_update_idx, 9, f"Processing finished with status: {final_status_for_history}") # Column I is Notes (index 8)
+                    else: # Fallback if find fails (should not happen if initial log was successful)
+                        st.warning(f"ไม่พบ ImportBatchID '{import_batch_id}' ใน UploadHistory เพื่ออัปเดตสถานะสุดท้าย.")
+                        # Optionally, append a new summary log row here, though less ideal
+                except Exception as e_update_final_status:
+                    st.warning(f"ไม่สามารถอัปเดตสถานะสุดท้ายใน UploadHistory ({import_batch_id}) ได้: {e_update_final_status}")
 
-    st.markdown("---")
+            # Reset button states to allow re-submission if needed or another upload
+            # This is important if st.stop() was used and user might interact again
+            if f"confirm_dup_{file_hash_for_saving}" in st.session_state:
+                del st.session_state[f"confirm_dup_{file_hash_for_saving}"]
+            if f"cancel_dup_{file_hash_for_saving}" in st.session_state:
+                del st.session_state[f"cancel_dup_{file_hash_for_saving}"]
 
+        # else: # No file uploaded, this is handled by Streamlit's uploader message
+        #     st.info("โปรดอัปโหลดไฟล์ Statement Report (CSV) เพื่อเริ่มต้นประมวลผล.") # Already handled
+
+        # st.markdown("---") # This was the original end of SEC 7 block
 
 # ===================== SEC 9: MAIN AREA - TRADE LOG VIEWER =======================
 @st.cache_data(ttl=120)
