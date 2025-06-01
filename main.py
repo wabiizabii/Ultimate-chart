@@ -1480,7 +1480,7 @@ if save_button_pressed_flag:
 
 # --- End of new SEC 3.2 ---
 
-   # ===================== SEC 4: MAIN AREA - ENTRY PLAN DETAILS TABLE =======================
+# ===================== SEC 4: MAIN AREA - ENTRY PLAN DETAILS TABLE =======================
 with st.expander("📋 Entry Table (FIBO/CUSTOM)", expanded=True):
     if mode == "FIBO":
         col1_main, col2_main = st.columns(2)
@@ -1497,9 +1497,12 @@ with st.expander("📋 Entry Table (FIBO/CUSTOM)", expanded=True):
                 else:
                     st.info("ไม่พบคอลัมน์ที่ต้องการแสดงผลสำหรับ Entry Levels (FIBO)")
                 # --- END: เลือกคอลัมน์ที่จะแสดงผลใหม่ ---
+            else:
+                st.info("กรอกข้อมูล High/Low และเลือก Fibo Level ใน Sidebar เพื่อดู Entry Levels (หรือยังไม่มีข้อมูลสรุป).")
+                # --- END: เลือกคอลัมน์ที่จะแสดงผลใหม่ ---
            
     # ... (ส่วน elif mode == "CUSTOM": เหมือนเดิม) ...
-                st.info("กรอกข้อมูล High/Low และเลือก Fibo Level ใน Sidebar เพื่อดู Entry Levels (หรือยังไม่มีข้อมูลสรุป).")
+               
         with col2_main:
             st.markdown("### 🎯 Take Profit Zones (FIBO)")
             try:
