@@ -617,7 +617,7 @@ active_balance_to_use = st.session_state.get('current_account_balance', 10000.0)
 initial_risk_pct_from_portfolio = 1.0 # Default
 if 'current_portfolio_details' in st.session_state and st.session_state.current_portfolio_details:
     details = st.session_state.current_portfolio_details
-    current_risk_val_str = details.get('CurrentRiskPercent') # สมมติว่าในชีต Portfolios มีคอลัมน์นี้
+    current_risk_val_str = details.get('CurrentRiskPercent')
     if pd.notna(current_risk_val_str) and str(current_risk_val_str).strip() != "":
         try:
             risk_val_float = float(current_risk_val_str)
@@ -630,76 +630,116 @@ if 'current_portfolio_details' in st.session_state and st.session_state.current_
 if mode == "FIBO": # mode ควรจะถูก define ใน SEC 2.1
     col1_fibo_v2, col2_fibo_v2, col3_fibo_v2 = st.sidebar.columns([2, 2, 2])
     with col1_fibo_v2:
-        asset_fibo_v2 = st.text_input("Asset", 
-                                   value=st.session_state.get("asset_fibo_val_v2", "XAUUSD"), 
-                                   key="asset_fibo_input_v3") # Key ใหม่
-        st.session_state.asset_fibo_val_v2 = asset_fibo_v2
+        asset_fibo_v2 = st.text_input("Asset",
+                                   value=st.session_state.get("asset_fibo_val_v2", "XAUUSD"),
+                                   key="asset_fibo_input_v3")
+        # อัปเดต session_state เมื่อมีการเปลี่ยนแปลงค่า Asset ด้วย (ถ้าต้องการให้ส่วนอื่นรับรู้ทันที)
+        if st.session_state.get("asset_fibo_val_v2") != asset_fibo_v2:
+            st.session_state.asset_fibo_val_v2 = asset_fibo_v2
+            # st.rerun() # Optional: uncomment if other parts depend on this changing immediately
+
     with col2_fibo_v2:
-        risk_pct_fibo_v2 = st.number_input(
+        # --- START: แก้ไขส่วน Risk % Input ของ FIBO ---
+        # ใช้ st.session_state.risk_pct_fibo_val_v2 เป็นแหล่งข้อมูลหลัก
+        # กำหนดค่าเริ่มต้นใน session_state หากยังไม่มี
+        if "risk_pct_fibo_val_v2" not in st.session_state:
+            st.session_state.risk_pct_fibo_val_v2 = initial_risk_pct_from_portfolio
+
+        risk_pct_fibo_widget_val = st.number_input(
             "Risk %",
-            min_value=0.01, max_value=100.0,
-            value=st.session_state.get("risk_pct_fibo_val_v2", initial_risk_pct_from_portfolio), # <<< ใช้ค่าจาก Active Portfolio
-            step=0.01, format="%.2f",
-            key="risk_pct_fibo_input_v3") # Key ใหม่
-        st.session_state.risk_pct_fibo_val_v2 = risk_pct_fibo_v2
+            min_value=0.01,
+            # max_value=100.0, # Consider linking this to user_set_max_risk from Scaling Manager in future
+            value=st.session_state.risk_pct_fibo_val_v2, # ดึงค่าจาก session_state โดยตรง
+            step=0.01,
+            format="%.2f",
+            key="risk_pct_fibo_widget_key_v3", # เปลี่ยน key ของ widget เพื่อไม่ให้ซ้ำกับ key ที่เก็บค่าใน session_state โดยตรง
+            help="ปรับ Risk % ที่ต้องการใช้สำหรับแผนเทรดนี้"
+        )
+        # อัปเดต session_state.risk_pct_fibo_val_v2 เมื่อค่าจาก widget (ที่ผู้ใช้กรอก) เปลี่ยนไป
+        if st.session_state.risk_pct_fibo_val_v2 != risk_pct_fibo_widget_val:
+            st.session_state.risk_pct_fibo_val_v2 = risk_pct_fibo_widget_val
+            st.rerun() # Rerun เพื่อให้ Scaling Manager และส่วนอื่นๆ (เช่น Summary) เห็นค่าที่อัปเดตทันที
+        # --- END: แก้ไขส่วน Risk % Input ของ FIBO ---
+
     with col3_fibo_v2:
-        # ตรวจสอบว่า key "direction_fibo_val_v2" มีใน session_state หรือยัง
-        default_direction_index = 0 # Default to "Long"
+        default_direction_index = 0
         if "direction_fibo_val_v2" in st.session_state:
             if st.session_state.direction_fibo_val_v2 == "Short":
                 default_direction_index = 1
         
-        direction_fibo_v2 = st.radio("Direction", ["Long", "Short"], 
+        direction_fibo_v2 = st.radio("Direction", ["Long", "Short"],
                                   index=default_direction_index,
-                                  horizontal=True, key="fibo_direction_radio_v3") # Key ใหม่
-        st.session_state.direction_fibo_val_v2 = direction_fibo_v2
+                                  horizontal=True, key="fibo_direction_radio_v3")
+        if st.session_state.get("direction_fibo_val_v2") != direction_fibo_v2:
+            st.session_state.direction_fibo_val_v2 = direction_fibo_v2
+            # st.rerun() # Optional: uncomment if needed
 
     col4_fibo_v2, col5_fibo_v2 = st.sidebar.columns(2)
     with col4_fibo_v2:
-        swing_high_fibo_v2 = st.text_input("High", 
+        swing_high_fibo_v2 = st.text_input("High",
                                         value=st.session_state.get("swing_high_fibo_val_v2", ""),
-                                        key="swing_high_fibo_input_v3") # Key ใหม่
-        st.session_state.swing_high_fibo_val_v2 = swing_high_fibo_v2
+                                        key="swing_high_fibo_input_v3")
+        if st.session_state.get("swing_high_fibo_val_v2") != swing_high_fibo_v2:
+            st.session_state.swing_high_fibo_val_v2 = swing_high_fibo_v2
+            # st.rerun() # Optional
+
     with col5_fibo_v2:
-        swing_low_fibo_v2 = st.text_input("Low", 
+        swing_low_fibo_v2 = st.text_input("Low",
                                        value=st.session_state.get("swing_low_fibo_val_v2", ""),
-                                       key="swing_low_fibo_input_v3") # Key ใหม่
-        st.session_state.swing_low_fibo_val_v2 = swing_low_fibo_v2
+                                       key="swing_low_fibo_input_v3")
+        if st.session_state.get("swing_low_fibo_val_v2") != swing_low_fibo_v2:
+            st.session_state.swing_low_fibo_val_v2 = swing_low_fibo_v2
+            # st.rerun() # Optional
 
     st.sidebar.markdown("**📐 Entry Fibo Levels**")
-    fibos_fibo_v2 = [0.114, 0.25, 0.382, 0.5, 0.618] # เปลี่ยนชื่อตัวแปร
+    fibos_fibo_v2 = [0.114, 0.25, 0.382, 0.5, 0.618]
     labels_fibo_v2 = [f"{l:.3f}" for l in fibos_fibo_v2]
     cols_fibo_v2 = st.sidebar.columns(len(fibos_fibo_v2))
 
-    if "fibo_flags_v2" not in st.session_state: # Key ใหม่
-        st.session_state.fibo_flags_v2 = [True] * len(fibos_fibo_v2)
+    if "fibo_flags_v2" not in st.session_state:
+        st.session_state.fibo_flags_v2 = [True] * len(fibos_fibo_v2) # Default to all checked
 
-    fibo_selected_flags_v2 = []
-    for i, col_fibo_v2_loop in enumerate(cols_fibo_v2): # เปลี่ยนชื่อตัวแปร
-        checked_fibo_v2 = col_fibo_v2_loop.checkbox(labels_fibo_v2[i], 
-                                                 value=st.session_state.fibo_flags_v2[i], 
-                                                 key=f"fibo_cb_{i}_v3") # Key ใหม่
-        fibo_selected_flags_v2.append(checked_fibo_v2)
-    st.session_state.fibo_flags_v2 = fibo_selected_flags_v2
+    new_fibo_flags = []
+    changed_fibo_flags = False
+    for i, col_fibo_v2_loop in enumerate(cols_fibo_v2):
+        checked_fibo_v2 = col_fibo_v2_loop.checkbox(labels_fibo_v2[i],
+                                                 value=st.session_state.fibo_flags_v2[i],
+                                                 key=f"fibo_cb_{i}_v3")
+        new_fibo_flags.append(checked_fibo_v2)
+        if st.session_state.fibo_flags_v2[i] != checked_fibo_v2:
+            changed_fibo_flags = True
+    
+    if changed_fibo_flags:
+        st.session_state.fibo_flags_v2 = new_fibo_flags
+        # st.rerun() # Optional: Rerun if Fibo flags change needs immediate reflection elsewhere
 
+    # --- START: ส่วนตรวจสอบ High/Low และ Risk% (ส่วนนี้อยู่ในโค้ดเดิมของคุณแล้ว ผมแค่ย้าย comment มา) ---
     try:
-        high_val_fibo_v2 = float(swing_high_fibo_v2) if swing_high_fibo_v2 else 0
-        low_val_fibo_v2 = float(swing_low_fibo_v2) if swing_low_fibo_v2 else 0
-        if swing_high_fibo_v2 and swing_low_fibo_v2 and high_val_fibo_v2 <= low_val_fibo_v2:
-            st.sidebar.warning("High ต้องมากกว่า Low!")
+        # ดึงค่าล่าสุดจาก session_state มาใช้ในการตรวจสอบ (ถ้ามีการกรอก)
+        current_high_str = st.session_state.get("swing_high_fibo_val_v2", "")
+        current_low_str = st.session_state.get("swing_low_fibo_val_v2", "")
+        current_risk_pct = st.session_state.get("risk_pct_fibo_val_v2", 0.0)
+
+
+        if current_high_str and current_low_str: # ตรวจสอบว่ามีค่าก่อนแปลง float
+            high_val_fibo_v2 = float(current_high_str)
+            low_val_fibo_v2 = float(current_low_str)
+            if high_val_fibo_v2 <= low_val_fibo_v2:
+                st.sidebar.warning("High ต้องมากกว่า Low!")
+        # การตรวจสอบ ValueError จะถูกดักจับโดย try-except รอบนอก หากการแปลง float(current_high_str) หรือ float(current_low_str) ไม่สำเร็จ
     except ValueError:
-        if swing_high_fibo_v2 or swing_low_fibo_v2:
+        if st.session_state.get("swing_high_fibo_val_v2", "") or st.session_state.get("swing_low_fibo_val_v2", ""): # ถ้ามีค่ากรอกไว้แต่แปลงไม่ได้
             st.sidebar.warning("กรุณาใส่ High/Low เป็นตัวเลขที่ถูกต้อง")
-    except Exception:
-        pass
+    except Exception as e: # ดักจับข้อผิดพลาดอื่นๆ ที่อาจเกิดขึ้น
+        st.sidebar.error(f"เกิดข้อผิดพลาดในการประมวลผล Input: {e}") # ให้ข้อมูลเพิ่มเมื่อเกิด Error
+        pass # หรือจัดการ Error ตามความเหมาะสม
 
-    if risk_pct_fibo_v2 <= 0: # ใช้ risk_pct_fibo_v2
+    # ตรวจสอบ Risk % จาก session_state
+    if st.session_state.get("risk_pct_fibo_val_v2", 0.0) <= 0:
         st.sidebar.warning("Risk% ต้องมากกว่า 0")
+    # --- END: ส่วนตรวจสอบ High/Low และ Risk% ---
 
-
-
-    save_fibo = st.sidebar.button("💾 Save Plan (FIBO)", key="save_fibo_v3") # Key ใหม่
-
+    save_fibo = st.sidebar.button("💾 Save Plan (FIBO)", key="save_fibo_v3")
 # ===================== SEC 2.3: CUSTOM TRADE DETAILS =======================
 elif mode == "CUSTOM": # mode ควรจะถูก define ใน SEC 2.1
     col1_custom_v2, col2_custom_v2, col3_custom_v2 = st.sidebar.columns([2, 2, 2])
