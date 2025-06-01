@@ -1380,7 +1380,7 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
 
     st.markdown("---")
     st.subheader("📤 อัปโหลด Statement Report (CSV) เพื่อประมวลผลและบันทึก")
-    uploaded_file_statement = st.file_uploader("ลากและวางไฟล์ Statement Report (CSV) ที่นี่ หรือคลิกเพื่อเลือกไฟล์", type=["csv"], key="stmt_uploader_v5_final_2") # Changed key again
+    uploaded_file_statement = st.file_uploader("ลากและวางไฟล์ Statement Report (CSV) ที่นี่ หรือคลิกเพื่อเลือกไฟล์", type=["csv"], key="stmt_uploader_v6_final") # Changed key
     st.checkbox("⚙️ เปิดโหมด Debug (แสดงข้อมูลที่แยกได้)", key="debug_statement_processing_v2", value=False)
     active_portfolio_id_for_actual = st.session_state.get('active_portfolio_id_gs', None)
     active_portfolio_name_for_actual = st.session_state.get('active_portfolio_name_gs', None)
@@ -1406,8 +1406,7 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
             st.stop()
 
         ws_dict = {}
-        # Define standard row/col counts for new sheets
-        default_sheet_specs = {"rows": "100", "cols": "26"} # Default A-Z
+        default_sheet_specs = {"rows": "100", "cols": "26"} 
         worksheet_definitions = {
             WORKSHEET_UPLOAD_HISTORY: {"rows": "1000", "cols": "10", "headers": ["UploadTimestamp", "PortfolioID", "PortfolioName", "FileName", "FileSize", "FileHash", "Status", "ImportBatchID", "Notes"]},
             WORKSHEET_ACTUAL_TRADES: {"rows": "1000", "cols": "20", "headers": ["Time_Deal", "Deal_ID", "Symbol_Deal", "Type_Deal", "Direction_Deal", "Volume_Deal", "Price_Deal", "Order_ID_Deal", "Commission_Deal", "Fee_Deal", "Swap_Deal", "Profit_Deal", "Balance_Deal", "Comment_Deal", "PortfolioID", "PortfolioName", "SourceFile", "ImportBatchID"]},
@@ -1416,57 +1415,72 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
             WORKSHEET_STATEMENT_SUMMARIES: {"rows": "1000", "cols": "40", "headers": ["Timestamp", "PortfolioID", "PortfolioName", "SourceFile", "ImportBatchID", "Balance", "Equity", "Free_Margin", "Margin", "Floating_P_L", "Margin_Level", "Total_Net_Profit", "Gross_Profit", "Gross_Loss", "Profit_Factor", "Expected_Payoff", "Recovery_Factor", "Sharpe_Ratio", "Balance_Drawdown_Absolute", "Balance_Drawdown_Maximal", "Balance_Drawdown_Maximal_Percent", "Balance_Drawdown_Relative_Percent", "Balance_Drawdown_Relative_Amount", "Total_Trades", "Short_Trades", "Short_Trades_won_Percent", "Long_Trades", "Long_Trades_won_Percent", "Profit_Trades", "Profit_Trades_Percent_of_total", "Loss_Trades", "Loss_Trades_Percent_of_total", "Largest_profit_trade", "Largest_loss_trade", "Average_profit_trade", "Average_loss_trade", "Maximum_consecutive_wins_Count", "Maximum_consecutive_wins_Profit", "Maximum_consecutive_losses_Count", "Maximum_consecutive_losses_Profit", "Maximal_consecutive_profit_Amount", "Maximal_consecutive_profit_Count", "Maximal_consecutive_loss_Amount", "Maximal_consecutive_loss_Count", "Average_consecutive_wins", "Average_consecutive_losses"]}
         }
 
+        all_sheets_successfully_accessed_or_created = True # Flag
         try:
             sh_trade_log = gc_for_sheets.open(GOOGLE_SHEET_NAME)
             for ws_name, specs in worksheet_definitions.items():
                 try:
                     ws_dict[ws_name] = sh_trade_log.worksheet(ws_name)
-                    # Check if headers need to be written (e.g. for UploadHistory or if sheet was just created by another process but is empty)
-                    # The save_... functions themselves will handle headers for their respective sheets if they find them empty.
-                    # This explicit check is mainly for UploadHistory if it was just created.
-                    if ws_dict[ws_name].row_count == 0 and "headers" in specs: # If sheet is completely empty
-                         ws_dict[ws_name].update([specs["headers"]]) # Use update for a single list of headers
+                    # If sheet exists, check if it's empty and needs headers
+                    # This is particularly for UploadHistory, other sheets' headers are handled by their save_... functions
+                    if ws_dict[ws_name].row_count == 0 and "headers" in specs:
+                         ws_dict[ws_name].update([specs["headers"]], value_input_option='USER_ENTERED') # Ensure USER_ENTERED for headers
                          st.info(f"Added headers to empty '{ws_name}' sheet.")
-                    elif ws_name == WORKSHEET_UPLOAD_HISTORY and ws_dict[ws_name].row_count == 0 : # Special case for UploadHistory if it exists but is empty
-                        ws_dict[WORKSHEET_UPLOAD_HISTORY].update([specs["headers"]])
-
 
                 except gspread.exceptions.WorksheetNotFound:
                     st.info(f"Worksheet '{ws_name}' not found. Creating it now...")
-                    new_ws = sh_trade_log.add_worksheet(title=ws_name, rows=specs.get("rows", default_sheet_specs["rows"]), cols=specs.get("cols", default_sheet_specs["cols"]))
-                    ws_dict[ws_name] = new_ws
-                    if "headers" in specs: # Add headers to the newly created sheet
-                        new_ws.update([specs["headers"]]) # Use update for a single list of headers
-                        st.info(f"Created worksheet '{ws_name}' and added headers.")
+                    try:
+                        new_ws = sh_trade_log.add_worksheet(title=ws_name, rows=specs.get("rows", default_sheet_specs["rows"]), cols=specs.get("cols", default_sheet_specs["cols"]))
+                        ws_dict[ws_name] = new_ws # Assign the new worksheet object to ws_dict
+                        if "headers" in specs: 
+                            new_ws.update([specs["headers"]], value_input_option='USER_ENTERED') # Use update for a single list of headers
+                            st.info(f"Created worksheet '{ws_name}' and added headers.")
+                    except Exception as e_add_ws:
+                        st.error(f"❌ Failed to create worksheet '{ws_name}': {e_add_ws}")
+                        all_sheets_successfully_accessed_or_created = False
+                        break # Stop if a critical sheet cannot be created
+                except Exception as e_open_ws: # Catch other errors while trying to open worksheet
+                    st.error(f"❌ Error accessing worksheet '{ws_name}': {e_open_ws}")
+                    all_sheets_successfully_accessed_or_created = False
+                    break
+            
+            if not all_sheets_successfully_accessed_or_created:
+                st.error("One or more essential worksheets could not be accessed or created. Aborting.")
+                st.stop()
         
         except gspread.exceptions.APIError as e_api:
             st.error(f"❌ Google Sheets API Error (Initial Worksheet Access/Creation): {e_api}. Please check API quotas or permissions.")
             st.stop()
-        except Exception as e_setup:
-            st.error(f"❌ เกิดข้อผิดพลาดในการเข้าถึงหรือสร้าง Worksheet ที่จำเป็น: {type(e_setup).__name__} - {str(e_setup)[:200]}...")
+        except Exception as e_setup: # General catch for unexpected errors during setup
+            st.error(f"❌ เกิดข้อผิดพลาดในการเข้าถึงหรือสร้าง Spreadsheet/Worksheet: {type(e_setup).__name__} - {str(e_setup)[:200]}...")
             st.stop()
 
-        # Ensure all required worksheet objects are in ws_dict after attempt to create
-        for ws_name_key in worksheet_definitions.keys():
-            if ws_name_key not in ws_dict or ws_dict[ws_name_key] is None:
-                st.error(f"❌ ไม่สามารถเข้าถึงหรือสร้าง Worksheet '{ws_name_key}' ได้อย่างสมบูรณ์ โปรดตรวจสอบ Google Sheets และลองอีกครั้ง")
-                st.stop()
-        
+        # At this point, all worksheet objects in ws_dict should be valid (either opened or created)
+        # The rest of the SEC 7 logic that uses ws_dict[WORKSHEET_NAME] should now work.
+
         # --- The rest of SEC 7 (history check, data extraction, saving, etc.) using ws_dict[WORKSHEET_NAME] ---
+        # [โค้ดส่วนที่เหลือของ SEC 7 ตั้งแต่การดึง history_records จนจบ เหมือนเดิมกับเวอร์ชันล่าสุด]
+        # ... (ตรวจสอบให้แน่ใจว่าได้คัดลอกส่วนที่เหลือของ SEC 7 มาครบถ้วน) ...
         history_records = []
         try:
-            if WORKSHEET_UPLOAD_HISTORY in ws_dict:
+            if WORKSHEET_UPLOAD_HISTORY in ws_dict and ws_dict[WORKSHEET_UPLOAD_HISTORY] is not None: # Check if ws_dict has the key
                 history_records = ws_dict[WORKSHEET_UPLOAD_HISTORY].get_all_records(numericise_ignore=['all'])
+            else:
+                st.error(f"Worksheet '{WORKSHEET_UPLOAD_HISTORY}' is not available in ws_dict.")
+                # Handle error or stop, as UploadHistory is critical
+                st.stop() 
         except gspread.exceptions.APIError as e_api_hist:
             st.warning(f"Google Sheets API Error ขณะดึง UploadHistory: {e_api_hist}. การตรวจสอบไฟล์ซ้ำอาจไม่สมบูรณ์")
         except Exception as e_hist_fetch:
             st.warning(f"Error fetching UploadHistory: {e_hist_fetch}. การตรวจสอบไฟล์ซ้ำอาจไม่สมบูรณ์")
 
+        # ... (ส่วนที่เหลือของ SEC 7 logic for duplicate file check, processing, saving, and updating history) ...
+        # Ensure all calls like ws_dict[WORKSHEET_ACTUAL_TRADES] are valid
         is_duplicate_file_found = False
         existing_batch_id_info = "N/A"
         previous_upload_time_for_duplicate = "ไม่ทราบเวลา"
 
-        for record in history_records:
+        for record in history_records: # history_records might be empty if fetch failed
             try: record_file_size_val = int(float(str(record.get("FileSize","0")).replace(",",""))) if record.get("FileSize") not in [None, ""] else 0
             except ValueError: record_file_size_val = 0 
 
@@ -1487,7 +1501,11 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
         current_upload_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
         try: 
-            ws_dict[WORKSHEET_UPLOAD_HISTORY].append_row([current_upload_timestamp, str(active_portfolio_id_for_actual), str(active_portfolio_name_for_actual), file_name_for_saving, file_size_for_saving, file_hash_for_saving, "Processing", import_batch_id, "Attempting to process file."])
+            if WORKSHEET_UPLOAD_HISTORY in ws_dict and ws_dict[WORKSHEET_UPLOAD_HISTORY] is not None:
+                ws_dict[WORKSHEET_UPLOAD_HISTORY].append_row([current_upload_timestamp, str(active_portfolio_id_for_actual), str(active_portfolio_name_for_actual), file_name_for_saving, file_size_for_saving, file_hash_for_saving, "Processing", import_batch_id, "Attempting to process file."])
+            else:
+                st.error(f"Cannot log to {WORKSHEET_UPLOAD_HISTORY} as it's not available.")
+                st.stop()
         except Exception as e_log_start: 
             st.error(f"ไม่สามารถบันทึก Log เริ่มต้นใน UploadHistory: {e_log_start}")
             st.stop()
@@ -1510,6 +1528,7 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
             else:
                 st.subheader("💾 กำลังบันทึกข้อมูลส่วนต่างๆไปยัง Google Sheets...")
                 
+                # Deals
                 deals_df = extracted_sections.get('deals', pd.DataFrame())
                 if not deals_df.empty:
                     ok, new_count, skipped_count = save_deals_to_actual_trades(ws_dict[WORKSHEET_ACTUAL_TRADES], deals_df, active_portfolio_id_for_actual, active_portfolio_name_for_actual, file_name_for_saving, import_batch_id)
@@ -1520,6 +1539,7 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
                     if not ok: overall_processing_successful = False
                 else: save_results_details['Deals'] = {'ok': True, 'new': 0, 'skipped': 0, 'notes': "Deals: No data in file."}
                 
+                # Orders
                 orders_df = extracted_sections.get('orders', pd.DataFrame())
                 if not orders_df.empty:
                     ok, new_count, skipped_count = save_orders_to_gsheets(ws_dict[WORKSHEET_ACTUAL_ORDERS], orders_df, active_portfolio_id_for_actual, active_portfolio_name_for_actual, file_name_for_saving, import_batch_id)
@@ -1530,6 +1550,7 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
                     if not ok: overall_processing_successful = False
                 else: save_results_details['Orders'] = {'ok': True, 'new': 0, 'skipped': 0, 'notes': "Orders: No data in file."}
 
+                # Positions
                 positions_df = extracted_sections.get('positions', pd.DataFrame())
                 if not positions_df.empty:
                     ok, new_count, skipped_count = save_positions_to_gsheets(ws_dict[WORKSHEET_ACTUAL_POSITIONS], positions_df, active_portfolio_id_for_actual, active_portfolio_name_for_actual, file_name_for_saving, import_batch_id)
@@ -1608,10 +1629,7 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
     else: st.info("โปรดอัปโหลดไฟล์ Statement Report (CSV) เพื่อเริ่มต้นประมวลผล.")
     st.markdown("---")
     
-# ===================== SEC 9: MAIN AREA - TRADE LOG VIEWER =======================
-# [โค้ดส่วนนี้เหมือนเดิมกับเวอร์ชันล่าสุด]
-# ... (ส่วนที่เหลือของ main.py)
-    
+
 # ===================== SEC 9: MAIN AREA - TRADE LOG VIEWER =======================
 # [โค้ดส่วนนี้เหมือนเดิมกับเวอร์ชันล่าสุด]
 @st.cache_data(ttl=120)
