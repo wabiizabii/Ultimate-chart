@@ -2455,17 +2455,26 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
                 initial_status = "Processing_Confirmed_Duplicate" if user_confirmed_duplicate else "Processing"
                 initial_notes = "User confirmed duplicate upload." if user_confirmed_duplicate else "New upload processing."
 
+                # --- START: DEBUG for UploadHistory append ---
+                st.write("DEBUG: `ws_history` object:", ws_history) # ดูว่า ws_history เป็น object ที่ถูกต้องหรือไม่
+                data_to_append_history = [
+                    current_upload_timestamp, str(active_portfolio_id_for_actual), str(active_portfolio_name_for_actual),
+                    file_name_for_saving, file_size_for_saving, file_hash_for_saving,
+                    initial_status, import_batch_id, initial_notes
+                ]
+                st.write("DEBUG: Data to append to UploadHistory:", data_to_append_history)
+                # --- END: DEBUG for UploadHistory append ---
+
                 try:
-                    ws_history.append_row([
-                        current_upload_timestamp, str(active_portfolio_id_for_actual), str(active_portfolio_name_for_actual),
-                        file_name_for_saving, file_size_for_saving, file_hash_for_saving,
-                        initial_status, import_batch_id, initial_notes
-                    ])
+                    ws_history.append_row(data_to_append_history) # ใช้ตัวแปรที่เพิ่งสร้าง
+                    st.success("DEBUG: Successfully appended initial log to UploadHistory.") # แจ้งเมื่อสำเร็จ
                 except Exception as e_log_process_start:
                     st.error(f"ไม่สามารถบันทึก Log เริ่มต้นใน UploadHistory: {e_log_process_start}")
+                    st.exception(e_log_process_start) # แสดง traceback ของ error ด้วย
                     st.stop()
 
                 st.markdown("---")
+                # ... (ส่วนที่เหลือ) ...
                 st.markdown(f"**Import Batch ID: `{import_batch_id}`**")
                 st.info(f"กำลังประมวลผลไฟล์: {file_name_for_saving}")
 
