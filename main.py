@@ -1815,7 +1815,7 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
                         df_section = df_section[final_cols]
 
                         # ***** START MODIFICATION: Filter out summary-like and balance rows for Deals *****
-                    if section_name == "Deals" and not df_section.empty:
+                        if section_name == "Deals" and not df_section.empty:
                         # A valid deal should have a Time_Deal AND a Deal_ID AND a Symbol.
                         # Balance rows typically have "balance" in the Type_Deal column and might miss other identifiers.
 
