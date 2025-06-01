@@ -1814,32 +1814,40 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
                                 df_section[col] = "" 
                         df_section = df_section[final_cols]
 
-                        # ***** START MODIFICATION: Filter out summary-like and balance rows for Deals *****
+                        # ***** START MODIFICATION: More specific filtering for Deals *****
                         if section_name == "Deals" and not df_section.empty:
-                        # A valid deal should have a Time_Deal AND a Deal_ID AND a Symbol.
-                        # Balance rows typically have "balance" in the Type_Deal column and might miss other identifiers.
-
-                            condition_is_valid_deal = pd.Series([True] * len(df_section)) # Start by assuming all are valid
-    
-                            if "Time_Deal" in df_section.columns:
-                                condition_is_valid_deal &= (df_section["Time_Deal"].astype(str).str.strip() != "")
-                            if "Deal_ID" in df_section.columns:
-                                condition_is_valid_deal &= (df_section["Deal_ID"].astype(str).str.strip() != "")
-                            if "Symbol_Deal" in df_section.columns: # Adding check for Symbol
-                                condition_is_valid_deal &= (df_section["Symbol_Deal"].astype(str).str.strip() != "")
-    
-                            # Explicitly filter out rows where 'Type_Deal' is 'balance'
-                            condition_is_not_balance_type = pd.Series([True] * len(df_section))
+                            # Condition 1: Filter out rows where 'Type_Deal' is 'balance' (case-insensitive, strip whitespace)
+                            # This is the primary condition for removing balance rows.
                             if "Type_Deal" in df_section.columns:
-                                condition_is_not_balance_type = (df_section["Type_Deal"].astype(str).str.lower().str.strip() != "balance")
-    
-                            # Combine conditions: Keep rows that are valid deals AND are not balance type
-                            df_section = df_section[condition_is_valid_deal & condition_is_not_balance_type]
-    
+                                condition_is_not_balance_type = ~(df_section["Type_Deal"].astype(str).str.strip().str.lower() == "balance")
+                                df_section = df_section[condition_is_not_balance_type]
+                            
+                            # Condition 2 (Optional but recommended): 
+                            # Further ensure that actual deal rows have some essential identifiers.
+                            # For example, a valid deal might need a Time_Deal and a Symbol_Deal.
+                            # This helps remove other potentially malformed or non-deal rows.
+                            if "Time_Deal" in df_section.columns:
+                                condition_time_deal_present = df_section["Time_Deal"].astype(str).str.strip() != ""
+                                df_section = df_section[condition_time_deal_present]
+                            
+                            if "Symbol_Deal" in df_section.columns: # Check if Symbol_Deal is not empty
+                                condition_symbol_deal_present = df_section["Symbol_Deal"].astype(str).str.strip() != ""
+                                df_section = df_section[condition_symbol_deal_present]
+                                
+                            # You might not need to check Deal_ID for non-emptiness here if 'balance' rows
+                            # already get filtered out by the Type_Deal check, and other valid deals might
+                            # temporarily have an empty Deal_ID if it's only assigned later (though less ideal).
+                            # However, if 'Deal_ID' is crucial for a row to be considered a deal AT ALL,
+                            # you can add:
+                            # if "Deal_ID" in df_section.columns:
+                            #     condition_deal_id_present = df_section["Deal_ID"].astype(str).str.strip() != ""
+                            #     df_section = df_section[condition_deal_id_present]
+
+
                             if st.session_state.get("debug_statement_processing_v2", False):
-                                st.write(f"DEBUG: Deals DataFrame after MORE aggressive filtering ({len(df_section)} rows left):")
+                                st.write(f"DEBUG: Deals DataFrame after final filtering ({len(df_section)} rows left):")
                                 st.dataframe(df_section.head())
-                    # ***** END MODIFICATION *****
+                        # ***** END MODIFICATION *****
 
                         if not df_section.empty:
                             extracted_data[section_key_lower] = df_section
