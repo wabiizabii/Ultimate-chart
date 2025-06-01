@@ -2286,38 +2286,25 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
         proceed_with_upload = True # Default to proceed unless stopped
         user_confirmed_duplicate_action = False # Tracks if user clicked a button for duplicate
 
-        if is_duplicate_found:
-            st.warning(f"⚠️ ไฟล์ '{file_name_for_saving}' นี้ ดูเหมือนเคยถูกอัปโหลดและประมวลผลสำเร็จแล้วสำหรับพอร์ต '{active_portfolio_name_for_actual}' (ImportBatchID: {existing_batch_id_info})")
-            dup_col1, dup_col2 = st.columns(2)
-            
-            # Use unique keys for buttons based on file hash to manage state correctly per file
-            confirm_key = f"confirm_dup_{file_hash_for_saving}_{active_portfolio_id_for_actual}"
-            cancel_key = f"cancel_dup_{file_hash_for_saving}_{active_portfolio_id_for_actual}"
-
-            if dup_col1.button("ดำเนินการต่อ (อัปโหลดซ้ำ)", key=confirm_key):
-                st.session_state[confirm_key] = True # Mark that this button was pressed
-                user_choice_made = True
-                user_confirmed_duplicate_action = True
-            
-            if dup_col2.button("ยกเลิกการอัปโหลดนี้", key=cancel_key):
-                st.session_state[cancel_key] = True # Mark that this button was pressed
-                user_choice_made = True
-
-            if st.session_state.get(cancel_key, False):
-                st.info("ยกเลิกการอัปโหลดไฟล์ซ้ำซ้อนแล้ว.")
+      if is_duplicate_found:
+                st.error(f"🚫 ไฟล์ '{file_name_for_saving}' นี้ ดูเหมือนเคยถูกอัปโหลดและประมวลผลสำเร็จไปแล้วสำหรับพอร์ต '{active_portfolio_name_for_actual}' (ImportBatchID: {existing_batch_id_info}). ระบบจะไม่นำเข้าข้อมูลซ้ำอีก")
                 try:
+                    # บันทึก Log ว่าระบบข้ามไฟล์ซ้ำอัตโนมัติ
                     ws_history.append_row([
                         datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                        str(active_portfolio_id_for_actual), str(active_portfolio_name_for_actual),
-                        file_name_for_saving, file_size_for_saving, file_hash_for_saving,
-                        "Skipped_Duplicate_User_Cancelled", "", f"User cancelled. Duplicate of BatchID: {existing_batch_id_info}"
+                        str(active_portfolio_id_for_actual),
+                        str(active_portfolio_name_for_actual),
+                        file_name_for_saving,
+                        file_size_for_saving,
+                        file_hash_for_saving,
+                        "Skipped_Duplicate_Auto", # Status ใหม่
+                        existing_batch_id_info, # ใช้ BatchID เดิมที่ซ้ำเพื่ออ้างอิง
+                        f"Automatically skipped duplicate of successful import (BatchID: {existing_batch_id_info})."
                     ])
-                except Exception as e_log_cancel: st.warning(f"ไม่สามารถบันทึก Log การยกเลิกได้: {e_log_cancel}")
-                proceed_with_upload = False
-                # Clean up session state for these buttons
-                if confirm_key in st.session_state: del st.session_state[confirm_key]
-                if cancel_key in st.session_state: del st.session_state[cancel_key]
-                st.stop()
+                except Exception as e_log_skip:
+                    st.warning(f"ไม่สามารถบันทึก Log การข้ามไฟล์ซ้ำอัตโนมัติได้: {e_log_skip}")
+                proceed_with_upload = False # กำหนดให้ไม่ดำเนินการต่อ
+                st.stop() # หยุดการทำงานของสคริปต์สำหรับไฟล์นี้ทันที
             
             if st.session_state.get(confirm_key, False):
                 st.info("ผู้ใช้ยืนยันที่จะอัปโหลดไฟล์ซ้ำ...")
