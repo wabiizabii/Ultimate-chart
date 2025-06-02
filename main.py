@@ -2197,10 +2197,10 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
     st.subheader("📤 อัปโหลด Statement Report (CSV) เพื่อประมวลผลและบันทึก")
     
     uploaded_file_statement = st.file_uploader( 
-        "ลากและวางไฟล์ Statement Report (CSV) ที่นี่ หรือคลิกเพื่อเลือกไฟล์",
-        type=["csv"],
-        key="ultimate_stmt_uploader_v7_final" # New key
-    )
+    "ลากและวางไฟล์ Statement Report (CSV) ที่นี่ หรือคลิกเพื่อเลือกไฟล์",
+    type=["csv"],
+    key=file_uploader_dynamic_key # <--- เปลี่ยน key ตรงนี้
+)
 
     st.checkbox("⚙️ เปิดโหมด Debug (แสดงข้อมูลที่แยกได้)", value=False, key="debug_statement_processing_v2")
     
