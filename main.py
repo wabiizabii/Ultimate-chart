@@ -124,6 +124,14 @@ selected_portfolio_name_gs = st.sidebar.selectbox(
     key='sb_active_portfolio_selector_gs'
 )
 
+# +++ START: โค้ดที่เพิ่มเข้ามาเพื่อรีเซ็ตไฟล์อัปโหลดเมื่อมีการเปลี่ยนพอร์ต +++
+if selected_portfolio_name_gs != st.session_state.active_portfolio_name_gs:
+    # ตรวจสอบว่ามีการเลือกพอร์ตที่แตกต่างจากเดิมจริงๆ
+    if 'ultimate_stmt_uploader_v7_final' in st.session_state and st.session_state.ultimate_stmt_uploader_v7_final is not None:
+        st.session_state.ultimate_stmt_uploader_v7_final = None
+        st.sidebar.warning("⚠️ การเปลี่ยนพอร์ตทำให้ไฟล์ที่อัปโหลดไว้ (ในส่วน Statement Import) ถูกรีเซ็ต กรุณาอัปโหลดไฟล์อีกครั้งหากต้องการ")
+# +++ END: โค้ดที่เพิ่มเข้ามา +++
+
 if selected_portfolio_name_gs != "":
     st.session_state.active_portfolio_name_gs = selected_portfolio_name_gs
     if not df_portfolios_gs.empty:
@@ -141,6 +149,9 @@ if selected_portfolio_name_gs != "":
             st.session_state.current_portfolio_details = None
             st.sidebar.warning(f"ไม่พบข้อมูลสำหรับพอร์ตชื่อ '{selected_portfolio_name_gs}'.")
 else:
+    # If selected_portfolio_name_gs is "", it means user selected the blank option (to deselect)
+    # The st.session_state.active_portfolio_name_gs would have been the previously active portfolio.
+    # The reset logic above would have already triggered if a file was pending.
     st.session_state.active_portfolio_name_gs = ""
     st.session_state.active_portfolio_id_gs = None
     st.session_state.current_portfolio_details = None
