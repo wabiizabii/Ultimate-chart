@@ -149,7 +149,66 @@ def load_all_planned_trade_logs_from_gsheets():
         # st.error(f"Unexpected error loading all planned trade logs: {e}") # ลดการแสดงข้อความ
         print(f"Unexpected error loading all planned trade logs: {e}")
         return pd.DataFrame()
+# (วางฟังก์ชันนี้ไว้ใกล้กับฟังก์ชันโหลดข้อมูลอื่นๆ เช่น load_all_planned_trade_logs_from_gsheets())
+
+@st.cache_data(ttl=180) # Cache ข้อมูลไว้ 3 นาที (ปรับ TTL ได้ตามความเหมาะสม)
+def load_actual_trades_from_gsheets():
+    gc = get_gspread_client()
+    if gc is None:
+        print("Warning: GSpread client not available for loading actual trades.")
+        return pd.DataFrame()
+    try:
+        sh = gc.open(GOOGLE_SHEET_NAME) # GOOGLE_SHEET_NAME ถูกกำหนดไว้ใน SEC 0
+        worksheet = sh.worksheet(WORKSHEET_ACTUAL_TRADES) # WORKSHEET_ACTUAL_TRADES ถูกกำหนดไว้ใน SEC 0
+        
+        records = worksheet.get_all_records(numericise_ignore=['all']) # อ่านทุกอย่างเป็น string ก่อน
+        
+        if not records:
+            # print(f"Info: Worksheet '{WORKSHEET_ACTUAL_TRADES}' is empty or no records found.")
+            return pd.DataFrame()
+        
+        df_actual_trades = pd.DataFrame(records)
+        
+        # --- การแปลงประเภทข้อมูลที่สำคัญ ---
+        # คอลัมน์ที่ควรเป็น datetime
+        if 'Time_Deal' in df_actual_trades.columns:
+            df_actual_trades['Time_Deal'] = pd.to_datetime(df_actual_trades['Time_Deal'], errors='coerce')
+
+        # คอลัมน์ที่ควรเป็นตัวเลข
+        numeric_cols_actual = [
+            'Volume_Deal', 'Price_Deal', 'Commission_Deal', 
+            'Fee_Deal', 'Swap_Deal', 'Profit_Deal', 'Balance_Deal'
+        ]
+        for col in numeric_cols_actual:
+            if col in df_actual_trades.columns:
+                df_actual_trades[col] = pd.to_numeric(df_actual_trades[col], errors='coerce')
+
+        # คอลัมน์ PortfolioID ควรเป็น string เพื่อการเปรียบเทียบที่สอดคล้องกัน
+        if 'PortfolioID' in df_actual_trades.columns:
+            df_actual_trades['PortfolioID'] = df_actual_trades['PortfolioID'].astype(str)
+        
+        # คอลัมน์อื่นๆ ที่อาจสำคัญ (เช่น Deal_ID, Order_ID_Deal) โดยทั่วไปจะยังคงเป็น string
+
+        # print(f"Successfully loaded {len(df_actual_trades)} records from '{WORKSHEET_ACTUAL_TRADES}'.")
+        return df_actual_trades
+
+    except gspread.exceptions.WorksheetNotFound:
+        print(f"Warning: Worksheet '{WORKSHEET_ACTUAL_TRADES}' not found for loading actual trades.")
+        return pd.DataFrame()
+    except gspread.exceptions.APIError as e_api:
+        if hasattr(e_api, 'response') and e_api.response and e_api.response.status_code == 429: # Quota Exceeded
+            print(f"APIError (Quota Exceeded) loading actual trades from '{WORKSHEET_ACTUAL_TRADES}': {e_api.args[0] if e_api.args else 'Unknown quota error'}")
+        else:
+            print(f"APIError loading actual trades from '{WORKSHEET_ACTUAL_TRADES}': {e_api}")
+        return pd.DataFrame()
+    except Exception as e:
+        print(f"Unexpected error loading actual trades from '{WORKSHEET_ACTUAL_TRADES}': {e}")
+        return pd.DataFrame()
 # +++ END: ฟังก์ชันใหม่สำหรับโหลด PlannedTradeLogs +++
+
+
+
+
 
 # ===================== SEC 1: PORTFOLIO SELECTION (Sidebar) =======================
 df_portfolios_gs = load_portfolios_from_gsheets() # โหลดข้อมูลพอร์ตก่อนส่วน UI อื่นๆ
