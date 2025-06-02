@@ -1785,72 +1785,53 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
                     if next_table_section_name in section_header_indices:
                         data_end_line_num = section_header_indices[next_table_section_name]; break
                 
-                current_table_data_lines = []
+                current_table_data_lines = [] # <--- เปลี่ยนชื่อตัวแปรนี้ เพื่อไม่ให้สับสน
+                                            # จาก current_table_data_lines_after_string_filter
+                                            # มาเป็น current_table_data_lines ตามโค้ดเดิมของคุณ
+
                 if st.session_state.get("debug_statement_processing_v2", False) and section_name == "Deals":
-                    st.write(f"--- DEBUG: Raw lines being considered for Deals (before any filtering) ---")
+                    st.write(f"--- DEBUG [extract_data]: Raw lines being considered for SECTION: {section_name} ---")
                 
                 for line_num_for_data in range(data_start_line_num, data_end_line_num):
                     line_content_for_data = lines[line_num_for_data].strip()
+                    
                     if not line_content_for_data:
                         if any(current_table_data_lines): break
                         else: continue
                     if line_content_for_data.startswith(("Balance:", "Credit Facility:", "Floating P/L:", "Equity:", "Results", "Total Net Profit:")): break
-                    is_another_header = False
+                    
+                    is_another_header_line = False
                     for other_sec_name, other_raw_hdr in section_raw_headers.items():
                         if other_sec_name != section_name and line_content_for_data.startswith(other_raw_hdr.split(',')[0]) and other_raw_hdr in line_content_for_data:
-                            is_another_header = True; break
-                    if is_another_header: break
+                            is_another_header_line = True; break
+                    if is_another_header_line: break
                     
-                    # ***** START NEW/REVISED Deal Filtering Logic (to be placed inside the try block, after df_section is created) *****
-                if section_name == "Deals" and not df_section.empty:
-                    original_deal_rows = len(df_section) # For debugging
-
-                    # Condition 1: Filter out rows where 'Type_Deal' is 'balance'
-                    # This should be the primary filter for "balance" rows.
-                    condition_is_not_balance_type = pd.Series([True] * len(df_section), index=df_section.index)
-                    if "Type_Deal" in df_section.columns:
-                        # Ensure case-insensitivity and strip whitespace
-                        is_balance = df_section["Type_Deal"].astype(str).str.strip().str.lower() == "balance"
-                        condition_is_not_balance_type = ~is_balance # Keep rows that are NOT balance
-
-                    # Apply the first filter
-                    df_section = df_section[condition_is_not_balance_type]
-
-                    # Condition 2: Filter out rows that are likely summaries or malformed by checking essential non-empty fields
-                    # A real deal should have Time, a Deal ID (even if it's just a number), and a Symbol.
-                    # Balance rows (which should have been filtered by Type_Deal already) also often miss these.
-                    # This acts as a secondary check for other non-deal rows.
-                    essential_identifiers_for_valid_deal = ["Time_Deal", "Deal_ID", "Symbol_Deal"]
-                    valid_identifiers_mask = pd.Series([True] * len(df_section), index=df_section.index)
-
-                    for col_name in essential_identifiers_for_valid_deal:
-                        if col_name in df_section.columns:
-                            valid_identifiers_mask &= (df_section[col_name].astype(str).str.strip() != "")
-                        else:
-                            # If a truly essential column for identifying a deal is missing from the dataframe,
-                            # it implies a parsing or CSV structure issue. We should probably not keep any rows.
-                            if st.session_state.get("debug_statement_processing_v2", False):
-                                st.warning(f"DEBUG: Critical identifier column '{col_name}' is missing from Deals DataFrame. All remaining rows will be filtered out.")
-                            valid_identifiers_mask = pd.Series([False] * len(df_section), index=df_section.index) # Mark all as invalid
-                            break 
-
-                    df_section = df_section[valid_identifiers_mask]
-
-                    if st.session_state.get("debug_statement_processing_v2", False):
-                        st.write(f"DEBUG: Deals DataFrame original rows before any filtering in this block: {original_deal_rows}")
-                        st.write(f"DEBUG: Deals DataFrame after ALL filtering ({len(df_section)} rows left):")
-                        if not df_section.empty:
-                            st.dataframe(df_section.head())
-                        else:
-                            st.write("No Deals left after all filtering.")
-                # ***** END NEW/REVISED Deal Filtering Logic *****
+                    # ***** START MODIFICATION: Filter "balance" and incomplete rows for "Deals" SECTION *****
+                    if section_name == "Deals":
+                        cols_in_line = [col.strip() for col in line_content_for_data.split(',')]
                         
-                    current_table_data_lines.append(line_content_for_data)
+                        is_balance_type_row = False
+                        if len(cols_in_line) > 3 and "balance" in cols_in_line[3].lower(): # Check Type_Deal (index 3)
+                            is_balance_type_row = True
+                        
+                        # Check if essential identifiers like Time_Deal (index 0), Deal_ID (index 1), Symbol_Deal (index 2) are empty
+                        missing_essential_identifiers = False
+                        if len(cols_in_line) < 3: # Needs at least Time, Deal_ID, Symbol
+                            missing_essential_identifiers = True
+                        elif not cols_in_line[0] or not cols_in_line[1] or not cols_in_line[2]:
+                            missing_essential_identifiers = True
+
+                        if is_balance_type_row or missing_essential_identifiers:
+                            if st.session_state.get("debug_statement_processing_v2", False):
+                                st.write(f"DEBUG [extract_data]: SKIPPING Deals line: '{line_content_for_data}' (Balance Type: {is_balance_type_row}, Missing Identifiers: {missing_essential_identifiers})")
+                            continue # Skip this line, do not add to current_table_data_lines
+                    # ***** END MODIFICATION *****
+                        
+                    current_table_data_lines.append(line_content_for_data) # Add line if it passes filters (or if not "Deals" section)
 
                 if st.session_state.get("debug_statement_processing_v2", False) and section_name == "Deals":
-                    st.write(f"--- DEBUG: Lines for Deals after initial 'balance' string filter (to be parsed by pd.read_csv): {len(current_table_data_lines)} ---")
-                    if current_table_data_lines: st.text("\n".join(current_table_data_lines[:10]))
-
+                    st.write(f"--- DEBUG [extract_data]: Lines for Deals AFTER string filtering (to be parsed by pd.read_csv): {len(current_table_data_lines)} ---")
+                    if current_table_data_lines: st.text("\n".join(current_table_data_lines[:20]))
 
                 if current_table_data_lines:
                     csv_data_str = "\n".join(current_table_data_lines)
@@ -1861,21 +1842,20 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
                         df_section.dropna(how='all', inplace=True)
                         final_cols = expected_cleaned_columns[section_name]
                         for col in final_cols:
-                            if col not in df_section.columns: df_section[col] = ""
+                            if col not in df_section.columns: df_section[col] = "" # Use empty string
                         df_section = df_section[final_cols]
 
-                        # Optional: Further filtering on DataFrame if needed, though string filtering above should be primary
+                        # Secondary DataFrame-level filtering (can be removed if string filtering is sufficient)
                         if section_name == "Deals" and not df_section.empty:
-                             # Example: Ensure Symbol_Deal is not empty for a valid trade record (after balance rows are already filtered)
-                             if "Symbol_Deal" in df_section.columns:
+                             if "Symbol_Deal" in df_section.columns: # Optional: further ensure Symbol_Deal is not empty
                                  df_section = df_section[df_section["Symbol_Deal"].astype(str).str.strip() != ""]
                              if st.session_state.get("debug_statement_processing_v2", False):
                                 st.write(f"DEBUG: Deals DataFrame after pd.read_csv and potential secondary filtering ({len(df_section)} rows left):")
                                 if not df_section.empty: st.dataframe(df_section.head())
 
-
                         if not df_section.empty:
                             extracted_data[section_key_lower] = df_section
+                    # ... (except Exception as e_parse_df: เหมือนเดิม) ...
                     except Exception as e_parse_df:
                         if st.session_state.get("debug_statement_processing_v2", False):
                             st.error(f"Error parsing table data for {section_name}: {e_parse_df}")
