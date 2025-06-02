@@ -1801,12 +1801,49 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
                             is_another_header = True; break
                     if is_another_header: break
                     
-                    # ***** START MODIFICATION: Filter "balance" rows for Deals BEFORE adding to current_table_data_lines *****
-                    # ***** START DEBUGGING: Show the 'new' deal(s) if any are found *****
-                    if data_type_name == "Deals" and num_new > 0 and st.session_state.get("debug_statement_processing_v2", False): 
-                        st.write(f"DEBUG ({ws.title}): Found {num_new} 'new' deal(s) that WILL BE APPENDED (content shown below):")
-                        st.dataframe(new_df) # แสดง DataFrame ของรายการที่ถูกมองว่าเป็น "ใหม่" ทั้งหมด
-                    # ***** END DEBUGGING *****
+                    # ***** START NEW/REVISED Deal Filtering Logic (to be placed inside the try block, after df_section is created) *****
+                if section_name == "Deals" and not df_section.empty:
+                    original_deal_rows = len(df_section) # For debugging
+
+                    # Condition 1: Filter out rows where 'Type_Deal' is 'balance'
+                    # This should be the primary filter for "balance" rows.
+                    condition_is_not_balance_type = pd.Series([True] * len(df_section), index=df_section.index)
+                    if "Type_Deal" in df_section.columns:
+                        # Ensure case-insensitivity and strip whitespace
+                        is_balance = df_section["Type_Deal"].astype(str).str.strip().str.lower() == "balance"
+                        condition_is_not_balance_type = ~is_balance # Keep rows that are NOT balance
+
+                    # Apply the first filter
+                    df_section = df_section[condition_is_not_balance_type]
+
+                    # Condition 2: Filter out rows that are likely summaries or malformed by checking essential non-empty fields
+                    # A real deal should have Time, a Deal ID (even if it's just a number), and a Symbol.
+                    # Balance rows (which should have been filtered by Type_Deal already) also often miss these.
+                    # This acts as a secondary check for other non-deal rows.
+                    essential_identifiers_for_valid_deal = ["Time_Deal", "Deal_ID", "Symbol_Deal"]
+                    valid_identifiers_mask = pd.Series([True] * len(df_section), index=df_section.index)
+
+                    for col_name in essential_identifiers_for_valid_deal:
+                        if col_name in df_section.columns:
+                            valid_identifiers_mask &= (df_section[col_name].astype(str).str.strip() != "")
+                        else:
+                            # If a truly essential column for identifying a deal is missing from the dataframe,
+                            # it implies a parsing or CSV structure issue. We should probably not keep any rows.
+                            if st.session_state.get("debug_statement_processing_v2", False):
+                                st.warning(f"DEBUG: Critical identifier column '{col_name}' is missing from Deals DataFrame. All remaining rows will be filtered out.")
+                            valid_identifiers_mask = pd.Series([False] * len(df_section), index=df_section.index) # Mark all as invalid
+                            break 
+
+                    df_section = df_section[valid_identifiers_mask]
+
+                    if st.session_state.get("debug_statement_processing_v2", False):
+                        st.write(f"DEBUG: Deals DataFrame original rows before any filtering in this block: {original_deal_rows}")
+                        st.write(f"DEBUG: Deals DataFrame after ALL filtering ({len(df_section)} rows left):")
+                        if not df_section.empty:
+                            st.dataframe(df_section.head())
+                        else:
+                            st.write("No Deals left after all filtering.")
+                # ***** END NEW/REVISED Deal Filtering Logic *****
                         
                     current_table_data_lines.append(line_content_for_data)
 
