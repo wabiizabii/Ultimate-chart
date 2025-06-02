@@ -2413,26 +2413,67 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
         
         except UnicodeDecodeError as e_decode_main:
             st.error(f"เกิดข้อผิดพลาดในการ Decode ไฟล์หลัก: {e_decode_main}.")
-            overall_processing_successful = False; save_results_details['MainError'] = {'ok': False, 'notes': f"UnicodeDecodeError: {e_decode_main}"}
+            overall_processing_successful = False
+            save_results_details['MainError'] = {'ok': False, 'notes': f"UnicodeDecodeError: {e_decode_main}"}
         except gspread.exceptions.APIError as e_api_main: 
             st.error(f"❌ Google Sheets API Error (Main Processing): {e_api_main}.")
-            overall_processing_successful = False; save_results_details['MainError'] = {'ok': False, 'notes': f"APIError: {e_api_main}"}
+            overall_processing_successful = False
+            save_results_details['MainError'] = {'ok': False, 'notes': f"APIError: {e_api_main}"}
         except Exception as e_main:
             st.error(f"เกิดข้อผิดพลาดระหว่างประมวลผลหลัก: {type(e_main).__name__} - {str(e_main)[:200]}...")
-            overall_processing_successful = False; save_results_details['MainError'] = {'ok': False, 'notes': f"MainError: {type(e_main).__name__} - {str(e_main)[:100]}"}
+            overall_processing_successful = False
+            save_results_details['MainError'] = {'ok': False, 'notes': f"MainError: {type(e_main).__name__} - {str(e_main)[:100]}"}
         
+        # ***** START MODIFICATION: Refine final status and user messages *****
         final_processing_notes_list = [res.get('notes', '') for res in save_results_details.values() if res.get('notes')]
         final_notes_str = " | ".join(filter(None, final_processing_notes_list))[:49999] if final_processing_notes_list else "Processing complete."
 
-        final_status = "Failed" 
+        final_status = "Failed" # Default to Failed
+        user_message = "การประมวลผลไฟล์ล้มเหลว"
+
         if overall_processing_successful:
-            if any_new_transactional_data_added or (save_results_details.get('Summary', {}).get('ok') and save_results_details.get('Summary',{}).get('status') != 'skipped_duplicate_file_no_new_transactions' and save_results_details.get('Summary',{}).get('status') != 'no_data_to_save'):
-                 final_status = "Success"
-            elif is_duplicate_file_found and not any_new_transactional_data_added and save_results_details.get('Summary', {}).get('status') == 'skipped_duplicate_file_no_new_transactions': 
+            summary_status = save_results_details.get('Summary', {}).get('status', 'unknown')
+            
+            if any_new_transactional_data_added or summary_status == 'saved':
+                final_status = "Success"
+                user_message = "ประมวลผลไฟล์สำเร็จและมีการเพิ่มข้อมูลใหม่!"
+                if any_new_transactional_data_added and summary_status == 'skipped_duplicate_content':
+                     user_message = "ประมวลผลไฟล์สำเร็จ มีการเพิ่มข้อมูล Deals/Orders/Positions ใหม่ แต่ข้าม Summary ที่มีเนื้อหาซ้ำ"
+                elif not any_new_transactional_data_added and summary_status == 'saved':
+                     user_message = "ประมวลผลไฟล์สำเร็จ ข้อมูล Deals/Orders/Positions ซ้ำทั้งหมด แต่มีการบันทึก Summary ใหม่"
+
+            elif is_duplicate_file_found and not any_new_transactional_data_added and \
+                 (summary_status == 'skipped_duplicate_file_no_new_transactions' or summary_status == 'skipped_duplicate_content'):
                 final_status = "Success_DuplicateFile_NoNewRecords"
-            else: final_status = "Success_NoNewRecords"
-        
+                user_message = f"ไฟล์ '{file_name_for_saving}' เป็นไฟล์ซ้ำที่เคยประมวลผลสำเร็จแล้ว และไม่พบรายการข้อมูลใหม่ที่จะเพิ่ม (รวมถึง Summary ที่ถูกข้ามไป)"
+            
+            elif not any_new_transactional_data_added and summary_status == 'no_data_to_save':
+                final_status = "Success_NoNewRecords"
+                user_message = "ประมวลผลไฟล์สำเร็จ แต่ไม่พบข้อมูลใหม่ที่จะเพิ่ม (ข้อมูล Deals/Orders/Positions อาจซ้ำทั้งหมด และไม่มีข้อมูล Summary ในไฟล์)"
+            
+            elif not any_new_transactional_data_added and summary_status == 'skipped_duplicate_content':
+                 final_status = "Success_NoNewRecords" # Or a more specific status
+                 user_message = "ประมวลผลไฟล์สำเร็จ ข้อมูล Deals/Orders/Positions ซ้ำทั้งหมด และข้าม Summary ที่มีเนื้อหาซ้ำ"
+            else: # Should cover cases like: new file, but all transactional data was duplicate, and no summary data in file
+                final_status = "Success_NoNewRecords"
+                user_message = "ประมวลผลไฟล์สำเร็จ แต่ไม่พบข้อมูลใหม่ที่จะเพิ่ม (ข้อมูลทั้งหมดอาจมีอยู่แล้ว หรือไฟล์ไม่มีข้อมูลส่วนที่เกี่ยวข้อง)"
+
+            # Display the refined user message
+            if final_status.startswith("Success"):
+                if "มีการเพิ่มข้อมูลใหม่" in user_message:
+                    st.balloons()
+                    st.success(user_message)
+                else:
+                    st.info(user_message)
+            # else: # Failure case message already handled by st.error in try-except block
+            #    pass
+
+        # Update UploadHistory with the final status and notes
         try:
+            # import time # Ensure time is imported
+            # if st.session_state.get("debug_statement_processing_v2", False): st.write("DEBUG: Pausing 1s before updating UploadHistory status...")
+            # time.sleep(1) 
+
             history_rows_for_update = ws_dict[WORKSHEET_UPLOAD_HISTORY].get_all_values() 
             row_to_update_idx = None
             for idx_update, row_val_update in reversed(list(enumerate(history_rows_for_update))):
@@ -2447,6 +2488,7 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
                 st.info(f"อัปเดตสถานะ ImportBatchID '{import_batch_id}' เป็น '{final_status}' ใน {WORKSHEET_UPLOAD_HISTORY}")
             else: st.warning(f"ไม่พบ ImportBatchID '{import_batch_id}' ใน {WORKSHEET_UPLOAD_HISTORY} เพื่ออัปเดตสถานะสุดท้าย.")
         except Exception as e_update_hist: st.warning(f"ไม่สามารถอัปเดตสถานะสุดท้ายใน {WORKSHEET_UPLOAD_HISTORY} ({import_batch_id}): {e_update_hist}")
+    # ***** END MODIFICATION *****
     else: 
         if uploaded_file_statement is not None: pass 
     st.markdown("---")
