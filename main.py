@@ -100,10 +100,7 @@ st.sidebar.subheader("เลือกพอร์ตที่ใช้งาน 
 
 if 'active_portfolio_name_gs' not in st.session_state:
     st.session_state.active_portfolio_name_gs = ""
-if 'active_portfolio_id_gs' not in st.session_state:
-    st.session_state.active_portfolio_id_gs = None
-if 'current_portfolio_details' not in st.session_state: 
-    st.session_state.current_portfolio_details = None
+# ... (initialization อื่นๆ ของคุณ) ...
 
 portfolio_names_list_gs = [""] 
 if not df_portfolios_gs.empty and 'PortfolioName' in df_portfolios_gs.columns:
@@ -112,6 +109,32 @@ if not df_portfolios_gs.empty and 'PortfolioName' in df_portfolios_gs.columns:
 
 if st.session_state.active_portfolio_name_gs not in portfolio_names_list_gs:
     st.session_state.active_portfolio_name_gs = portfolio_names_list_gs[0] if portfolio_names_list_gs else ""
+
+# ใช้ selectbox แบบเดิมจากไฟล์ #35 ของคุณ
+selected_portfolio_name_gs = st.sidebar.selectbox(
+    "เลือกพอร์ต:",
+    options=portfolio_names_list_gs,
+    index=portfolio_names_list_gs.index(st.session_state.active_portfolio_name_gs),
+    key='sb_active_portfolio_selector_gs' # Key เดิมของคุณ
+)
+
+# ตรรกะการอัปเดต session_state หลังจากเลือก Portfolio (เหมือนเดิมจากไฟล์ #35)
+if selected_portfolio_name_gs != st.session_state.get('previous_selected_portfolio_name_gs_for_uploader', None): # ตรวจสอบว่ามีการเปลี่ยนแปลงจริง
+    st.session_state.previous_selected_portfolio_name_gs_for_uploader = selected_portfolio_name_gs # อัปเดตค่าที่เลือกครั้งก่อน
+
+    st.session_state.active_portfolio_name_gs = selected_portfolio_name_gs
+    if selected_portfolio_name_gs != "":
+        if not df_portfolios_gs.empty:
+            selected_portfolio_row_df = df_portfolios_gs[df_portfolios_gs['PortfolioName'] == selected_portfolio_name_gs]
+            if not selected_portfolio_row_df.empty:
+                st.session_state.current_portfolio_details = selected_portfolio_row_df.iloc[0].to_dict()
+                st.session_state.active_portfolio_id_gs = st.session_state.current_portfolio_details.get('PortfolioID')
+            else:
+                st.session_state.active_portfolio_id_gs = None
+                st.session_state.current_portfolio_details = None
+    else:
+        st.session_state.active_portfolio_id_gs = None
+        st.session_state.current_portfolio_details = None
 
 # ***** START: โค้ดสำหรับรีเซ็ต File Uploader *****
 # Key นี้จะต้องตรงกับ key ของ st.file_uploader ใน SEC 7
