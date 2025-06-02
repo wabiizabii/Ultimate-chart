@@ -2195,12 +2195,37 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
 
     st.markdown("---")
     st.subheader("📤 อัปโหลด Statement Report (CSV) เพื่อประมวลผลและบันทึก")
-    
-    uploaded_file_statement = st.file_uploader( 
-    "ลากและวางไฟล์ Statement Report (CSV) ที่นี่ หรือคลิกเพื่อเลือกไฟล์",
-    type=["csv"],
-    key=file_uploader_dynamic_key # <--- เปลี่ยน key ตรงนี้
-)
+
+    # Key ของ File Uploader ที่เรากำหนดใน SEC 7
+FILE_UPLOADER_KEY_FOR_RESET = "statement_file_uploader_widget" 
+
+def handle_portfolio_change():
+    # เก็บค่า Portfolio ที่เลือกใหม่ไว้ใน session_state ตามปกติ
+    st.session_state.active_portfolio_name_gs = st.session_state.sb_active_portfolio_selector_gs_onchange # ใช้ key ใหม่สำหรับ selectbox
+
+    # --- ส่วนสำคัญ: ล้างค่าของ File Uploader ---
+    if FILE_UPLOADER_KEY_FOR_RESET in st.session_state:
+        # วิธีที่ 1: ตั้งค่าเป็น None (ถ้า Streamlit version ใหม่ๆ รองรับการเคลียร์แบบนี้)
+        # st.session_state[FILE_UPLOADER_KEY_FOR_RESET] = None 
+        # หรือ วิธีที่ 2: ลบ key นั้นออกจาก session_state (อาจจะทำให้ widget รีเซ็ตตัวเอง)
+        del st.session_state[FILE_UPLOADER_KEY_FOR_RESET]
+        if st.session_state.get("debug_statement_processing_v2", False): # ใช้ debug flag ที่มีอยู่
+            st.sidebar.info(f"File uploader '{FILE_UPLOADER_KEY_FOR_RESET}' state cleared due to portfolio change.")
+    # --- สิ้นสุดส่วนสำคัญ ---
+
+    # อัปเดต active_portfolio_id_gs และ current_portfolio_details ตามปกติ
+    if st.session_state.active_portfolio_name_gs != "":
+        if not df_portfolios_gs.empty:
+            selected_portfolio_row_df = df_portfolios_gs[df_portfolios_gs['PortfolioName'] == st.session_state.active_portfolio_name_gs]
+            if not selected_portfolio_row_df.empty:
+                st.session_state.current_portfolio_details = selected_portfolio_row_df.iloc[0].to_dict()
+                st.session_state.active_portfolio_id_gs = st.session_state.current_portfolio_details.get('PortfolioID')
+            else:
+                st.session_state.active_portfolio_id_gs = None
+                st.session_state.current_portfolio_details = None
+    else:
+        st.session_state.active_portfolio_id_gs = None
+        st.session_state.current_portfolio_details = None
 
     st.checkbox("⚙️ เปิดโหมด Debug (แสดงข้อมูลที่แยกได้)", value=False, key="debug_statement_processing_v2")
     
