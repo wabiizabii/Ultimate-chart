@@ -2,30 +2,32 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-from datetime import datetime, date # เพิ่ม date สำหรับ date_input
+from datetime import datetime, date
 import plotly.express as px
-import google.generativeai as genai # ถ้ายังใช้อยู่
+# import google.generativeai as genai # If you use it
 import gspread
 import plotly.graph_objects as go
-# import yfinance as yf # ถ้าไม่ได้ใช้ในส่วนนี้ อาจจะไม่ต้อง import หรือถ้าใช้ก็เอา comment ออก
 import random
-# import csv # อาจจะไม่จำเป็นถ้าใช้ io.StringIO กับ pandas โดยตรง
-import io 
-import uuid # <<< เพิ่ม import uuid
+import io
+import uuid
+import hashlib # Added for file hashing
+import time    # Added for potential delays (though trying to avoid needing it)
 
 st.set_page_config(page_title="Ultimate-Chart", layout="wide")
-acc_balance = 10000 # ยอดคงเหลือเริ่มต้นของบัญชีเทรด (อาจจะดึงมาจาก Active Portfolio ในอนาคต)
+acc_balance = 10000
 
 # กำหนดชื่อ Google Sheet และ Worksheet ที่จะใช้เก็บข้อมูล
-GOOGLE_SHEET_NAME = "TradeLog" # ชื่อ Google Sheet ของลูกพี่ตั้ม
+GOOGLE_SHEET_NAME = "TradeLog"
 WORKSHEET_PORTFOLIOS = "Portfolios"
 WORKSHEET_PLANNED_LOGS = "PlannedTradeLogs"
 WORKSHEET_ACTUAL_TRADES = "ActualTrades"
 WORKSHEET_ACTUAL_ORDERS = "ActualOrders"
 WORKSHEET_ACTUAL_POSITIONS = "ActualPositions"
 WORKSHEET_STATEMENT_SUMMARIES = "StatementSummaries"
-WORKSHEET_UPLOAD_HISTORY = "UploadHistory" #
-@st.cache_resource # ใช้ cache_resource สำหรับ gspread client object
+WORKSHEET_UPLOAD_HISTORY = "UploadHistory" # Added this constant
+
+# ฟังก์ชันสำหรับเชื่อมต่อ gspread
+@st.cache_resource
 def get_gspread_client():
     try:
         if "gcp_service_account" not in st.secrets:
@@ -34,33 +36,26 @@ def get_gspread_client():
         return gspread.service_account_from_dict(st.secrets["gcp_service_account"])
     except Exception as e:
         st.error(f"❌ เกิดข้อผิดพลาดในการเชื่อมต่อ Google Sheets: {e}")
-        st.info("ตรวจสอบว่า 'gcp_service_account' ใน secrets.toml ถูกต้อง และได้แชร์ Sheet กับ Service Account แล้ว")
         return None
 
 # ฟังก์ชันสำหรับโหลดข้อมูล Portfolios
-@st.cache_data(ttl=300) # Cache ข้อมูลไว้ 5 นาที
+@st.cache_data(ttl=300)
 def load_portfolios_from_gsheets():
     gc = get_gspread_client()
     if gc is None:
-        st.error("ไม่สามารถโหลดข้อมูลพอร์ตได้: Client Google Sheets ไม่พร้อมใช้งาน")
+        # Error message handled by get_gspread_client
         return pd.DataFrame()
-
     try:
         sh = gc.open(GOOGLE_SHEET_NAME)
-        worksheet = sh.worksheet(WORKSHEET_PORTFOLIOS)
-        records = worksheet.get_all_records()
-        
+        worksheet = sh.worksheet(WORKSHEET_PORTFOLIOS) # This is one API call
+        records = worksheet.get_all_records(numericise_ignore=['all']) # This is another API call
         if not records:
             st.info(f"ไม่พบข้อมูลใน Worksheet '{WORKSHEET_PORTFOLIOS}'.")
             return pd.DataFrame()
-        
         df_portfolios = pd.DataFrame(records)
-        
-        # แปลงคอลัมน์ที่ควรเป็นตัวเลข
         cols_to_numeric_type = {
-            'InitialBalance': float, 'ProfitTargetPercent': float, 
-            'DailyLossLimitPercent': float, 'TotalStopoutPercent': float,
-            'Leverage': float, 'MinTradingDays': int,
+            'InitialBalance': float, 'ProfitTargetPercent': float, 'DailyLossLimitPercent': float, 
+            'TotalStopoutPercent': float, 'Leverage': float, 'MinTradingDays': int,
             'OverallProfitTarget': float, 'WeeklyProfitTarget': float, 'DailyProfitTarget': float,
             'MaxAcceptableDrawdownOverall': float, 'MaxAcceptableDrawdownDaily': float,
             'ScaleUp_MinWinRate': float, 'ScaleUp_MinGainPercent': float, 'ScaleUp_RiskIncrementPercent': float,
@@ -72,45 +67,44 @@ def load_portfolios_from_gsheets():
                 df_portfolios[col] = pd.to_numeric(df_portfolios[col], errors='coerce').fillna(0)
                 if target_type == int:
                     df_portfolios[col] = df_portfolios[col].astype(int)
-
-        if 'EnableScaling' in df_portfolios.columns: # คอลัมน์นี้ควรเป็น Boolean
+        if 'EnableScaling' in df_portfolios.columns:
              df_portfolios['EnableScaling'] = df_portfolios['EnableScaling'].astype(str).str.upper().map({'TRUE': True, 'YES': True, '1': True, 'FALSE': False, 'NO': False, '0': False}).fillna(False)
-
-
-        # แปลงคอลัมน์วันที่ ถ้ามี
         date_cols = ['CompetitionEndDate', 'TargetEndDate', 'CreationDate']
         for col in date_cols:
             if col in df_portfolios.columns:
                 df_portfolios[col] = pd.to_datetime(df_portfolios[col], errors='coerce').dt.strftime('%Y-%m-%d %H:%M:%S')
-
-
         return df_portfolios
+    except gspread.exceptions.APIError as e_api:
+        if e_api.response.status_code == 429: # Quota exceeded
+            st.error(f"❌ Quota exceeded ขณะโหลด Portfolios. กรุณาลองอีกครั้งในภายหลัง.")
+        else:
+            st.error(f"❌ Google Sheets API Error ขณะโหลด Portfolios: {e_api}")
+        return pd.DataFrame()
     except gspread.exceptions.WorksheetNotFound:
-        st.error(f"❌ ไม่พบ Worksheet ชื่อ '{WORKSHEET_PORTFOLIOS}' ใน Google Sheet '{GOOGLE_SHEET_NAME}'.")
+        st.error(f"❌ ไม่พบ Worksheet ชื่อ '{WORKSHEET_PORTFOLIOS}'. กรุณาสร้างชีตนี้ก่อน")
         return pd.DataFrame()
     except Exception as e:
         st.error(f"❌ เกิดข้อผิดพลาดในการโหลด Portfolios: {e}")
         return pd.DataFrame()
 
 # ===================== SEC 1: PORTFOLIO SELECTION (Sidebar) =======================
-df_portfolios_gs = load_portfolios_from_gsheets() 
+df_portfolios_gs = load_portfolios_from_gsheets()
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("เลือกพอร์ตที่ใช้งาน (Active Portfolio)")
 
-# Initialize session state variables (เหมือนเดิม)
+# Initialize session state variables
 if 'active_portfolio_name_gs' not in st.session_state:
     st.session_state.active_portfolio_name_gs = ""
 if 'active_portfolio_id_gs' not in st.session_state:
     st.session_state.active_portfolio_id_gs = None
-if 'current_portfolio_details' not in st.session_state: 
+if 'current_portfolio_details' not in st.session_state:
     st.session_state.current_portfolio_details = None
+if 'previous_active_portfolio_id_for_reset' not in st.session_state: # For uploader reset logic
+    st.session_state.previous_active_portfolio_id_for_reset = None
 
-# Initialize for comparing portfolio changes (for resetting file uploader)
-if 'previous_portfolio_id_for_file_uploader_reset' not in st.session_state: # ใช้ชื่อ key ใหม่ที่สื่อความหมาย
-    st.session_state.previous_portfolio_id_for_file_uploader_reset = st.session_state.active_portfolio_id_gs
 
-portfolio_names_list_gs = [""] 
+portfolio_names_list_gs = [""]
 if not df_portfolios_gs.empty and 'PortfolioName' in df_portfolios_gs.columns:
     valid_portfolio_names = sorted(df_portfolios_gs['PortfolioName'].dropna().unique().tolist())
     portfolio_names_list_gs.extend(valid_portfolio_names)
@@ -118,62 +112,52 @@ if not df_portfolios_gs.empty and 'PortfolioName' in df_portfolios_gs.columns:
 current_selection_index = 0
 if st.session_state.active_portfolio_name_gs in portfolio_names_list_gs:
     current_selection_index = portfolio_names_list_gs.index(st.session_state.active_portfolio_name_gs)
-else: 
+else:
     st.session_state.active_portfolio_name_gs = portfolio_names_list_gs[0] if portfolio_names_list_gs else ""
     current_selection_index = 0
 
+def portfolio_selection_callback():
+    # This function is called when the selectbox value changes.
+    # It updates the session state for active portfolio.
+    # The rerun triggered by this change will then cause the file_uploader key to update.
+    selected_name = st.session_state.portfolio_selectbox_key # Get value from selectbox's own key
+    st.session_state.active_portfolio_name_gs = selected_name
 
-# ***** START: โค้ดสำหรับรีเซ็ต File Uploader *****
-# Key นี้จะต้องตรงกับ key ของ st.file_uploader ใน SEC 7
-# จากไฟล์ #35 ของคุณ key ของ st.file_uploader ใน SEC 7 คือ "full_stmt_uploader_final_v3"
-# แต่ใน Screenshot ล่าสุดของคุณ (ข้อความ #95) key ใน SEC 7 คือ "full_stmt_uploader_final_v3_sec7_unique_final_corrected_v3"
-# ผมจะใช้ key จาก Screenshot ล่าสุดของคุณนะครับ ถ้าไม่ตรงให้แก้ให้ตรงกัน
-FILE_UPLOADER_KEY_TO_RESET = "full_stmt_uploader_final_v3_sec7_unique_final_corrected_v3" 
-
-def portfolio_changed_callback():
-    # ค่า portfolio ที่ถูกเลือกใหม่จะอยู่ใน st.session_state.portfolio_selector_for_reset_key (ตาม key ของ selectbox ด้านล่าง)
-    newly_selected_portfolio_name = st.session_state.portfolio_selector_for_reset_key 
-    
-    # อัปเดต Portfolio ที่ใช้งานอยู่ก่อน
-    st.session_state.active_portfolio_name_gs = newly_selected_portfolio_name
-    
-    # อัปเดต active_portfolio_id_gs และ current_portfolio_details
-    new_active_portfolio_id = None
-    if st.session_state.active_portfolio_name_gs != "":
+    if selected_name != "":
         if not df_portfolios_gs.empty:
-            selected_portfolio_row_df = df_portfolios_gs[df_portfolios_gs['PortfolioName'] == st.session_state.active_portfolio_name_gs]
-            if not selected_portfolio_row_df.empty:
-                st.session_state.current_portfolio_details = selected_portfolio_row_df.iloc[0].to_dict()
-                new_active_portfolio_id = st.session_state.current_portfolio_details.get('PortfolioID')
+            selected_row_df = df_portfolios_gs[df_portfolios_gs['PortfolioName'] == selected_name]
+            if not selected_row_df.empty:
+                st.session_state.current_portfolio_details = selected_row_df.iloc[0].to_dict()
+                st.session_state.active_portfolio_id_gs = st.session_state.current_portfolio_details.get('PortfolioID')
             else:
                 st.session_state.current_portfolio_details = None
-        else: 
+                st.session_state.active_portfolio_id_gs = None
+        else:
             st.session_state.current_portfolio_details = None
-    else: 
+            st.session_state.active_portfolio_id_gs = None
+    else:
         st.session_state.current_portfolio_details = None
-    
-    st.session_state.active_portfolio_id_gs = new_active_portfolio_id
+        st.session_state.active_portfolio_id_gs = None
 
-    # ตรวจสอบว่า Portfolio ID เปลี่ยนแปลงจริงหรือไม่ แล้วค่อยรีเซ็ต File Uploader
-    if new_active_portfolio_id != st.session_state.previous_portfolio_id_for_file_uploader_reset:
-        if FILE_UPLOADER_KEY_TO_RESET in st.session_state:
-            st.session_state[FILE_UPLOADER_KEY_TO_RESET] = None 
-            if st.session_state.get("debug_statement_processing_v2", False): 
-                st.sidebar.info(f"File uploader '{FILE_UPLOADER_KEY_TO_RESET}' state reset to None due to portfolio ID change.")
-    
-    # เก็บค่า Portfolio ID ปัจจุบันไว้เปรียบเทียบครั้งหน้า
-    st.session_state.previous_portfolio_id_for_file_uploader_reset = new_active_portfolio_id
+    # Check if portfolio ID actually changed, then rerun to reset uploader via dynamic key
+    if st.session_state.active_portfolio_id_gs != st.session_state.previous_active_portfolio_id_for_reset:
+        st.session_state.previous_active_portfolio_id_for_reset = st.session_state.active_portfolio_id_gs
+        st.rerun()
+    # If only name changed but ID is the same (or both None), no need to rerun for uploader reset.
 
 st.sidebar.selectbox(
     "เลือกพอร์ต:",
     options=portfolio_names_list_gs,
-    index=current_selection_index, 
-    key='portfolio_selector_for_reset_key', # Key ใหม่สำหรับ selectbox นี้
-    on_change=portfolio_changed_callback 
+    index=current_selection_index,
+    key='portfolio_selectbox_key', # Widget's own key
+    on_change=portfolio_selection_callback
 )
-# ***** END: โค้ดสำหรับรีเซ็ต File Uploader *****
 
-# ส่วนที่เหลือของ SEC 1 (การแสดงผลข้อมูลพอร์ต)
+# Update previous_portfolio_id_for_reset if it's the first run or if it's not set
+if st.session_state.previous_active_portfolio_id_for_reset is None:
+     st.session_state.previous_active_portfolio_id_for_reset = st.session_state.active_portfolio_id_gs
+
+
 if st.session_state.current_portfolio_details:
     details = st.session_state.current_portfolio_details
     st.sidebar.markdown(f"**💡 ข้อมูลพอร์ต '{details.get('PortfolioName', 'N/A')}'**")
@@ -184,10 +168,11 @@ if st.session_state.current_portfolio_details:
         if pd.notna(details.get('ProfitTargetPercent')): st.sidebar.write(f"- เป้าหมายกำไร: {details['ProfitTargetPercent']:.1f}%")
         if pd.notna(details.get('DailyLossLimitPercent')): st.sidebar.write(f"- Daily Loss Limit: {details['DailyLossLimitPercent']:.1f}%")
         if pd.notna(details.get('TotalStopoutPercent')): st.sidebar.write(f"- Total Stopout: {details['TotalStopoutPercent']:.1f}%")
-elif not df_portfolios_gs.empty and st.session_state.active_portfolio_name_gs == "": # Check active_portfolio_name_gs from session_state
+elif not df_portfolios_gs.empty and st.session_state.active_portfolio_name_gs == "":
      st.sidebar.info("กรุณาเลือกพอร์ตที่ใช้งานจากรายการ")
-elif df_portfolios_gs.empty:
-    st.sidebar.warning("ไม่พบข้อมูล Portfolio ใน Google Sheets หรือเกิดข้อผิดพลาดในการโหลด.")
+elif df_portfolios_gs.empty and gc is not None: # Only show warning if gc was available but no data
+    st.sidebar.warning("ไม่พบข้อมูล Portfolio หรือเกิดข้อผิดพลาดในการโหลด.")
+
 
 # ===================== SEC 1.5: PORTFOLIO MANAGEMENT UI (Main Area) =======================
 def on_program_type_change_v8():
@@ -1616,16 +1601,8 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
     st.markdown("### 📊 จัดการ Statement และข้อมูลดิบ")
 
     # --- ฟังก์ชันสำหรับแยกข้อมูลจากเนื้อหาไฟล์ Statement (CSV) ---
-    # [!!! ใช้ฟังก์ชัน extract_data_from_report_content ที่แก้ไขล่าสุดจาก #75 ของคุณตรงนี้นะครับ !!!]
-    # (ฟังก์ชันนี้ควรจะกรองแถว "balance" และแถวที่ไม่สมบูรณ์สำหรับ Deals ออกไปแล้ว)
     def extract_data_from_report_content(file_content_str_input):
         extracted_data = {}
-        # ... (โค้ดทั้งหมดของฟังก์ชัน extract_data_from_report_content จาก #75) ...
-        # ตรวจสอบให้แน่ใจว่า return extracted_data ที่มี keys:
-        # 'deals', 'orders', 'positions', 'balance_summary', 'results_summary'
-        # และ DataFrame 'deals' ได้ผ่านการกรองแถวที่ไม่ต้องการออกไปแล้ว
-        
-        # --- START: ส่วนที่คัดลอกมาจากโค้ดของคุณใน #35 (แต่มีการแก้ไขการกรอง Deals ใน #75) ---
         def safe_float_convert(value_str):
             if isinstance(value_str, (int, float)): return value_str
             try:
@@ -1641,9 +1618,9 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
         elif isinstance(file_content_str_input, bytes): lines = file_content_str_input.decode('utf-8', errors='replace').strip().split('\n')
         else:
             st.error("Error: Invalid file_content type for processing in extract_data_from_report_content.")
-            return extracted_data 
+            return extracted_data
         
-        if not lines: 
+        if not lines:
             st.warning("Warning: File content is empty after splitting lines in extract_data_from_report_content.")
             return extracted_data
 
@@ -1680,44 +1657,33 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
                     if next_table_section_name in section_header_indices:
                         data_end_line_num = section_header_indices[next_table_section_name]; break
                 
-                current_table_data_lines = [] # Renamed from current_table_data_lines_after_string_filter
-
-                if st.session_state.get("debug_statement_processing_v2", False) and section_name == "Deals":
-                    st.write(f"--- DEBUG [extract_data]: Raw lines being considered for SECTION: {section_name} ---")
+                current_table_data_lines = []
                 
                 for line_num_for_data in range(data_start_line_num, data_end_line_num):
                     line_content_for_data = lines[line_num_for_data].strip()
-                    
                     if not line_content_for_data:
                         if any(current_table_data_lines): break
                         else: continue
                     if line_content_for_data.startswith(("Balance:", "Credit Facility:", "Floating P/L:", "Equity:", "Results", "Total Net Profit:")): break
-                    
-                    is_another_header_line = False
+                    is_another_header = False
                     for other_sec_name, other_raw_hdr in section_raw_headers.items():
                         if other_sec_name != section_name and line_content_for_data.startswith(other_raw_hdr.split(',')[0]) and other_raw_hdr in line_content_for_data:
-                            is_another_header_line = True; break
-                    if is_another_header_line: break
+                            is_another_header = True; break
+                    if is_another_header: break
                     
-                    # ***** START ACTUAL STRING-LEVEL FILTERING FOR "Deals" SECTION (from #75) *****
                     if section_name == "Deals":
                         cols_in_line = [col.strip() for col in line_content_for_data.split(',')]
-                        
                         is_balance_type_row = False
-                        if len(cols_in_line) > 3 and "balance" in cols_in_line[3].lower(): # Check Type_Deal (index 3)
+                        if len(cols_in_line) > 3 and "balance" in cols_in_line[3].lower():
                             is_balance_type_row = True
-                        
                         missing_essential_identifiers = False
-                        if len(cols_in_line) < 3: 
+                        if len(cols_in_line) < 3: missing_essential_identifiers = True
+                        elif not cols_in_line[0] or not cols_in_line[1] or not cols_in_line[2]:
                             missing_essential_identifiers = True
-                        elif not cols_in_line[0] or not cols_in_line[1] or not cols_in_line[2]: # Time_Deal, Deal_ID, or Symbol_Deal is empty
-                            missing_essential_identifiers = True
-
                         if is_balance_type_row or missing_essential_identifiers:
                             if st.session_state.get("debug_statement_processing_v2", False):
                                 st.write(f"DEBUG [extract_data]: SKIPPING Deals line: '{line_content_for_data}' (Balance Type: {is_balance_type_row}, Missing Identifiers: {missing_essential_identifiers})")
                             continue 
-                    # ***** END ACTUAL STRING-LEVEL FILTERING FOR "Deals" SECTION *****
                         
                     current_table_data_lines.append(line_content_for_data)
 
@@ -1737,7 +1703,6 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
                             if col not in df_section.columns: df_section[col] = ""
                         df_section = df_section[final_cols]
 
-                        # Secondary DataFrame-level filtering (can be removed if string filtering is sufficient)
                         if section_name == "Deals" and not df_section.empty:
                              if "Symbol_Deal" in df_section.columns: 
                                  df_section = df_section[df_section["Symbol_Deal"].astype(str).str.strip() != ""]
@@ -1750,45 +1715,7 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
                     except Exception as e_parse_df:
                         if st.session_state.get("debug_statement_processing_v2", False):
                             st.error(f"Error parsing table data for {section_name}: {e_parse_df}")
-                            st.text(f"Problematic CSV data for {section_name}:\n{csv_data_str[:500]}")
-                         # ***** START NEW/REVISED Deal Filtering Logic *****
-                    if section_name == "Deals" and not df_section.empty:
-                        original_deal_rows = len(df_section) # สำหรับ Debug
-
-                        # เงื่อนไขที่ 1: กรองแถวที่ Type_Deal เป็น "balance" ออกไปก่อน
-                        condition_is_not_balance_type = pd.Series([True] * len(df_section), index=df_section.index)
-                        if "Type_Deal" in df_section.columns:
-                            is_balance = df_section["Type_Deal"].astype(str).str.strip().str.lower() == "balance"
-                            condition_is_not_balance_type = ~is_balance # เอาเฉพาะแถวที่ไม่ใช่ balance
-
-                        df_section_filtered_type = df_section[condition_is_not_balance_type]
-
-                        # เงื่อนไขที่ 2: กรองแถวที่ขาดข้อมูลสำคัญในคอลัมน์ Time_Deal, Deal_ID, Symbol_Deal ออกจากผลลัพธ์ของการกรองแรก
-                        essential_identifiers_for_valid_deal = ["Time_Deal", "Deal_ID", "Symbol_Deal"]
-                        valid_identifiers_mask = pd.Series([True] * len(df_section_filtered_type), index=df_section_filtered_type.index)
-
-                        for col_name in essential_identifiers_for_valid_deal:
-                            if col_name in df_section_filtered_type.columns:
-                                valid_identifiers_mask &= (df_section_filtered_type[col_name].astype(str).str.strip() != "")
-                            else:
-                                # ถ้าคอลัมน์สำคัญนี้ไม่มีอยู่ ให้ถือว่าทุกแถวที่เหลือไม่ผ่าน
-                                if st.session_state.get("debug_statement_processing_v2", False):
-                                    st.warning(f"DEBUG: Essential identifier column '{col_name}' for Deals not found in DataFrame after type filtering. All remaining Deals might be filtered out.")
-                                valid_identifiers_mask = pd.Series([False] * len(df_section_filtered_type), index=df_section_filtered_type.index)
-                                break 
-
-                        df_section = df_section_filtered_type[valid_identifiers_mask] # นำผลการกรองทั้งสองเงื่อนไขมาใช้
-
-                        if st.session_state.get("debug_statement_processing_v2", False):
-                            st.write(f"DEBUG: Deals DataFrame original rows before any specific Deal filtering: {original_deal_rows}")
-                            st.write(f"DEBUG: Deals DataFrame after filtering 'balance' type and empty essential identifiers ({len(df_section)} rows left):")
-                            
-                            if not df_section.empty:
-                                st.dataframe(df_section.head())
-                            else:
-                                st.write("No Deals left after these filters.")
-                    # ***** END NEW/REVISED Deal Filtering Logic *****
-                    
+        
         balance_summary_dict = {}
         balance_start_line_idx = -1
         for i, line in enumerate(lines):
@@ -1863,34 +1790,32 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
         extracted_data['balance_summary'] = balance_summary_dict
         extracted_data['results_summary'] = results_summary_dict
         return extracted_data
-    # --- END: ฟังก์ชัน extract_data_from_report_content (ที่แก้ไขแล้ว) ---
+    # --- END: ฟังก์ชัน extract_data_from_report_content ---
 
     # --- START: ฟังก์ชันใหม่/แก้ไข สำหรับบันทึกข้อมูลพร้อม Deduplication และ Header Handling ---
-    # (ฟังก์ชันนี้จะถูกเรียกโดย save_deals_to_actual_trades, save_orders_to_gsheets, save_positions_to_gsheets)
     def save_transactional_data_to_gsheets(ws, df_input, unique_id_col, expected_headers, data_type_name, portfolio_id, portfolio_name, source_file_name="N/A", import_batch_id="N/A"):
         if df_input is None or df_input.empty:
-            return True, 0, 0 # No data to process, count as success with 0 new/skipped
+            return True, 0, 0
         try:
-            if ws is None: 
+            if ws is None:
                 st.error(f"({data_type_name}) Worksheet object is None. Cannot proceed.")
                 return False, 0, 0
 
             current_headers = []
-            header_check_successful = False
+            header_check_successful = False # Flag to see if header read was successful
             if ws.row_count > 0:
                 try:
                     current_headers = ws.row_values(1)
                     header_check_successful = True
                 except gspread.exceptions.APIError as e_api_header:
-                    if e_api_header.response.status_code == 429: # Quota error
+                    if hasattr(e_api_header, 'response') and e_api_header.response.status_code == 429: # Quota error
                         st.warning(f"Quota exceeded while trying to get headers for '{ws.title}'. Will proceed assuming headers might need update.")
-                        current_headers = [] # Assume headers need update if quota hit
-                    else: raise # Re-raise other API errors
+                    else: st.warning(f"API error getting headers for '{ws.title}': {e_api_header}. Will proceed assuming headers might need update.")
+                    current_headers = [] 
                 except Exception as e_get_header:
                     st.warning(f"Could not get header for '{ws.title}': {e_get_header}. Will attempt to write/update headers.")
                     current_headers = []
             
-            # Ensure headers are correct
             if not header_check_successful or not current_headers or all(h == "" for h in current_headers) or set(current_headers) != set(expected_headers):
                 try:
                     ws.update([expected_headers], value_input_option='USER_ENTERED')
@@ -1900,12 +1825,9 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
                     return False, 0, 0
 
             existing_ids = set()
-            if ws.row_count > 1: # Only fetch if there's data beyond a potential header
+            if ws.row_count > 1: 
                 try:
-                    all_sheet_records = ws.get_all_records(
-                        expected_headers=expected_headers,
-                        numericise_ignore=['all'] 
-                    )
+                    all_sheet_records = ws.get_all_records(expected_headers=expected_headers, numericise_ignore=['all'])
                     if all_sheet_records:
                         df_existing_sheet_data = pd.DataFrame(all_sheet_records)
                         if unique_id_col in df_existing_sheet_data.columns and 'PortfolioID' in df_existing_sheet_data.columns:
@@ -1914,25 +1836,21 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
                             if not df_portfolio_data.empty and unique_id_col in df_portfolio_data.columns:
                                 existing_ids = set(df_portfolio_data[unique_id_col].astype(str).str.strip().tolist())
                 except gspread.exceptions.APIError as e_api_get_all:
-                    if e_api_get_all.response.status_code == 429: 
+                    if hasattr(e_api_get_all, 'response') and e_api_get_all.response.status_code == 429: 
                         st.warning(f"Quota exceeded while trying to get existing records from '{ws.title}' for {data_type_name}. Deduplication might be incomplete for this run.")
-                        existing_ids = set() 
                     else: 
                         st.warning(f"API error (not Quota) getting existing records from '{ws.title}' for {data_type_name} ({e_api_get_all}). Proceeding with empty existing_ids.")
-                        existing_ids = set()
+                    existing_ids = set()
                 except Exception as e_get_records:
                     st.warning(f"Could not reliably get existing records from '{ws.title}' for {data_type_name} ({e_get_records}). Proceeding assuming no initial duplicates for this run.")
                     existing_ids = set()
-            else: 
-                 if st.session_state.get("debug_statement_processing_v2", False) :
+            elif st.session_state.get("debug_statement_processing_v2", False) : # ws.row_count <= 1
                     st.write(f"DEBUG ({ws.title}): Sheet has only header or is empty. Skipping get_all_records for {data_type_name}.")
 
-
             df_to_check = df_input.copy()
-            # Ensure unique_id_col exists before trying to use it for deduplication
             if unique_id_col not in df_to_check.columns:
                 st.error(f"Unique ID column '{unique_id_col}' is MISSING from the data extracted for '{data_type_name}'. All data will be treated as new.")
-                new_df = df_to_check # Treat all as new if ID column is missing
+                new_df = df_to_check 
             else:
                 df_to_check[unique_id_col] = df_to_check[unique_id_col].astype(str).str.strip()
                 new_df = df_to_check[~df_to_check[unique_id_col].isin(existing_ids)]
@@ -1957,19 +1875,14 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
 
             df_to_save = pd.DataFrame(columns=expected_headers)
             for col in expected_headers:
-                if col in new_df.columns:
-                    df_to_save[col] = new_df[col]
-            
+                if col in new_df.columns: df_to_save[col] = new_df[col]
             df_to_save["PortfolioID"] = str(portfolio_id)
             df_to_save["PortfolioName"] = str(portfolio_name)
             df_to_save["SourceFile"] = str(source_file_name)
             df_to_save["ImportBatchID"] = str(import_batch_id)
-            
             for col in expected_headers:
-                if col not in df_to_save.columns:
-                    df_to_save[col] = ""
+                if col not in df_to_save.columns: df_to_save[col] = ""
             df_to_save = df_to_save[expected_headers]
-
             list_of_lists = df_to_save.astype(str).replace('nan', '').replace('None','').fillna("").values.tolist()
 
             if list_of_lists:
@@ -1984,8 +1897,6 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
             st.exception(e)
             return False, 0, 0
 
-    # --- ฟังก์ชัน save_deals_to_actual_trades, save_orders_to_gsheets, save_positions_to_gsheets ---
-    # (ปรับให้รับ ws และส่ง import_batch_id)
     def save_deals_to_actual_trades(ws, df_deals_input, portfolio_id, portfolio_name, source_file_name="N/A", import_batch_id="N/A"):
         expected_headers_deals = ["Time_Deal", "Deal_ID", "Symbol_Deal", "Type_Deal", "Direction_Deal", "Volume_Deal", "Price_Deal", "Order_ID_Deal", "Commission_Deal", "Fee_Deal", "Swap_Deal", "Profit_Deal", "Balance_Deal", "Comment_Deal", "PortfolioID", "PortfolioName", "SourceFile", "ImportBatchID"]
         return save_transactional_data_to_gsheets(ws, df_deals_input, "Deal_ID", expected_headers_deals, "Deals", portfolio_id, portfolio_name, source_file_name, import_batch_id)
@@ -1998,7 +1909,6 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
         expected_headers_positions = ["Time", "Position", "Symbol", "Type", "Volume", "Price", "S_L", "T_P", "Close_Time_Pos", "Close_Price_Pos", "Commission_Pos", "Swap_Pos", "Profit_Pos", "PortfolioID", "PortfolioName", "SourceFile", "ImportBatchID"]
         return save_transactional_data_to_gsheets(ws, df_positions_input, "Position", expected_headers_positions, "Positions", portfolio_id, portfolio_name, source_file_name, import_batch_id)
     
-    # --- ฟังก์ชัน save_results_summary_to_gsheets (ปรับให้รับ ws และมีการตรวจสอบเนื้อหาซ้ำ) ---
     def save_results_summary_to_gsheets(ws, balance_summary_data, results_summary_data, portfolio_id, portfolio_name, source_file_name="N/A", import_batch_id="N/A"):
         try:
             if ws is None:
@@ -2062,9 +1972,9 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
                             existing_summary_fingerprint = tuple(existing_summary_comparable_values)
                             if existing_summary_fingerprint == new_summary_fingerprint:
                                 st.info(f"({ws.title}) ข้อมูล Summary ที่มีเนื้อหาเหมือนกันสำหรับพอร์ต '{portfolio_name}' นี้มีอยู่แล้ว จะไม่บันทึกซ้ำ (ImportBatchID ปัจจุบัน: {import_batch_id})")
-                                return True # Indicate operation was 'successful' in the sense that it behaved as expected (skipped duplicate)
-                except gspread.exceptions.APIError as e_api_get_sum: # Catch API error during get_all_records
-                    if e_api_get_sum.response.status_code == 429: # Quota error
+                                return True 
+                except gspread.exceptions.APIError as e_api_get_sum: 
+                    if hasattr(e_api_get_sum, 'response') and e_api_get_sum.response.status_code == 429: 
                         st.warning(f"Quota exceeded while trying to get existing summaries from '{ws.title}' for content check. Proceeding with append for this run.")
                     else:
                         st.warning(f"API error getting existing summaries from '{ws.title}' for content check ({e_api_get_sum}). Proceeding with append.")
@@ -2085,18 +1995,19 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
 
     st.markdown("---")
     st.subheader("📤 อัปโหลด Statement Report (CSV) เพื่อประมวลผลและบันทึก")
-
-    # --- START: กำหนด key สำหรับ File Uploader และสร้าง File Uploader ---
+    
+    # --- START: กำหนด key สำหรับ File Uploader ---
     # Key นี้จะต้องตรงกับ FILE_UPLOADER_KEY_CONSTANT ที่คุณจะใช้ใน SEC 1 (สำหรับฟังก์ชัน handle_portfolio_selection_change)
-    # เพื่อให้การรีเซ็ต File Uploader ทำงานได้ถูกต้องเมื่อมีการเปลี่ยน Portfolio
-    FILE_UPLOADER_WIDGET_KEY = "statement_file_uploader_main_key" 
+    # หรือถ้าคุณใช้วิธี dynamic key ตาม portfolio_id ก็ให้ใช้แบบนั้น
+    # เพื่อความง่าย ผมจะใช้ key ที่ตายตัวไปก่อน และคุณต้องแน่ใจว่า SEC 1 ก็ใช้ key นี้ในการรีเซ็ต
+    FILE_UPLOADER_WIDGET_KEY = "statement_file_uploader_main_key_v2" # เพิ่ม _v2 เพื่อให้แน่ใจว่าเป็น key ใหม่
     
     uploaded_file_statement = st.file_uploader( 
         "ลากและวางไฟล์ Statement Report (CSV) ที่นี่ หรือคลิกเพื่อเลือกไฟล์",
         type=["csv"],
-        key=FILE_UPLOADER_WIDGET_KEY # <--- ใช้ key ที่กำหนดนี้เพียงครั้งเดียว
+        key=FILE_UPLOADER_WIDGET_KEY 
     )
-    # --- END: กำหนด key สำหรับ File Uploader และสร้าง File Uploader ---
+    # --- END: กำหนด key สำหรับ File Uploader ---
 
     st.checkbox("⚙️ เปิดโหมด Debug (แสดงข้อมูลที่แยกได้)", value=False, key="debug_statement_processing_v2")
     
@@ -2131,7 +2042,7 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
         # --- START: โค้ดสำหรับเปิด/สร้าง Worksheet อัตโนมัติ และจัดการ Header ---
         ws_dict = {}
         default_sheet_specs = {"rows": "100", "cols": "26"} 
-        if 'WORKSHEET_UPLOAD_HISTORY' not in globals(): WORKSHEET_UPLOAD_HISTORY = "UploadHistory" # Ensure defined
+        if 'WORKSHEET_UPLOAD_HISTORY' not in globals(): WORKSHEET_UPLOAD_HISTORY = "UploadHistory" 
 
         worksheet_definitions = {
             WORKSHEET_UPLOAD_HISTORY: {"rows": "1000", "cols": "10", "headers": ["UploadTimestamp", "PortfolioID", "PortfolioName", "FileName", "FileSize", "FileHash", "Status", "ImportBatchID", "Notes"]},
@@ -2191,7 +2102,7 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
         import_batch_id = str(uuid.uuid4()) 
         current_upload_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
-        is_duplicate_file_found = False # This is the file-level check
+        is_duplicate_file_found = False 
         try:
             history_records = ws_dict[WORKSHEET_UPLOAD_HISTORY].get_all_records(numericise_ignore=['all'])
             for record in history_records:
@@ -2202,7 +2113,7 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
                    record_file_size_val == file_size_for_saving and \
                    (not file_hash_for_saving or record.get("FileHash","") == file_hash_for_saving or file_hash_for_saving.startswith("hash_")) and \
                    str(record.get("Status","")).startswith("Success"):
-                    is_duplicate_file_found = True; break # Found a previous successful upload of the same file
+                    is_duplicate_file_found = True; break 
         except Exception as e_hist_read:
             st.warning(f"Could not read UploadHistory for duplicate file check: {e_hist_read}")
 
@@ -2270,7 +2181,7 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
                 summary_save_ok = True 
 
                 should_save_summary_now = True
-                if is_duplicate_file_found and not any_new_transactional_data_added: # File-level duplicate AND no new transactions
+                if is_duplicate_file_found and not any_new_transactional_data_added: 
                     st.info(f"({WORKSHEET_STATEMENT_SUMMARIES}) ข้ามการบันทึก Summary เนื่องจากไฟล์นี้เป็นไฟล์ซ้ำที่เคยประมวลผลสำเร็จแล้ว และไม่พบข้อมูล Deals/Orders/Positions ใหม่จากการประมวลผลไฟล์ครั้งนี้")
                     save_results_details['Summary'] = {'ok': True, 'status': 'skipped_duplicate_file_no_new_transactions', 'notes': "Summary: Skipped (duplicate file with no new transactional data)."}
                     should_save_summary_now = False
@@ -2278,18 +2189,14 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
                 if should_save_summary_now:
                     if balance_summary or results_summary_data_ext:
                         summary_save_attempted = True
-                        summary_ok = save_results_summary_to_gsheets( # This function now returns only True/False
+                        summary_ok = save_results_summary_to_gsheets( 
                             ws_dict[WORKSHEET_STATEMENT_SUMMARIES], balance_summary, results_summary_data_ext, 
                             active_portfolio_id_for_actual, active_portfolio_name_for_actual, 
                             file_name_for_saving, import_batch_id
                         )
-                        # The st.info for skipping due to content duplicate is now INSIDE save_results_summary_to_gsheets
                         save_results_details['Summary'] = {'ok': summary_ok, 'status': 'processed', 'notes': f"Summary: Processed, Success={summary_ok}"}
                         if summary_ok: 
-                             # Check if it was truly appended or skipped by content deduplication (which still returns True from save_results_summary_to_gsheets)
-                             # This requires save_results_summary_to_gsheets to return more info, or we infer from messages.
-                             # For now, if it's ok, we assume it was either appended or intentionally skipped by content check.
-                             if not (is_duplicate_file_found and not any_new_transactional_data_added): # Only show "ดำเนินการสำเร็จ" if it wasn't skipped by outer logic
+                             if not (is_duplicate_file_found and not any_new_transactional_data_added): 
                                 st.write(f"✔️ ({WORKSHEET_STATEMENT_SUMMARIES}) Summary Data: ดำเนินการสำเร็จ")
                         else: 
                             st.error(f"❌ ({WORKSHEET_STATEMENT_SUMMARIES}) Summary Data: การบันทึกล้มเหลว")
@@ -2309,67 +2216,26 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
         
         except UnicodeDecodeError as e_decode_main:
             st.error(f"เกิดข้อผิดพลาดในการ Decode ไฟล์หลัก: {e_decode_main}.")
-            overall_processing_successful = False
-            save_results_details['MainError'] = {'ok': False, 'notes': f"UnicodeDecodeError: {e_decode_main}"}
+            overall_processing_successful = False; save_results_details['MainError'] = {'ok': False, 'notes': f"UnicodeDecodeError: {e_decode_main}"}
         except gspread.exceptions.APIError as e_api_main: 
             st.error(f"❌ Google Sheets API Error (Main Processing): {e_api_main}.")
-            overall_processing_successful = False
-            save_results_details['MainError'] = {'ok': False, 'notes': f"APIError: {e_api_main}"}
+            overall_processing_successful = False; save_results_details['MainError'] = {'ok': False, 'notes': f"APIError: {e_api_main}"}
         except Exception as e_main:
             st.error(f"เกิดข้อผิดพลาดระหว่างประมวลผลหลัก: {type(e_main).__name__} - {str(e_main)[:200]}...")
-            overall_processing_successful = False
-            save_results_details['MainError'] = {'ok': False, 'notes': f"MainError: {type(e_main).__name__} - {str(e_main)[:100]}"}
+            overall_processing_successful = False; save_results_details['MainError'] = {'ok': False, 'notes': f"MainError: {type(e_main).__name__} - {str(e_main)[:100]}"}
         
-        # ***** START MODIFICATION: Refine final status and user messages *****
         final_processing_notes_list = [res.get('notes', '') for res in save_results_details.values() if res.get('notes')]
         final_notes_str = " | ".join(filter(None, final_processing_notes_list))[:49999] if final_processing_notes_list else "Processing complete."
 
-        final_status = "Failed" # Default to Failed
-        user_message = "การประมวลผลไฟล์ล้มเหลว"
-
+        final_status = "Failed" 
         if overall_processing_successful:
-            summary_status = save_results_details.get('Summary', {}).get('status', 'unknown')
-            
-            if any_new_transactional_data_added or summary_status == 'saved':
-                final_status = "Success"
-                user_message = "ประมวลผลไฟล์สำเร็จและมีการเพิ่มข้อมูลใหม่!"
-                if any_new_transactional_data_added and summary_status == 'skipped_duplicate_content':
-                     user_message = "ประมวลผลไฟล์สำเร็จ มีการเพิ่มข้อมูล Deals/Orders/Positions ใหม่ แต่ข้าม Summary ที่มีเนื้อหาซ้ำ"
-                elif not any_new_transactional_data_added and summary_status == 'saved':
-                     user_message = "ประมวลผลไฟล์สำเร็จ ข้อมูล Deals/Orders/Positions ซ้ำทั้งหมด แต่มีการบันทึก Summary ใหม่"
-
-            elif is_duplicate_file_found and not any_new_transactional_data_added and \
-                 (summary_status == 'skipped_duplicate_file_no_new_transactions' or summary_status == 'skipped_duplicate_content'):
+            if any_new_transactional_data_added or (save_results_details.get('Summary', {}).get('ok') and save_results_details.get('Summary',{}).get('status') != 'skipped_duplicate_file_no_new_transactions' and save_results_details.get('Summary',{}).get('status') != 'no_data_to_save'):
+                 final_status = "Success"
+            elif is_duplicate_file_found and not any_new_transactional_data_added and save_results_details.get('Summary', {}).get('status') == 'skipped_duplicate_file_no_new_transactions': 
                 final_status = "Success_DuplicateFile_NoNewRecords"
-                user_message = f"ไฟล์ '{file_name_for_saving}' เป็นไฟล์ซ้ำที่เคยประมวลผลสำเร็จแล้ว และไม่พบรายการข้อมูลใหม่ที่จะเพิ่ม (รวมถึง Summary ที่ถูกข้ามไป)"
-            
-            elif not any_new_transactional_data_added and summary_status == 'no_data_to_save':
-                final_status = "Success_NoNewRecords"
-                user_message = "ประมวลผลไฟล์สำเร็จ แต่ไม่พบข้อมูลใหม่ที่จะเพิ่ม (ข้อมูล Deals/Orders/Positions อาจซ้ำทั้งหมด และไม่มีข้อมูล Summary ในไฟล์)"
-            
-            elif not any_new_transactional_data_added and summary_status == 'skipped_duplicate_content':
-                 final_status = "Success_NoNewRecords" # Or a more specific status
-                 user_message = "ประมวลผลไฟล์สำเร็จ ข้อมูล Deals/Orders/Positions ซ้ำทั้งหมด และข้าม Summary ที่มีเนื้อหาซ้ำ"
-            else: # Should cover cases like: new file, but all transactional data was duplicate, and no summary data in file
-                final_status = "Success_NoNewRecords"
-                user_message = "ประมวลผลไฟล์สำเร็จ แต่ไม่พบข้อมูลใหม่ที่จะเพิ่ม (ข้อมูลทั้งหมดอาจมีอยู่แล้ว หรือไฟล์ไม่มีข้อมูลส่วนที่เกี่ยวข้อง)"
-
-            # Display the refined user message
-            if final_status.startswith("Success"):
-                if "มีการเพิ่มข้อมูลใหม่" in user_message:
-                    st.balloons()
-                    st.success(user_message)
-                else:
-                    st.info(user_message)
-            # else: # Failure case message already handled by st.error in try-except block
-            #    pass
-
-        # Update UploadHistory with the final status and notes
+            else: final_status = "Success_NoNewRecords"
+        
         try:
-            # import time # Ensure time is imported
-            # if st.session_state.get("debug_statement_processing_v2", False): st.write("DEBUG: Pausing 1s before updating UploadHistory status...")
-            # time.sleep(1) 
-
             history_rows_for_update = ws_dict[WORKSHEET_UPLOAD_HISTORY].get_all_values() 
             row_to_update_idx = None
             for idx_update, row_val_update in reversed(list(enumerate(history_rows_for_update))):
@@ -2384,7 +2250,6 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
                 st.info(f"อัปเดตสถานะ ImportBatchID '{import_batch_id}' เป็น '{final_status}' ใน {WORKSHEET_UPLOAD_HISTORY}")
             else: st.warning(f"ไม่พบ ImportBatchID '{import_batch_id}' ใน {WORKSHEET_UPLOAD_HISTORY} เพื่ออัปเดตสถานะสุดท้าย.")
         except Exception as e_update_hist: st.warning(f"ไม่สามารถอัปเดตสถานะสุดท้ายใน {WORKSHEET_UPLOAD_HISTORY} ({import_batch_id}): {e_update_hist}")
-    # ***** END MODIFICATION *****
     else: 
         if uploaded_file_statement is not None: pass 
     st.markdown("---")
