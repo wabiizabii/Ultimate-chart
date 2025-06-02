@@ -1802,7 +1802,7 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
                     if is_another_header: break
                     
                     # ***** START MODIFICATION: Filter "balance" rows for Deals BEFORE adding to current_table_data_lines *****
-                    f section_name == "Deals" and not df_section.empty:
+                    if section_name == "Deals" and not df_section.empty:
                             original_deal_rows = len(df_section)
                             
                             # Define essential columns that MUST have data for a valid deal
