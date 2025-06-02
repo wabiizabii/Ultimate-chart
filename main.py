@@ -107,66 +107,71 @@ if 'current_portfolio_details' not in st.session_state:
     st.session_state.current_portfolio_details = None
 
 # Initialize for comparing portfolio changes (for resetting file uploader)
-if 'active_portfolio_name_gs_before_change' not in st.session_state:
-    st.session_state.active_portfolio_name_gs_before_change = st.session_state.active_portfolio_name_gs
+if 'previous_portfolio_id_for_file_uploader_reset' not in st.session_state: # ใช้ชื่อ key ใหม่ที่สื่อความหมาย
+    st.session_state.previous_portfolio_id_for_file_uploader_reset = st.session_state.active_portfolio_id_gs
 
 portfolio_names_list_gs = [""] 
 if not df_portfolios_gs.empty and 'PortfolioName' in df_portfolios_gs.columns:
     valid_portfolio_names = sorted(df_portfolios_gs['PortfolioName'].dropna().unique().tolist())
     portfolio_names_list_gs.extend(valid_portfolio_names)
 
-# Ensure current selection is valid if list changes
 current_selection_index = 0
 if st.session_state.active_portfolio_name_gs in portfolio_names_list_gs:
     current_selection_index = portfolio_names_list_gs.index(st.session_state.active_portfolio_name_gs)
-else: # If current selection is not in the list (e.g. after a portfolio was deleted or list is empty)
+else: 
     st.session_state.active_portfolio_name_gs = portfolio_names_list_gs[0] if portfolio_names_list_gs else ""
-    # current_selection_index remains 0 or should be re-evaluated if list is not empty
+    current_selection_index = 0
 
-# Key ของ File Uploader ที่คุณจะกำหนดใน SEC 7 (ต้องตรงกัน)
-FILE_UPLOADER_WIDGET_KEY = "statement_file_uploader_main_key" 
 
-def handle_portfolio_selection_change():
-    newly_selected_portfolio_name = st.session_state.portfolio_selector_widget_key # Use the selectbox's key
+# ***** START: โค้ดสำหรับรีเซ็ต File Uploader *****
+# Key นี้จะต้องตรงกับ key ของ st.file_uploader ใน SEC 7
+# จากไฟล์ #35 ของคุณ key ของ st.file_uploader ใน SEC 7 คือ "full_stmt_uploader_final_v3"
+# แต่ใน Screenshot ล่าสุดของคุณ (ข้อความ #95) key ใน SEC 7 คือ "full_stmt_uploader_final_v3_sec7_unique_final_corrected_v3"
+# ผมจะใช้ key จาก Screenshot ล่าสุดของคุณนะครับ ถ้าไม่ตรงให้แก้ให้ตรงกัน
+FILE_UPLOADER_KEY_TO_RESET = "full_stmt_uploader_final_v3_sec7_unique_final_corrected_v3" 
 
-    # Check if the portfolio selection has actually changed
-    if newly_selected_portfolio_name != st.session_state.active_portfolio_name_gs_before_change:
-        if FILE_UPLOADER_WIDGET_KEY in st.session_state:
-            st.session_state[FILE_UPLOADER_WIDGET_KEY] = None 
-            if st.session_state.get("debug_statement_processing_v2", False): 
-                st.sidebar.info(f"File uploader '{FILE_UPLOADER_WIDGET_KEY}' state reset to None.")
+def portfolio_changed_callback():
+    # ค่า portfolio ที่ถูกเลือกใหม่จะอยู่ใน st.session_state.portfolio_selector_for_reset_key (ตาม key ของ selectbox ด้านล่าง)
+    newly_selected_portfolio_name = st.session_state.portfolio_selector_for_reset_key 
     
-    # Update active portfolio based on the new selection
+    # อัปเดต Portfolio ที่ใช้งานอยู่ก่อน
     st.session_state.active_portfolio_name_gs = newly_selected_portfolio_name
     
-    # Update details based on the new active_portfolio_name_gs
+    # อัปเดต active_portfolio_id_gs และ current_portfolio_details
+    new_active_portfolio_id = None
     if st.session_state.active_portfolio_name_gs != "":
         if not df_portfolios_gs.empty:
             selected_portfolio_row_df = df_portfolios_gs[df_portfolios_gs['PortfolioName'] == st.session_state.active_portfolio_name_gs]
             if not selected_portfolio_row_df.empty:
                 st.session_state.current_portfolio_details = selected_portfolio_row_df.iloc[0].to_dict()
-                st.session_state.active_portfolio_id_gs = st.session_state.current_portfolio_details.get('PortfolioID')
-            else: # Should not happen if name is in list, but good for safety
-                st.session_state.active_portfolio_id_gs = None
+                new_active_portfolio_id = st.session_state.current_portfolio_details.get('PortfolioID')
+            else:
                 st.session_state.current_portfolio_details = None
-        else: # df_portfolios_gs is empty
-            st.session_state.active_portfolio_id_gs = None
+        else: 
             st.session_state.current_portfolio_details = None
-    else: # No portfolio selected (empty string)
-        st.session_state.active_portfolio_id_gs = None
+    else: 
         st.session_state.current_portfolio_details = None
+    
+    st.session_state.active_portfolio_id_gs = new_active_portfolio_id
 
-    # Update the 'before_change' state for the next comparison AFTER all updates are done
-    st.session_state.active_portfolio_name_gs_before_change = newly_selected_portfolio_name
-
+    # ตรวจสอบว่า Portfolio ID เปลี่ยนแปลงจริงหรือไม่ แล้วค่อยรีเซ็ต File Uploader
+    if new_active_portfolio_id != st.session_state.previous_portfolio_id_for_file_uploader_reset:
+        if FILE_UPLOADER_KEY_TO_RESET in st.session_state:
+            st.session_state[FILE_UPLOADER_KEY_TO_RESET] = None 
+            if st.session_state.get("debug_statement_processing_v2", False): 
+                st.sidebar.info(f"File uploader '{FILE_UPLOADER_KEY_TO_RESET}' state reset to None due to portfolio ID change.")
+    
+    # เก็บค่า Portfolio ID ปัจจุบันไว้เปรียบเทียบครั้งหน้า
+    st.session_state.previous_portfolio_id_for_file_uploader_reset = new_active_portfolio_id
 
 st.sidebar.selectbox(
     "เลือกพอร์ต:",
     options=portfolio_names_list_gs,
-    index=current_selection_index, # Use pre-calculated index
-    key='portfolio_selector_widget_key', # Key for this selectbox widget
-    on_change=handle_portfolio_selection_change 
+    index=current_selection_index, 
+    key='portfolio_selector_for_reset_key', # Key ใหม่สำหรับ selectbox นี้
+    on_change=portfolio_changed_callback 
 )
+# ***** END: โค้ดสำหรับรีเซ็ต File Uploader *****
 
 # ส่วนที่เหลือของ SEC 1 (การแสดงผลข้อมูลพอร์ต)
 if st.session_state.current_portfolio_details:
@@ -179,143 +184,10 @@ if st.session_state.current_portfolio_details:
         if pd.notna(details.get('ProfitTargetPercent')): st.sidebar.write(f"- เป้าหมายกำไร: {details['ProfitTargetPercent']:.1f}%")
         if pd.notna(details.get('DailyLossLimitPercent')): st.sidebar.write(f"- Daily Loss Limit: {details['DailyLossLimitPercent']:.1f}%")
         if pd.notna(details.get('TotalStopoutPercent')): st.sidebar.write(f"- Total Stopout: {details['TotalStopoutPercent']:.1f}%")
-elif not df_portfolios_gs.empty and st.session_state.active_portfolio_name_gs == "":
+elif not df_portfolios_gs.empty and st.session_state.active_portfolio_name_gs == "": # Check active_portfolio_name_gs from session_state
      st.sidebar.info("กรุณาเลือกพอร์ตที่ใช้งานจากรายการ")
 elif df_portfolios_gs.empty:
     st.sidebar.warning("ไม่พบข้อมูล Portfolio ใน Google Sheets หรือเกิดข้อผิดพลาดในการโหลด.")
-# ========== Function Utility (ต่อจากของเดิม) ==========
-def get_today_drawdown(log_source_df, acc_balance_input): # Renamed acc_balance to avoid conflict
-    # ... (โค้ดเดิมของลูกพี่ตั้ม) ...
-    if log_source_df.empty:
-        return 0
-    today_str = datetime.now().strftime("%Y-%m-%d")
-    try:
-        log_source_df['Timestamp'] = pd.to_datetime(log_source_df['Timestamp'], errors='coerce')
-        log_source_df['Risk $'] = pd.to_numeric(log_source_df['Risk $'], errors='coerce').fillna(0)
-        df_today = log_source_df[log_source_df["Timestamp"].dt.strftime("%Y-%m-%d") == today_str]
-        drawdown = df_today["Risk $"].sum()
-        return drawdown
-    except KeyError: return 0
-    except Exception: return 0
-
-
-def get_performance(log_source_df, mode="week"):
-    # ... (โค้ดเดิมของลูกพี่ตั้ม) ...
-    if log_source_df.empty: return 0, 0, 0
-    try:
-        log_source_df['Timestamp'] = pd.to_datetime(log_source_df['Timestamp'], errors='coerce')
-        log_source_df['Risk $'] = pd.to_numeric(log_source_df['Risk $'], errors='coerce').fillna(0)
-        now = datetime.now()
-        if mode == "week":
-            week_start_date = now - pd.Timedelta(days=now.weekday())
-            df_period = log_source_df[log_source_df["Timestamp"] >= week_start_date.replace(hour=0, minute=0, second=0, microsecond=0)]
-        else:  # month
-            month_start_date = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-            df_period = log_source_df[log_source_df["Timestamp"] >= month_start_date]
-        win = df_period[df_period["Risk $"] > 0].shape[0]
-        loss = df_period[df_period["Risk $"] <= 0].shape[0]
-        total_trades = win + loss
-        winrate = (100 * win / total_trades) if total_trades > 0 else 0
-        gain = df_period["Risk $"].sum()
-        return winrate, gain, total_trades
-    except KeyError: return 0,0,0
-    except Exception: return 0,0,0
-
-def save_plan_to_gsheets(plan_data_list, trade_mode_arg, asset_name, risk_percentage, trade_direction, portfolio_id, portfolio_name):
-    # ... (โค้dเดิมของลูกพี่ตั้ม สำหรับบันทึกแผน) ...
-    gc = get_gspread_client()
-    if not gc:
-        st.error("ไม่สามารถเชื่อมต่อ Google Sheets Client เพื่อบันทึกแผนได้")
-        return False
-    try:
-        sh = gc.open(GOOGLE_SHEET_NAME)
-        ws = sh.worksheet(WORKSHEET_PLANNED_LOGS)
-        timestamp_now = datetime.now()
-        rows_to_append = []
-        expected_headers_plan = [ # Changed name to avoid conflict
-            "LogID", "PortfolioID", "PortfolioName", "Timestamp", "Asset", "Mode", "Direction",
-            "Risk %", "Fibo Level", "Entry", "SL", "TP", "Lot", "Risk $", "RR"
-        ]
-        current_headers_plan = []
-        if ws.row_count > 0:
-            try: current_headers_plan = ws.row_values(1)
-            except Exception: current_headers_plan = []
-        
-        if not current_headers_plan or all(h == "" for h in current_headers_plan):
-            ws.update([expected_headers_plan]) # Use update for single row list
-        elif set(current_headers_plan) != set(expected_headers_plan) and any(h!="" for h in current_headers_plan):
-             st.warning(f"Worksheet '{WORKSHEET_PLANNED_LOGS}' has incorrect headers. Please ensure headers match: {', '.join(expected_headers_plan)}")
-
-        for idx, plan_entry in enumerate(plan_data_list):
-            log_id = f"{timestamp_now.strftime('%Y%m%d%H%M%S')}-{random.randint(1000,9999)}-{idx}"
-            row_data = {
-                "LogID": log_id, "PortfolioID": portfolio_id, "PortfolioName": portfolio_name,
-                "Timestamp": timestamp_now.strftime("%Y-%m-%d %H:%M:%S"), "Asset": asset_name,
-                "Mode": trade_mode_arg, "Direction": trade_direction, "Risk %": risk_percentage,
-                "Fibo Level": plan_entry.get("Fibo Level", ""), "Entry": plan_entry.get("Entry", "0.00"),
-                "SL": plan_entry.get("SL", "0.00"), "TP": plan_entry.get("TP", "0.00"),
-                "Lot": plan_entry.get("Lot", "0.00"), "Risk $": plan_entry.get("Risk $", "0.00"),
-                "RR": plan_entry.get("RR", "")
-            }
-            rows_to_append.append([str(row_data.get(h, "")) for h in expected_headers_plan])
-        if rows_to_append:
-            ws.append_rows(rows_to_append, value_input_option='USER_ENTERED')
-            return True
-        return False
-    except gspread.exceptions.WorksheetNotFound:
-        st.error(f"❌ ไม่พบ Worksheet ชื่อ '{WORKSHEET_PLANNED_LOGS}'.")
-        return False
-    except Exception as e:
-        st.error(f"❌ เกิดข้อผิดพลาดในการบันทึกแผน: {e}")
-        return False
-
-# +++ START: โค้ดใหม่สำหรับฟังก์ชัน save_new_portfolio_to_gsheets +++
-def save_new_portfolio_to_gsheets(portfolio_data_dict):
-    gc = get_gspread_client() 
-    if not gc:
-        st.error("ไม่สามารถเชื่อมต่อ Google Sheets Client เพื่อบันทึกพอร์ตได้")
-        return False
-    try:
-        sh = gc.open(GOOGLE_SHEET_NAME) 
-        ws = sh.worksheet(WORKSHEET_PORTFOLIOS)
-
-        # !!! สำคัญมาก: ลูกพี่ตั้มต้องปรับแก้ลำดับและชื่อคอลัมน์ให้ตรงกับชีต "Portfolios" จริงๆ !!!
-        expected_gsheet_headers_portfolio = [ # Changed name to avoid conflict
-            'PortfolioID', 'PortfolioName', 'ProgramType', 'EvaluationStep', 
-            'Status', 'InitialBalance', 'CreationDate', 
-            'ProfitTargetPercent', 'DailyLossLimitPercent', 'TotalStopoutPercent',
-            'Leverage', 'MinTradingDays',
-            'CompetitionEndDate', 'CompetitionGoalMetric',
-            'OverallProfitTarget', 'TargetEndDate', 'WeeklyProfitTarget', 'DailyProfitTarget',
-            'MaxAcceptableDrawdownOverall', 'MaxAcceptableDrawdownDaily',
-            'EnableScaling', 'ScalingCheckFrequency',
-            'ScaleUp_MinWinRate', 'ScaleUp_MinGainPercent', 'ScaleUp_RiskIncrementPercent',
-            'ScaleDown_MaxLossPercent', 'ScaleDown_LowWinRate', 'ScaleDown_RiskDecrementPercent',
-            'MinRiskPercentAllowed', 'MaxRiskPercentAllowed', 'CurrentRiskPercent',
-            'Notes' 
-        ]
-        
-        # Check if headers exist, if not, add them
-        current_sheet_headers = []
-        if ws.row_count > 0:
-            try: current_sheet_headers = ws.row_values(1)
-            except Exception: pass # Handle empty sheet case
-        
-        if not current_sheet_headers or all(h == "" for h in current_sheet_headers) :
-             ws.update([expected_gsheet_headers_portfolio]) # Use update for single row list
-
-        new_row_values = [str(portfolio_data_dict.get(header, "")) for header in expected_gsheet_headers_portfolio]
-        ws.append_row(new_row_values, value_input_option='USER_ENTERED')
-        return True
-    except gspread.exceptions.WorksheetNotFound:
-        st.error(f"❌ ไม่พบ Worksheet ชื่อ '{WORKSHEET_PORTFOLIOS}'. กรุณาสร้างชีตนี้ก่อน และใส่ Headers ให้ถูกต้อง")
-        return False
-    except Exception as e:
-        st.error(f"❌ เกิดข้อผิดพลาดในการบันทึกพอร์ตใหม่ไปยัง Google Sheets: {e}")
-        st.exception(e) # Show full traceback in logs for debugging
-        return False
-# +++ END: โค้ดใหม่สำหรับฟังก์ชัน save_new_portfolio_to_gsheets +++
-
 
 # ===================== SEC 1.5: PORTFOLIO MANAGEMENT UI (Main Area) =======================
 def on_program_type_change_v8():
