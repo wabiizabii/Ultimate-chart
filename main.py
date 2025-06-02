@@ -1861,7 +1861,44 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
                         if st.session_state.get("debug_statement_processing_v2", False):
                             st.error(f"Error parsing table data for {section_name}: {e_parse_df}")
                             st.text(f"Problematic CSV data for {section_name}:\n{csv_data_str[:500]}")
-        
+                         # ***** START NEW/REVISED Deal Filtering Logic *****
+                    if section_name == "Deals" and not df_section.empty:
+                        original_deal_rows = len(df_section) # สำหรับ Debug
+
+                        # เงื่อนไขที่ 1: กรองแถวที่ Type_Deal เป็น "balance" ออกไปก่อน
+                        condition_is_not_balance_type = pd.Series([True] * len(df_section), index=df_section.index)
+                        if "Type_Deal" in df_section.columns:
+                            is_balance = df_section["Type_Deal"].astype(str).str.strip().str.lower() == "balance"
+                            condition_is_not_balance_type = ~is_balance # เอาเฉพาะแถวที่ไม่ใช่ balance
+
+                        df_section_filtered_type = df_section[condition_is_not_balance_type]
+
+                        # เงื่อนไขที่ 2: กรองแถวที่ขาดข้อมูลสำคัญในคอลัมน์ Time_Deal, Deal_ID, Symbol_Deal ออกจากผลลัพธ์ของการกรองแรก
+                        essential_identifiers_for_valid_deal = ["Time_Deal", "Deal_ID", "Symbol_Deal"]
+                        valid_identifiers_mask = pd.Series([True] * len(df_section_filtered_type), index=df_section_filtered_type.index)
+
+                        for col_name in essential_identifiers_for_valid_deal:
+                            if col_name in df_section_filtered_type.columns:
+                                valid_identifiers_mask &= (df_section_filtered_type[col_name].astype(str).str.strip() != "")
+                            else:
+                                # ถ้าคอลัมน์สำคัญนี้ไม่มีอยู่ ให้ถือว่าทุกแถวที่เหลือไม่ผ่าน
+                                if st.session_state.get("debug_statement_processing_v2", False):
+                                    st.warning(f"DEBUG: Essential identifier column '{col_name}' for Deals not found in DataFrame after type filtering. All remaining Deals might be filtered out.")
+                                valid_identifiers_mask = pd.Series([False] * len(df_section_filtered_type), index=df_section_filtered_type.index)
+                                break 
+
+                        df_section = df_section_filtered_type[valid_identifiers_mask] # นำผลการกรองทั้งสองเงื่อนไขมาใช้
+
+                        if st.session_state.get("debug_statement_processing_v2", False):
+                            st.write(f"DEBUG: Deals DataFrame original rows before any specific Deal filtering: {original_deal_rows}")
+                            st.write(f"DEBUG: Deals DataFrame after filtering 'balance' type and empty essential identifiers ({len(df_section)} rows left):")
+                            
+                            if not df_section.empty:
+                                st.dataframe(df_section.head())
+                            else:
+                                st.write("No Deals left after these filters.")
+                    # ***** END NEW/REVISED Deal Filtering Logic *****
+                    
         balance_summary_dict = {}
         balance_start_line_idx = -1
         for i, line in enumerate(lines):
