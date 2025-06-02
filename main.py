@@ -93,73 +93,87 @@ def load_portfolios_from_gsheets():
         return pd.DataFrame()
 
 # ===================== SEC 1: PORTFOLIO SELECTION (Sidebar) =======================
-df_portfolios_gs = load_portfolios_from_gsheets() # โหลดข้อมูลพอร์ตก่อนส่วน UI อื่นๆ
+df_portfolios_gs = load_portfolios_from_gsheets() 
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("เลือกพอร์ตที่ใช้งาน (Active Portfolio)")
 
-# Initialize session state variables for portfolio selection
 if 'active_portfolio_name_gs' not in st.session_state:
     st.session_state.active_portfolio_name_gs = ""
 if 'active_portfolio_id_gs' not in st.session_state:
     st.session_state.active_portfolio_id_gs = None
-if 'current_portfolio_details' not in st.session_state: # เพิ่มเพื่อเก็บรายละเอียดพอร์ตที่เลือก
+if 'current_portfolio_details' not in st.session_state: 
     st.session_state.current_portfolio_details = None
 
-
-portfolio_names_list_gs = [""] # Start with an empty option
+portfolio_names_list_gs = [""] 
 if not df_portfolios_gs.empty and 'PortfolioName' in df_portfolios_gs.columns:
-    # Filter out NaNs and ensure unique names before sorting
     valid_portfolio_names = sorted(df_portfolios_gs['PortfolioName'].dropna().unique().tolist())
     portfolio_names_list_gs.extend(valid_portfolio_names)
 
-# Ensure current selection is valid
 if st.session_state.active_portfolio_name_gs not in portfolio_names_list_gs:
-    st.session_state.active_portfolio_name_gs = portfolio_names_list_gs[0] # Default to empty or first valid
+    st.session_state.active_portfolio_name_gs = portfolio_names_list_gs[0] if portfolio_names_list_gs else ""
 
-selected_portfolio_name_gs = st.sidebar.selectbox(
-    "เลือกพอร์ต:",
-    options=portfolio_names_list_gs,
-    index=portfolio_names_list_gs.index(st.session_state.active_portfolio_name_gs), # Handles if list is empty
-    key='sb_active_portfolio_selector_gs'
-)
+# ***** START: โค้ดสำหรับรีเซ็ต File Uploader *****
+# Key นี้จะต้องตรงกับ key ของ st.file_uploader ใน SEC 7
+FILE_UPLOADER_WIDGET_KEY = "statement_file_uploader_main_key" # ตั้งชื่อ key ให้สื่อความหมาย
 
-if selected_portfolio_name_gs != "":
-    st.session_state.active_portfolio_name_gs = selected_portfolio_name_gs
-    if not df_portfolios_gs.empty:
-        selected_portfolio_row_df = df_portfolios_gs[df_portfolios_gs['PortfolioName'] == selected_portfolio_name_gs]
-        if not selected_portfolio_row_df.empty:
-            # Convert the first row to a dictionary
-            st.session_state.current_portfolio_details = selected_portfolio_row_df.iloc[0].to_dict()
-            if 'PortfolioID' in st.session_state.current_portfolio_details:
-                st.session_state.active_portfolio_id_gs = st.session_state.current_portfolio_details['PortfolioID']
+def handle_portfolio_selection_change():
+    # ค่า portfolio ที่ถูกเลือกใหม่จะอยู่ใน st.session_state.portfolio_selector_widget (ตาม key ของ selectbox ด้านล่าง)
+    newly_selected_portfolio_name = st.session_state.portfolio_selector_widget 
+    
+    # ตรวจสอบว่ามีการเปลี่ยนแปลง Portfolio จริงหรือไม่ ก่อนที่จะรีเซ็ต File Uploader
+    # เพื่อป้องกันการรีเซ็ตโดยไม่จำเป็น ถ้าผู้ใช้แค่คลิก selectbox แต่ไม่ได้เลือกค่าใหม่
+    if newly_selected_portfolio_name != st.session_state.get('active_portfolio_name_gs_before_change', newly_selected_portfolio_name):
+        if FILE_UPLOADER_WIDGET_KEY in st.session_state:
+            st.session_state[FILE_UPLOADER_WIDGET_KEY] = None # ตั้งค่าเป็น None เพื่อรีเซ็ต File Uploader
+            if st.session_state.get("debug_statement_processing_v2", False): 
+                st.sidebar.info(f"File uploader '{FILE_UPLOADER_WIDGET_KEY}' state reset to None due to portfolio change.")
+    
+    st.session_state.active_portfolio_name_gs = newly_selected_portfolio_name
+    # เก็บค่าปัจจุบันไว้เปรียบเทียบครั้งหน้า (ต้องทำหลังจากการเปรียบเทียบข้างบน)
+    st.session_state.active_portfolio_name_gs_before_change = newly_selected_portfolio_name 
+
+    if st.session_state.active_portfolio_name_gs != "":
+        if not df_portfolios_gs.empty:
+            selected_portfolio_row_df = df_portfolios_gs[df_portfolios_gs['PortfolioName'] == st.session_state.active_portfolio_name_gs]
+            if not selected_portfolio_row_df.empty:
+                st.session_state.current_portfolio_details = selected_portfolio_row_df.iloc[0].to_dict()
+                st.session_state.active_portfolio_id_gs = st.session_state.current_portfolio_details.get('PortfolioID')
             else:
                 st.session_state.active_portfolio_id_gs = None
-                st.sidebar.warning("ไม่พบ PortfolioID สำหรับพอร์ตที่เลือก.")
-        else:
-            st.session_state.active_portfolio_id_gs = None
-            st.session_state.current_portfolio_details = None
-            st.sidebar.warning(f"ไม่พบข้อมูลสำหรับพอร์ตชื่อ '{selected_portfolio_name_gs}'.")
-else:
-    st.session_state.active_portfolio_name_gs = ""
-    st.session_state.active_portfolio_id_gs = None
-    st.session_state.current_portfolio_details = None
+                st.session_state.current_portfolio_details = None
+    else:
+        st.session_state.active_portfolio_id_gs = None
+        st.session_state.current_portfolio_details = None
+    
+    # ไม่จำเป็นต้อง st.rerun() ที่นี่ เพราะ on_change จะ trigger rerun อัตโนมัติ
 
-# Display details of the selected active portfolio
+# สร้างตัวแปร session state สำหรับเก็บค่า Portfolio ก่อนการเปลี่ยนแปลง (ถ้ายังไม่มี)
+if 'active_portfolio_name_gs_before_change' not in st.session_state:
+    st.session_state.active_portfolio_name_gs_before_change = st.session_state.active_portfolio_name_gs
+
+# แก้ไข st.sidebar.selectbox ให้ใช้ on_change และ key ใหม่
+st.sidebar.selectbox( # ไม่ต้องกำหนดค่าให้ตัวแปร เพราะ on_change จะอัปเดต session_state เอง
+    "เลือกพอร์ต:",
+    options=portfolio_names_list_gs,
+    index=portfolio_names_list_gs.index(st.session_state.active_portfolio_name_gs),
+    key='portfolio_selector_widget', # Key ใหม่สำหรับ selectbox นี้ (widget key)
+    on_change=handle_portfolio_selection_change 
+)
+# ***** END: โค้ดสำหรับรีเซ็ต File Uploader *****
+
+# ส่วนที่เหลือของ SEC 1 (การแสดงผลข้อมูลพอร์ต) จะยังคงเหมือนเดิมจากไฟล์ #35 ของคุณ:
 if st.session_state.current_portfolio_details:
     details = st.session_state.current_portfolio_details
     st.sidebar.markdown(f"**💡 ข้อมูลพอร์ต '{details.get('PortfolioName', 'N/A')}'**")
     if pd.notna(details.get('InitialBalance')): st.sidebar.write(f"- Balance เริ่มต้น: {details['InitialBalance']:,.2f} USD")
     if pd.notna(details.get('ProgramType')): st.sidebar.write(f"- ประเภท: {details['ProgramType']}")
     if pd.notna(details.get('Status')): st.sidebar.write(f"- สถานะ: {details['Status']}")
-    
-    # Display rules based on ProgramType
     if details.get('ProgramType') in ["Prop Firm Challenge", "Funded Account", "Trading Competition"]:
         if pd.notna(details.get('ProfitTargetPercent')): st.sidebar.write(f"- เป้าหมายกำไร: {details['ProfitTargetPercent']:.1f}%")
         if pd.notna(details.get('DailyLossLimitPercent')): st.sidebar.write(f"- Daily Loss Limit: {details['DailyLossLimitPercent']:.1f}%")
         if pd.notna(details.get('TotalStopoutPercent')): st.sidebar.write(f"- Total Stopout: {details['TotalStopoutPercent']:.1f}%")
-    # Add more specific details as needed
-elif not df_portfolios_gs.empty and selected_portfolio_name_gs == "":
+elif not df_portfolios_gs.empty and st.session_state.active_portfolio_name_gs == "":
      st.sidebar.info("กรุณาเลือกพอร์ตที่ใช้งานจากรายการ")
 elif df_portfolios_gs.empty:
     st.sidebar.warning("ไม่พบข้อมูล Portfolio ใน Google Sheets หรือเกิดข้อผิดพลาดในการโหลด.")
@@ -2195,13 +2209,21 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
 
     st.markdown("---")
     st.subheader("📤 อัปโหลด Statement Report (CSV) เพื่อประมวลผลและบันทึก")
+    
+    # ***** START MODIFICATION: ใช้ key ที่ตรงกับ SEC 1 *****
+    FILE_UPLOADER_KEY_IN_SEC7 = "statement_file_uploader_main_key" # <--- ต้องเป็นชื่อเดียวกับ FILE_UPLOADER_WIDGET_KEY ใน SEC 1
+    
+    uploaded_file_statement = st.file_uploader( 
+        "ลากและวางไฟล์ Statement Report (CSV) ที่นี่ หรือคลิกเพื่อเลือกไฟล์",
+        type=["csv"],
+        key=FILE_UPLOADER_KEY_IN_SEC7 # <--- ใช้ key ที่กำหนด
+    )
+    # ***** END MODIFICATION *****
 
-    # Key ของ File Uploader ที่เรากำหนดใน SEC 7
-FILE_UPLOADER_KEY_FOR_RESET = "statement_file_uploader_widget" 
-
-def handle_portfolio_change():
-    # เก็บค่า Portfolio ที่เลือกใหม่ไว้ใน session_state ตามปกติ
-    st.session_state.active_portfolio_name_gs = st.session_state.sb_active_portfolio_selector_gs_onchange # ใช้ key ใหม่สำหรับ selectbox
+    st.checkbox("⚙️ เปิดโหมด Debug (แสดงข้อมูลที่แยกได้)", value=False, key="debug_statement_processing_v2")
+    
+    active_portfolio_id_for_actual = st.session_state.get('active_portfolio_id_gs', None)
+    active_portfolio_name_for_actual = st.session_state.get('active_portfolio_name_gs', None)
 
     # --- ส่วนสำคัญ: ล้างค่าของ File Uploader ---
     if FILE_UPLOADER_KEY_FOR_RESET in st.session_state:
