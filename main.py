@@ -2014,7 +2014,7 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
                                                 elif label_to_check == "Maximal consecutive loss (count)": results_summary_dict["Maximal_consecutive_loss_Count"] = paren_numeric
                                         break
                 if line_stripped_res.startswith("Average consecutive losses"): break
-            elif results_section_start_line != -1 and i_res_line - results_section_start_line >= max_lines_to_read: break
+            if results_section_start_line != -1 and i_res_line - results_section_start_line >= max_lines_to_read: break
         
         extracted_data['results_summary'] = results_summary_dict
 
