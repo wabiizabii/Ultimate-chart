@@ -2150,10 +2150,9 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
                 break
         
         if balance_start_line_idx != -1
-        
             # อ่านไป 8 บรรทัด หรือจนกว่าจะหมดไฟล์/เจอส่วน Results
-                print(f"DEBUG Console: Balance summary section starts at line: {balance_start_line_idx}")
-                print(f"DEBUG Console: Raw line from file (Balance): {lines[balance_start_line_idx].strip()}")
+            print(f"DEBUG Console: Balance summary section starts at line: {balance_start_line_idx}")
+            print(f"DEBUG Console: Raw line from file (Balance): {lines[balance_start_line_idx].strip()}")
             for i in range(balance_start_line_idx, min(balance_start_line_idx + 8, len(lines))):
                 line_stripped = lines[i].strip()
                 if not line_stripped : 
