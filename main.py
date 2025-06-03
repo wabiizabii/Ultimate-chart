@@ -17,12 +17,7 @@ import hashlib # เพิ่มสำหรับ SEC 7
 st.set_page_config(page_title="Ultimate-Chart", layout="wide")
 acc_balance = 10000 # ยอดคงเหลือเริ่มต้นของบัญชีเทรด (อาจจะดึงมาจาก Active Portfolio ในอนาคต)
 
-# +++ START: โค้ดส่วนตรวจสอบและดำเนินการตาม Flag สำหรับเคลียร์ File Uploader +++
-if st.session_state.get("clear_uploader_flag_v7_final", False): # ใช้ชื่อ key ของ flag ที่เฉพาะเจาะจง
-    st.session_state.ultimate_stmt_uploader_v7_final = None
-    st.session_state.clear_uploader_flag_v7_final = False # Reset flag กลับเป็น False
-    # print("Debug: Uploader cleared by flag.") # Optional: for debugging
-# +++ END: โค้ดส่วนตรวจสอบ Flag +++
+
 
 # กำหนดชื่อ Google Sheet และ Worksheet ที่จะใช้เก็บข้อมูล
 GOOGLE_SHEET_NAME = "TradeLog" # ชื่อ Google Sheet ของลูกพี่ตั้ม
@@ -2742,7 +2737,7 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
             print(f"Warning: Could not update final status in {WORKSHEET_UPLOAD_HISTORY} for batch {import_batch_id}: {e_update_hist}")
         
         # Clear the uploader state to prevent reprocessing the same file on rerun unless re-uploaded
-        st.session_state.ultimate_stmt_uploader_v7_final = ธพีำ 
+        st.session_state.ultimate_stmt_uploader_v7_final = True 
         # st.rerun() # Consider if a rerun is always needed here. 
         # It might be better to let user continue interaction.
         # If rerun is needed to refresh some display dependent on these GSheets, then uncomment.
