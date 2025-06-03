@@ -56,7 +56,7 @@ def load_portfolios_from_gsheets():
         
         df_portfolios = pd.DataFrame(records)
         
-        # แปลงคอลัมน์ที่ควรเป็นตัวเลข
+        # แปลงคอลัมน์ที่ควรเป็นตัวเลข (ยังคงเดิม)
         cols_to_numeric_type = {
             'InitialBalance': float, 'ProfitTargetPercent': float, 
             'DailyLossLimitPercent': float, 'TotalStopoutPercent': float,
@@ -76,13 +76,44 @@ def load_portfolios_from_gsheets():
         if 'EnableScaling' in df_portfolios.columns: # คอลัมน์นี้ควรเป็น Boolean
              df_portfolios['EnableScaling'] = df_portfolios['EnableScaling'].astype(str).str.upper().map({'TRUE': True, 'YES': True, '1': True, 'FALSE': False, 'NO': False, '0': False}).fillna(False)
 
-
-        # แปลงคอลัมน์วันที่ ถ้ามี
+        # แปลงคอลัมน์วันที่ ถ้ามี (ยังคงเดิม)
         date_cols = ['CompetitionEndDate', 'TargetEndDate', 'CreationDate']
         for col in date_cols:
             if col in df_portfolios.columns:
                 df_portfolios[col] = pd.to_datetime(df_portfolios[col], errors='coerce').dt.strftime('%Y-%m-%d %H:%M:%S')
 
+        # --- ส่วนที่เพิ่ม/แก้ไข: คำนวณ Current Balance ---
+        df_actual_trades = pd.DataFrame()
+        try:
+            ws_actual_trades = sh.worksheet(WORKSHEET_ACTUAL_TRADES)
+            records_actual = ws_actual_trades.get_all_records()
+            if records_actual:
+                df_actual_trades = pd.DataFrame(records_actual)
+                if 'PortfolioID' in df_actual_trades.columns:
+                    df_actual_trades['PortfolioID'] = df_actual_trades['PortfolioID'].astype(str)
+                if 'Profit_Deal' in df_actual_trades.columns:
+                    df_actual_trades['Profit_Deal'] = pd.to_numeric(df_actual_trades['Profit_Deal'], errors='coerce').fillna(0)
+        except gspread.exceptions.WorksheetNotFound:
+            st.warning(f"Warning: Worksheet '{WORKSHEET_ACTUAL_TRADES}' not found for Current Balance calculation. Current Balance will default to Initial Balance.")
+            df_actual_trades = pd.DataFrame()
+        except Exception as e_actual:
+            st.warning(f"Failed to load ActualTrades for Current Balance calculation: {e_actual}. Current Balance will default to Initial Balance.")
+            df_actual_trades = pd.DataFrame()
+
+        df_portfolios['CurrentBalance'] = df_portfolios['InitialBalance'] # เริ่มต้น CurrentBalance เท่ากับ InitialBalance
+        if not df_actual_trades.empty and 'PortfolioID' in df_portfolios.columns:
+            profit_by_portfolio = df_actual_trades.groupby('PortfolioID')['Profit_Deal'].sum().reset_index()
+            
+            # Merge df_portfolios กับ profit_by_portfolio โดยใช้ PortfolioID เป็น key
+            # ใช้ how='left' เพื่อให้ข้อมูลพอร์ตที่ไม่มี Deals ยังคงอยู่
+            df_portfolios = pd.merge(df_portfolios, profit_by_portfolio, on='PortfolioID', how='left')
+            
+            # คำนวณ CurrentBalance: InitialBalance + Profit_Deal (ถ้ามี, ถ้าไม่มีให้ถือเป็น 0)
+            df_portfolios['CurrentBalance'] = df_portfolios['InitialBalance'] + df_portfolios['Profit_Deal'].fillna(0)
+            
+            # ลบคอลัมน์ 'Profit_Deal' ที่เป็นผลรวมออกไปหลังจากใช้งานแล้ว (ป้องกันชื่อซ้ำหากมี Profit_Deal เดิมใน Portfolios)
+            df_portfolios.drop(columns=['Profit_Deal'], inplace=True, errors='ignore')
+        # --- สิ้นสุดส่วนที่เพิ่ม/แก้ไข ---
 
         return df_portfolios
     except gspread.exceptions.WorksheetNotFound:
@@ -136,6 +167,14 @@ if selected_portfolio_name_gs != "":
             else:
                 st.session_state.active_portfolio_id_gs = None
                 st.sidebar.warning("ไม่พบ PortfolioID สำหรับพอร์ตที่เลือก.")
+            # --- ส่วนที่แก้ไข: กำหนดค่า active_balance_to_use จาก CurrentBalance ---
+            if 'CurrentBalance' in st.session_state.current_portfolio_details and pd.notna(st.session_state.current_portfolio_details['CurrentBalance']):
+                st.session_state.current_account_balance = float(st.session_state.current_portfolio_details['CurrentBalance'])
+            elif 'InitialBalance' in st.session_state.current_portfolio_details and pd.notna(st.session_state.current_portfolio_details['InitialBalance']):
+                st.session_state.current_account_balance = float(st.session_state.current_portfolio_details['InitialBalance'])
+            else:
+                st.session_state.current_account_balance = 10000.0 # Fallback default
+            # --- สิ้นสุดส่วนที่แก้ไข ---
         else:
             st.session_state.active_portfolio_id_gs = None
             st.session_state.current_portfolio_details = None
@@ -149,7 +188,15 @@ else:
 if st.session_state.current_portfolio_details:
     details = st.session_state.current_portfolio_details
     st.sidebar.markdown(f"**💡 ข้อมูลพอร์ต '{details.get('PortfolioName', 'N/A')}'**")
-    if pd.notna(details.get('InitialBalance')): st.sidebar.write(f"- Balance เริ่มต้น: {details['InitialBalance']:,.2f} USD")
+
+    # --- ส่วนที่แก้ไข: แสดง Current Balance ก่อน Initial Balance ---
+    if pd.notna(details.get('CurrentBalance')): 
+        st.sidebar.write(f"- Balance ปัจจุบัน: {details['CurrentBalance']:,.2f} USD")
+    elif pd.notna(details.get('InitialBalance')): 
+        st.sidebar.write(f"- Balance เริ่มต้น: {details['InitialBalance']:,.2f} USD")
+    # --- สิ้นสุดส่วนที่แก้ไข ---
+    
+    
     if pd.notna(details.get('ProgramType')): st.sidebar.write(f"- ประเภท: {details['ProgramType']}")
     if pd.notna(details.get('Status')): st.sidebar.write(f"- สถานะ: {details['Status']}")
     
