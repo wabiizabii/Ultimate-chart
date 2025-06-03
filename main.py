@@ -33,8 +33,6 @@ WORKSHEET_ACTUAL_POSITIONS = "ActualPositions"
 WORKSHEET_STATEMENT_SUMMARIES = "StatementSummaries"
 WORKSHEET_UPLOAD_HISTORY = "UploadHistory"
 
-บว่า 'gcp_service_account' ใน secrets.toml ถูกต้อง และได้แชร์ Sheet กับ Service Account แล้ว")
-        return None
 @st.cache_resource
 def get_gspread_client():
     try:
