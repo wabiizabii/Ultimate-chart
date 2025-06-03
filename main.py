@@ -1756,7 +1756,7 @@ with st.expander("🤖 AI Assistant", expanded=True):
 
 # --- End of SEC 5 (formerly SEC 6) ---
 
-# ===================== SEC 6: MAIN AREA - STATEMENT IMPORT & PROCESSING =======================
+# ===================== SEC 7: MAIN AREA - STATEMENT IMPORT & PROCESSING =======================
 with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=True):
     st.markdown("### 📊 จัดการ Statement และข้อมูลดิบ")
 
@@ -1821,7 +1821,7 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
         
         for table_idx, section_name in enumerate(section_order_for_tables):
             section_key_lower = section_name.lower()
-            extracted_data[section_key_lower] = pd.DataFrame() # Initialize with empty DataFrame
+            extracted_data[section_key_lower] = pd.DataFrame()
 
             if section_name in section_header_indices:
                 header_line_num = section_header_indices[section_name]
@@ -1898,15 +1898,12 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
                 break
         
         if balance_start_line_idx != -1:
-            for i in range(balance_start_line_idx, min(balance_start_line_idx + 10, len(lines))): # Check next 10 lines
+            for i in range(balance_start_line_idx, min(balance_start_line_idx + 10, len(lines))):
                 line_stripped = lines[i].strip()
                 if not line_stripped : continue
                 if line_stripped.startswith(("Results", "Total Net Profit:")) and i > balance_start_line_idx: break
                 
-                # --- NEW ROBUST PARSING FOR BALANCE/EQUITY LINES ---
-                # Example lines: "Balance:,,,4 708.36,,,Free Margin:,,,4 708.36,,,,"
-                # "Equity:,,,4 708.36,,,,,,,,,"
-                # Try to parse key:value pairs
+                parts_raw = line_stripped.split(',')
                 parts_with_colon = [p.strip() for p in line_stripped.split(',') if ':' in p]
                 for part in parts_with_colon:
                     key_part, val_part = part.split(':', 1)
@@ -1917,11 +1914,9 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
                         if numeric_val is not None:
                             balance_summary_dict[key_clean] = numeric_val
 
-                # Specific check for lines that are just "Balance:,,,VALUE,,," or "Equity:,,,VALUE,,,"
-                # This catches cases where the value isn't immediately next to the colon
                 if "Balance:" in line_stripped and 'balance' not in balance_summary_dict:
                     parts = line_stripped.split(',')
-                    for p_idx in range(1, len(parts)): # Start from second part
+                    for p_idx in range(1, len(parts)):
                         val = safe_float_convert(parts[p_idx].strip())
                         if val is not None:
                             balance_summary_dict['balance'] = val
@@ -1934,7 +1929,6 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
                         if val is not None:
                             balance_summary_dict['equity'] = val
                             break
-                # --- END NEW ROBUST PARSING ---
 
         essential_balance_keys = ["balance", "credit_facility", "floating_p_l", "equity", "free_margin", "margin", "margin_level"]
         for k_b in essential_balance_keys:
@@ -2008,14 +2002,20 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
                                                 elif label_to_check == "Long Trades (won %)": results_summary_dict["Long_Trades_won_Percent"] = paren_numeric
                                                 elif label_to_check == "Profit Trades (% of total)": results_summary_dict["Profit_Trades_Percent_of_total"] = paren_numeric
                                                 elif label_to_check == "Loss Trades (% of total)": results_summary_dict["Loss_Trades_Percent_of_total"] = paren_numeric
+                                                elif label_to_check == "Largest profit trade": results_summary_dict["Largest_profit_trade"] = paren_numeric
+                                                elif label_to_check == "Largest loss trade": results_summary_dict["Largest_loss_trade"] = paren_numeric
+                                                elif label_to_check == "Average profit trade": results_summary_dict["Average_profit_trade"] = paren_numeric
+                                                elif label_to_check == "Average loss trade": results_summary_dict["Average_loss_trade"] = paren_numeric
                                                 elif label_to_check == "Maximum consecutive wins ($)": results_summary_dict["Maximum_consecutive_wins_Profit"] = paren_numeric
                                                 elif label_to_check == "Maximal consecutive profit (count)": results_summary_dict["Maximal_consecutive_profit_Count"] = paren_numeric
                                                 elif label_to_check == "Maximum consecutive losses ($)": results_summary_dict["Maximum_consecutive_losses_Profit"] = paren_numeric
                                                 elif label_to_check == "Maximal consecutive loss (count)": results_summary_dict["Maximal_consecutive_loss_Count"] = paren_numeric
                                         break
-                    if line_stripped_res.startswith("Average consecutive losses"): break
-            if results_section_start_line != -1 and i_res_line - results_section_start_line >= max_lines_to_read: break
-        
+                if line_stripped_res.startswith("Average consecutive losses"): break
+            # แก้ไข: ตรงนี้ต้องเป็น if แยก ไม่ใช่ elif ที่อยู่ภายใน for loop ที่ผิด
+            if results_section_start_line != -1 and i_res_line - results_section_start_line >= max_lines_to_read:
+                break # break จะต้องอยู่ภายใน for loop ที่ครอบคลุม i_res_line โดยตรง เพื่อออกจาก for loop นั้น
+
         extracted_data['results_summary'] = results_summary_dict
 
         if st.session_state.get("debug_statement_processing_v2", False):
@@ -2240,7 +2240,7 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
             gc_initial_log = get_gspread_client()
             if not gc_initial_log:
                 st.error("ไม่สามารถเชื่อมต่อ Google Sheets Client เพื่อบันทึก Initial Log ได้")
-                st.stop() # Stop if client is not available
+                st.stop()
 
             sh_initial_log = None
             try:
@@ -2249,7 +2249,6 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
                 st.error(f"❌ ไม่พบ Google Sheet ชื่อ '{GOOGLE_SHEET_NAME}'. กรุณาสร้างและแชร์กับ Service Account ของคุณ")
                 st.stop()
 
-            # Create/access all necessary worksheets (including UploadHistory)
             ws_dict = {}
             worksheet_definitions = {
                 WORKSHEET_UPLOAD_HISTORY: {"rows": "1000", "cols": "10", "headers": ["UploadTimestamp", "PortfolioID", "PortfolioName", "FileName", "FileSize", "FileHash", "Status", "ImportBatchID", "Notes"]},
@@ -2283,9 +2282,8 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
                     st.error(f"❌ Error accessing worksheet '{ws_name}': {e_access_ws}")
                     st.stop()
 
-            # Now that all worksheets are confirmed/created, proceed with logging and processing
             try:
-                ws_upload_history_init = sh_initial_log.worksheet(WORKSHEET_UPLOAD_HISTORY) # Get the specific history worksheet
+                ws_upload_history_init = sh_initial_log.worksheet(WORKSHEET_UPLOAD_HISTORY)
                 ws_upload_history_init.append_row([
                     current_upload_timestamp, str(active_portfolio_id_for_actual), str(active_portfolio_name_for_actual),
                     file_name_for_saving, uploaded_file_statement.size, file_hash_for_saving,
@@ -2295,7 +2293,6 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
             except Exception as e_log_init:
                 st.error(f"ไม่สามารถบันทึก Log เริ่มต้นใน {WORKSHEET_UPLOAD_HISTORY}: {e_log_init}")
                 initial_log_success = False
-
 
             if initial_log_success:
                 st.markdown(f"--- \n**Import Batch ID: `{import_batch_id}`**")
@@ -2441,8 +2438,6 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
         st.info("โปรดอัปโหลดไฟล์ Statement Report (CSV) เพื่อเริ่มต้นประมวลผล.")
 
     st.markdown("---")
-
-# --- End of SEC 7 ---
 
 # --- End of SEC 7 ---
 # ===================== SEC 7: MAIN AREA - TRADE LOG VIEWER =======================
