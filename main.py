@@ -2012,9 +2012,12 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
                                                 elif label_to_check == "Maximal consecutive loss (count)": results_summary_dict["Maximal_consecutive_loss_Count"] = paren_numeric
                                         break
                 if line_stripped_res.startswith("Average consecutive losses"): break
-            # แก้ไข: ตรงนี้ต้องเป็น if แยก ไม่ใช่ elif ที่อยู่ภายใน for loop ที่ผิด
-            if results_section_start_line != -1 and i_res_line - results_section_start_line >= max_lines_to_read:
-                break # break จะต้องอยู่ภายใน for loop ที่ครอบคลุม i_res_line โดยตรง เพื่อออกจาก for loop นั้น
+            # แก้ไข: ตรงนี้ต้องเป็น if แยก ไม่ใช่ elif ที่อยู่ภายใน for loop ที่ผิด และต้องเช็คเงื่อนไขให้ถูกต้อง
+            # ตรวจสอบว่ายังอยู่ในขอบเขตของผลลัพธ์ แต่เกิน max_lines_to_read แล้ว
+            if results_section_start_line != -1 and (i_res_line - results_section_start_line) >= max_lines_to_read:
+                # ถ้าถึงจุดนี้ แสดงว่าเราอ่านเกินบรรทัดที่ตั้งไว้สำหรับ Results แล้ว
+                # หรืออาจจะเจอสถานะที่ควรหยุดอ่าน Results แล้ว
+                break # ควรมี break ตรงนี้ เพื่อให้หยุด for loop ของ i_res_line
 
         extracted_data['results_summary'] = results_summary_dict
 
@@ -2440,6 +2443,7 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
     st.markdown("---")
 
 # --- End of SEC 7 ---
+
 # ===================== SEC 7: MAIN AREA - TRADE LOG VIEWER =======================
 @st.cache_data(ttl=120) # Cache ผลลัพธ์ของฟังก์ชันนี้ (ซึ่งรวมการเรียงข้อมูลแล้ว) ไว้ 2 นาที
 def load_planned_trades_from_gsheets_for_viewer():
