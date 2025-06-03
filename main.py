@@ -33,6 +33,8 @@ WORKSHEET_ACTUAL_POSITIONS = "ActualPositions"
 WORKSHEET_STATEMENT_SUMMARIES = "StatementSummaries"
 WORKSHEET_UPLOAD_HISTORY = "UploadHistory"
 
+บว่า 'gcp_service_account' ใน secrets.toml ถูกต้อง และได้แชร์ Sheet กับ Service Account แล้ว")
+        return None
 @st.cache_resource
 def get_gspread_client():
     try:
@@ -45,6 +47,50 @@ def get_gspread_client():
         st.info("ตรวจสอบว่า 'gcp_service_account' ใน secrets.toml ถูกต้อง และได้แชร์ Sheet กับ Service Account แล้ว")
         return None
 
+# --- NEW FUNCTION: create_or_get_worksheet ---
+def create_or_get_worksheet(sh_client, sheet_name, worksheet_title, expected_headers):
+    """
+    Checks if a worksheet exists in the given spreadsheet. If not, it creates it.
+    Ensures the first row contains the expected headers.
+    Returns the gspread Worksheet object.
+    """
+    try:
+        sh = sh_client.open(sheet_name)
+    except gspread.exceptions.SpreadsheetNotFound:
+        st.error(f"❌ ไม่พบ Google Sheet ชื่อ '{sheet_name}'. กรุณาสร้าง Sheet นี้ใน Google Drive ก่อน")
+        return None
+    except Exception as e:
+        st.error(f"❌ เกิดข้อผิดพลาดในการเข้าถึง Google Sheet '{sheet_name}': {e}")
+        return None
+
+    try:
+        ws = sh.worksheet(worksheet_title)
+        # Check and update headers if they don't match or are empty
+        current_headers = ws.row_values(1) if ws.row_count > 0 else []
+        if not current_headers or all(h == "" for h in current_headers) or set(current_headers) != set(expected_headers):
+            if not current_headers:
+                st.info(f"สร้าง Header ใน Worksheet '{worksheet_title}' เนื่องจากยังว่างเปล่า")
+                ws.update([expected_headers], value_input_option='USER_ENTERED')
+            else:
+                st.warning(f"Header ใน Worksheet '{worksheet_title}' ไม่ตรงกับที่คาดไว้ จะทำการอัปเดต Header ใหม่ (ข้อมูลเดิมอาจถูกเลื่อนลง)")
+                # A simple update might overwrite or shift data,
+                # for robustness, you might want to fetch all data, append new headers, then re-upload or inform user.
+                # For this implementation, we'll assume updating the first row is sufficient.
+                ws.update([expected_headers], value_input_option='USER_ENTERED')
+        return ws
+    except gspread.exceptions.WorksheetNotFound:
+        st.info(f"กำลังสร้าง Worksheet ใหม่: '{worksheet_title}' ใน Google Sheet '{sheet_name}'...")
+        try:
+            ws = sh.add_worksheet(title=worksheet_title, rows="1", cols=len(expected_headers))
+            ws.update([expected_headers], value_input_option='USER_ENTERED')
+            st.success(f"✔️ สร้าง Worksheet '{worksheet_title}' พร้อม Header สำเร็จ!")
+            return ws
+        except Exception as e:
+            st.error(f"❌ ไม่สามารถสร้าง Worksheet '{worksheet_title}' ได้: {e}")
+            return None
+    except Exception as e:
+        st.error(f"❌ เกิดข้อผิดพลาดในการเข้าถึง/จัดการ Worksheet '{worksheet_title}': {e}")
+        return None
 @st.cache_data(ttl=300)
 def load_portfolios_from_gsheets():
     gc = get_gspread_client()
@@ -1757,7 +1803,7 @@ with st.expander("🤖 AI Assistant", expanded=True):
 # --- End of SEC 5 (formerly SEC 6) ---
 
 # ===================== SEC 6: MAIN AREA - STATEMENT IMPORT & PROCESSING =======================
-with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=True):
+with st.expander("📂 Ultimate Chart Dashboard Import & Processing", expanded=True):
     st.markdown("### 📊 จัดการ Statement และข้อมูลดิบ")
 
     # --- ฟังก์ชันสำหรับแยกข้อมูลจากเนื้อหาไฟล์ Statement (CSV) ---
@@ -2059,31 +2105,43 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
         return extracted_data
 
     # --- ฟังก์ชันสำหรับบันทึก Deals ลงในชีท ActualTrades ---
-    def save_deals_to_actual_trades(sh, df_deals, portfolio_id, portfolio_name, source_file_name="N/A", import_batch_id="N/A"):
+    def save_deals_to_actual_trades(gc_client, df_deals, portfolio_id, portfolio_name, source_file_name="N/A", import_batch_id="N/A"):
         if df_deals is None or df_deals.empty:
             if st.session_state.get("debug_statement_processing_v2", False):
                 st.info("DEBUG: No Deals data to save for this call.")
             return True # Consider as success if no data to save
-        try:
-            ws = sh.worksheet(WORKSHEET_ACTUAL_TRADES)
-            expected_headers = [
-                "Time", "Position", "Symbol", "Type", "Volume", "Price", "S_L", "T_P",
-                "Close_Time_Pos", "Close_Price_Pos", "Commission_Pos", "Swap_Pos", "Profit_Pos",
-                "PortfolioID", "PortfolioName", "SourceFile", "ImportBatchID"
-            ]
-            
-            # Auto-create/update headers if needed
-            current_headers = []
-            if ws.row_count > 0: current_headers = ws.row_values(1)
-            if not current_headers or all(h == "" for h in current_headers) or set(current_headers) != set(expected_headers): ws.update([expected_headers])
+        
+        expected_headers = [
+            "Time_Deal", "Deal_ID", "Symbol_Deal", "Type_Deal", "Direction_Deal", "Volume_Deal", "Price_Deal", "Order_ID_Deal",
+            "Commission_Deal", "Fee_Deal", "Swap_Deal", "Profit_Deal", "Balance_Deal", "Comment_Deal",
+            "PortfolioID", "PortfolioName", "SourceFile", "ImportBatchID"
+        ]
+        
+        # *** MODIFIED: Use the new create_or_get_worksheet function ***
+        ws = create_or_get_worksheet(gc_client, GOOGLE_SHEET_NAME, WORKSHEET_ACTUAL_TRADES, expected_headers)
+        if ws is None:
+            return False # Failed to get or create worksheet
 
+        try:
             # Prepare DataFrame for saving, ensuring all expected headers are present
             df_deals_to_save = pd.DataFrame(columns=expected_headers)
-            for col in expected_headers:
-                if col in df_deals.columns:
-                    df_deals_to_save[col] = df_deals[col]
+            # Map original extracted columns to the new expected headers based on your current extract_data_from_report_content logic
+            # This is a manual mapping, ensure it matches your current extract logic's output for "deals"
+            mapping = {
+                "Time": "Time_Deal", "Deal": "Deal_ID", "Symbol": "Symbol_Deal", "Type": "Type_Deal",
+                "Direction": "Direction_Deal", "Volume": "Volume_Deal", "Price": "Price_Deal", "Order": "Order_ID_Deal",
+                "Commission": "Commission_Deal", "Fee": "Fee_Deal", "Swap": "Swap_Deal", "Profit": "Profit_Deal",
+                "Balance": "Balance_Deal", "Comment": "Comment_Deal"
+            }
+            
+            # Use a more robust way to populate df_deals_to_save to handle potential renaming or missing columns
+            for old_col, new_col in mapping.items():
+                if old_col in df_deals.columns:
+                    df_deals_to_save[new_col] = df_deals[old_col]
                 else:
-                    df_deals_to_save[col] = None # Fill missing columns with None/NaN
+                    if st.session_state.get("debug_statement_processing_v2", False):
+                        st.warning(f"DEBUG: Missing expected deal column '{old_col}' in uploaded file data.")
+                    df_deals_to_save[new_col] = None # Fill with None if column is missing
 
             # Add system-generated columns
             df_deals_to_save["PortfolioID"] = str(portfolio_id)
@@ -2095,38 +2153,45 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
             list_of_lists = df_deals_to_save.astype(str).replace('nan', '').fillna('').values.tolist()
             
             if list_of_lists:
-                 ws.append_rows(list_of_lists, value_input_option='USER_ENTERED')
-                 return True
-            return False
-        except gspread.exceptions.WorksheetNotFound:
-            st.error(f"❌ ไม่พบ Worksheet '{WORKSHEET_ACTUAL_TRADES}'. กรุณาสร้างและใส่ Headers: {', '.join(expected_headers)}")
+                ws.append_rows(list_of_lists, value_input_option='USER_ENTERED')
+                return True
             return False
         except Exception as e:
             st.error(f"❌ เกิดข้อผิดพลาดในการบันทึก Deals: {e}"); st.exception(e); return False
 
     # --- ฟังก์ชันสำหรับบันทึก Positions ลงในชีท ActualPositions ---
-    def save_positions_to_gsheets(sh, df_positions, portfolio_id, portfolio_name, source_file_name="N/A", import_batch_id="N/A"):
+    def save_positions_to_gsheets(gc_client, df_positions, portfolio_id, portfolio_name, source_file_name="N/A", import_batch_id="N/A"):
         if df_positions is None or df_positions.empty:
             if st.session_state.get("debug_statement_processing_v2", False):
                 st.info("DEBUG: No Positions data to save for this call.")
             return True
-        try:
-            ws = sh.worksheet(WORKSHEET_ACTUAL_POSITIONS)
-            expected_headers = [
-                "Time", "Position", "Symbol", "Type", "Volume", "Price", "S_L", "T_P",
-                "Close_Time_Pos", "Close_Price_Pos", "Commission_Pos", "Swap_Pos", "Profit_Pos",
-                "PortfolioID", "PortfolioName", "SourceFile", "ImportBatchID"
-            ]
-            current_headers = []
-            if ws.row_count > 0: current_headers = ws.row_values(1)
-            if not current_headers or all(h == "" for h in current_headers) or set(current_headers) != set(expected_headers): ws.update([expected_headers])
+        
+        expected_headers = [
+            "Time_Pos", "Position_ID", "Symbol_Pos", "Type_Pos", "Volume_Pos", "Price_Open_Pos", "S_L_Pos", "T_P_Pos",
+            "Time_Close_Pos", "Price_Close_Pos", "Commission_Pos", "Swap_Pos", "Profit_Pos",
+            "PortfolioID", "PortfolioName", "SourceFile", "ImportBatchID"
+        ]
+        
+        # *** MODIFIED: Use the new create_or_get_worksheet function ***
+        ws = create_or_get_worksheet(gc_client, GOOGLE_SHEET_NAME, WORKSHEET_ACTUAL_POSITIONS, expected_headers)
+        if ws is None:
+            return False
 
+        try:
             df_positions_to_save = pd.DataFrame(columns=expected_headers)
-            for col in expected_headers:
-                if col in df_positions.columns:
-                    df_positions_to_save[col] = df_positions[col]
+            # Map original extracted columns to the new expected headers
+            mapping = {
+                "Time": "Time_Pos", "Position": "Position_ID", "Symbol": "Symbol_Pos", "Type": "Type_Pos",
+                "Volume": "Volume_Pos", "Price": "Price_Open_Pos", "S / L": "S_L_Pos", "T / P": "T_P_Pos",
+                "Time_2": "Time_Close_Pos", "Price_2": "Price_Close_Pos", "Commission": "Commission_Pos", "Swap": "Swap_Pos", "Profit": "Profit_Pos"
+            }
+            for old_col, new_col in mapping.items():
+                if old_col in df_positions.columns:
+                    df_positions_to_save[new_col] = df_positions[old_col]
                 else:
-                    df_positions_to_save[col] = None
+                    if st.session_state.get("debug_statement_processing_v2", False):
+                        st.warning(f"DEBUG: Missing expected position column '{old_col}' in uploaded file data.")
+                    df_positions_to_save[new_col] = None
 
             df_positions_to_save["PortfolioID"] = str(portfolio_id)
             df_positions_to_save["PortfolioName"] = str(portfolio_name)
@@ -2138,34 +2203,41 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
                 ws.append_rows(list_of_lists, value_input_option='USER_ENTERED')
                 return True
             return False
-        except gspread.exceptions.WorksheetNotFound:
-            st.error(f"❌ ไม่พบ Worksheet '{WORKSHEET_ACTUAL_POSITIONS}'. กรุณาสร้างและใส่ Headers: {', '.join(expected_headers)}")
-            return False
         except Exception as e: st.error(f"❌ เกิดข้อผิดพลาดในการบันทึก Positions: {e}"); st.exception(e); return False
 
     # --- ฟังก์ชันสำหรับบันทึก Orders ลงในชีท ActualOrders ---
-    def save_orders_to_gsheets(sh, df_orders, portfolio_id, portfolio_name, source_file_name="N/A", import_batch_id="N/A"):
+    def save_orders_to_gsheets(gc_client, df_orders, portfolio_id, portfolio_name, source_file_name="N/A", import_batch_id="N/A"):
         if df_orders is None or df_orders.empty:
             if st.session_state.get("debug_statement_processing_v2", False):
                 st.info("DEBUG: No Orders data to save for this call.")
             return True
-        try:
-            ws = sh.worksheet(WORKSHEET_ACTUAL_ORDERS)
-            expected_headers = [
-                "Open_Time_Ord", "Order_ID_Ord", "Symbol_Ord", "Type_Ord", "Volume_Ord", "Price_Ord", "S_L_Ord", "T_P_Ord",
-                "Close_Time_Ord", "State_Ord", "Comment_Ord", # Adjusted to match fewer columns in provided report
-                "PortfolioID", "PortfolioName", "SourceFile", "ImportBatchID"
-            ]
-            current_headers = []
-            if ws.row_count > 0: current_headers = ws.row_values(1)
-            if not current_headers or all(h == "" for h in current_headers) or set(current_headers) != set(expected_headers): ws.update([expected_headers])
+        
+        expected_headers = [
+            "Open_Time_Ord", "Order_ID_Ord", "Symbol_Ord", "Type_Ord", "Volume_Ord", "Price_Ord", "S_L_Ord", "T_P_Ord",
+            "Close_Time_Ord", "State_Ord", "Comment_Ord", 
+            "PortfolioID", "PortfolioName", "SourceFile", "ImportBatchID"
+        ]
+        
+        # *** MODIFIED: Use the new create_or_get_worksheet function ***
+        ws = create_or_get_worksheet(gc_client, GOOGLE_SHEET_NAME, WORKSHEET_ACTUAL_ORDERS, expected_headers)
+        if ws is None:
+            return False
 
+        try:
             df_orders_to_save = pd.DataFrame(columns=expected_headers)
-            for col in expected_headers:
-                if col in df_orders.columns:
-                    df_orders_to_save[col] = df_orders[col]
+            # Map original extracted columns to the new expected headers
+            mapping = {
+                "Open Time": "Open_Time_Ord", "Order": "Order_ID_Ord", "Symbol": "Symbol_Ord", "Type": "Type_Ord",
+                "Volume": "Volume_Ord", "Price": "Price_Ord", "S / L": "S_L_Ord", "T / P": "T_P_Ord",
+                "Time": "Close_Time_Ord", "State": "State_Ord", "Comment": "Comment_Ord"
+            }
+            for old_col, new_col in mapping.items():
+                if old_col in df_orders.columns:
+                    df_orders_to_save[new_col] = df_orders[old_col]
                 else:
-                    df_orders_to_save[col] = None
+                    if st.session_state.get("debug_statement_processing_v2", False):
+                        st.warning(f"DEBUG: Missing expected order column '{old_col}' in uploaded file data.")
+                    df_orders_to_save[new_col] = None
             
             df_orders_to_save["PortfolioID"] = str(portfolio_id)
             df_orders_to_save["PortfolioName"] = str(portfolio_name)
@@ -2177,36 +2249,33 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
                 ws.append_rows(list_of_lists, value_input_option='USER_ENTERED')
                 return True
             return False
-        except gspread.exceptions.WorksheetNotFound:
-            st.error(f"❌ ไม่พบ Worksheet '{WORKSHEET_ACTUAL_ORDERS}'. กรุณาสร้างและใส่ Headers: {', '.join(expected_headers)}")
-            return False
         except Exception as e: st.error(f"❌ เกิดข้อผิดพลาดในการบันทึก Orders: {e}"); st.exception(e); return False
         
     # --- ฟังก์ชันสำหรับบันทึก Results Summary ลงในชีท StatementSummaries ---
-    def save_results_summary_to_gsheets(sh, balance_summary_data, results_summary_data, portfolio_id, portfolio_name, source_file_name="N/A", import_batch_id="N/A"):
-        try:
-            ws = sh.worksheet(WORKSHEET_STATEMENT_SUMMARIES)
-            expected_headers = [
-                "Timestamp", "PortfolioID", "PortfolioName", "SourceFile", "ImportBatchID",
-                "Balance", "Equity", "Free_Margin", "Margin", "Floating_P_L", "Margin_Level", "Credit_Facility",
-                "Total_Net_Profit", "Gross_Profit", "Gross_Loss", "Profit_Factor", 
-                "Expected_Payoff", "Recovery_Factor", "Sharpe_Ratio", 
-                "Balance_Drawdown_Absolute", "Balance_Drawdown_Maximal", "Balance_Drawdown_Maximal_Percent", 
-                "Balance_Drawdown_Relative_Percent", "Balance_Drawdown_Relative_Amount",
-                "Total_Trades", "Short_Trades", "Short_Trades_won_Percent", "Long_Trades", "Long_Trades_won_Percent", 
-                "Profit_Trades", "Profit_Trades_Percent_of_total", "Loss_Trades", "Loss_Trades_Percent_of_total", 
-                "Largest_profit_trade", "Largest_loss_trade", "Average_profit_trade", "Average_loss_trade", 
-                "Maximum_consecutive_wins_Count", "Maximum_consecutive_wins_Profit", 
-                "Maximal_consecutive_profit_Amount", "Maximal_consecutive_profit_Count",
-                "Maximum_consecutive_losses_Count", "Maximum_consecutive_losses_Profit", 
-                "Maximal_consecutive_loss_Amount", "Maximal_consecutive_loss_Count",
-                "Average_consecutive_wins", "Average_consecutive_losses"
-            ]
-            
-            current_headers_ws = []
-            if ws.row_count > 0: current_headers_ws = ws.row_values(1)
-            if not current_headers_ws or all(h == "" for h in current_headers_ws) or set(current_headers_ws) != set(expected_headers): ws.update([expected_headers])
+    def save_results_summary_to_gsheets(gc_client, balance_summary_data, results_summary_data, portfolio_id, portfolio_name, source_file_name="N/A", import_batch_id="N/A"):
+        expected_headers = [
+            "Timestamp", "PortfolioID", "PortfolioName", "SourceFile", "ImportBatchID",
+            "Balance", "Equity", "Free_Margin", "Margin", "Floating_P_L", "Margin_Level", "Credit_Facility",
+            "Total_Net_Profit", "Gross_Profit", "Gross_Loss", "Profit_Factor", 
+            "Expected_Payoff", "Recovery_Factor", "Sharpe_Ratio", 
+            "Balance_Drawdown_Absolute", "Balance_Drawdown_Maximal", "Balance_Drawdown_Maximal_Percent", 
+            "Balance_Drawdown_Relative_Percent", "Balance_Drawdown_Relative_Amount",
+            "Total_Trades", "Short_Trades", "Short_Trades_won_Percent", "Long_Trades", "Long_Trades_won_Percent", 
+            "Profit_Trades", "Profit_Trades_Percent_of_total", "Loss_Trades", "Loss_Trades_Percent_of_total", 
+            "Largest_profit_trade", "Largest_loss_trade", "Average_profit_trade", "Average_loss_trade", 
+            "Maximum_consecutive_wins_Count", "Maximum_consecutive_wins_Profit", 
+            "Maximal_consecutive_profit_Amount", "Maximal_consecutive_profit_Count",
+            "Maximum_consecutive_losses_Count", "Maximum_consecutive_losses_Profit", 
+            "Maximal_consecutive_loss_Amount", "Maximal_consecutive_loss_Count",
+            "Average_consecutive_wins", "Average_consecutive_losses"
+        ]
+        
+        # *** MODIFIED: Use the new create_or_get_worksheet function ***
+        ws = create_or_get_worksheet(gc_client, GOOGLE_SHEET_NAME, WORKSHEET_STATEMENT_SUMMARIES, expected_headers)
+        if ws is None:
+            return False
 
+        try:
             row_data_to_save = {h: None for h in expected_headers} # Initialize with None
             row_data_to_save.update({
                 "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -2219,7 +2288,7 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
             # Populate from balance_summary_data
             if isinstance(balance_summary_data, dict):
                 for key, value in balance_summary_data.items():
-                    key_mapped = key.replace("_", " ").title().replace(" ", "_") # Try to map to original header
+                    # Direct mapping for specific keys that are exactly named in expected_headers
                     if key == "balance": row_data_to_save["Balance"] = value
                     elif key == "equity": row_data_to_save["Equity"] = value
                     elif key == "free_margin": row_data_to_save["Free_Margin"] = value
@@ -2227,7 +2296,11 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
                     elif key == "floating_p_l": row_data_to_save["Floating_P_L"] = value
                     elif key == "margin_level": row_data_to_save["Margin_Level"] = value
                     elif key == "credit_facility": row_data_to_save["Credit_Facility"] = value
-
+                    # For other keys, try to map based on cleaned names if necessary
+                    else:
+                         mapped_key = key.replace("_", " ").title().replace(" ", "_") # Example: "free_margin" -> "Free_Margin"
+                         if mapped_key in expected_headers:
+                             row_data_to_save[mapped_key] = value
 
             # Populate from results_summary_data
             if isinstance(results_summary_data, dict):
@@ -2239,9 +2312,6 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
             
             ws.append_rows([final_row_values], value_input_option='USER_ENTERED')
             return True
-        except gspread.exceptions.WorksheetNotFound:
-            st.error(f"❌ ไม่พบ Worksheet '{WORKSHEET_STATEMENT_SUMMARIES}'. กรุณาสร้างและใส่ Headers: {', '.join(expected_headers)}")
-            return False
         except Exception as e:
             st.error(f"❌ เกิดข้อผิดพลาดในการบันทึก Statement Summaries: {e}")
             st.exception(e)
@@ -2317,12 +2387,12 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
             gc_log_init = get_gspread_client()
             if gc_log_init:
                 try:
-                    sh_log_init = gc_log_init.open(GOOGLE_SHEET_NAME)
-                    ws_upload_history_init = sh_log_init.worksheet(WORKSHEET_UPLOAD_HISTORY)
-                    # Ensure headers are correct for UploadHistory
+                    # *** MODIFIED: Ensure UploadHistory worksheet exists and has headers ***
                     expected_upload_history_headers = ["UploadTimestamp", "PortfolioID", "PortfolioName", "FileName", "FileSize", "FileHash", "Status", "ImportBatchID", "Notes"]
-                    if ws_upload_history_init.row_count == 0 or set(ws_upload_history_init.row_values(1)) != set(expected_upload_history_headers):
-                        ws_upload_history_init.update([expected_upload_history_headers])
+                    ws_upload_history_init = create_or_get_worksheet(gc_log_init, GOOGLE_SHEET_NAME, WORKSHEET_UPLOAD_HISTORY, expected_upload_history_headers)
+                    if ws_upload_history_init is None:
+                        st.error("ไม่สามารถเตรียม Worksheet สำหรับบันทึกประวัติการอัปโหลดได้ การประมวลผลถูกยกเลิก")
+                        return # Exit if history worksheet can't be prepared
 
                     ws_upload_history_init.append_row([
                         current_upload_timestamp, str(active_portfolio_id_for_actual), str(active_portfolio_name_for_actual),
@@ -2388,12 +2458,12 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
                         gc_for_save_data = get_gspread_client()
                         if gc_for_save_data:
                             try:
-                                sh_for_save_data = gc_for_save_data.open(GOOGLE_SHEET_NAME)
+                                # sh_for_save_data = gc_for_save_data.open(GOOGLE_SHEET_NAME) # No longer need to open it here, create_or_get_worksheet does it
                                 
                                 # Save Deals
                                 deals_df = extracted_sections.get('deals')
                                 if deals_df is not None and not deals_df.empty:
-                                    if save_deals_to_actual_trades(sh_for_save_data, deals_df, active_portfolio_id_for_actual, active_portfolio_name_for_actual, file_name_for_saving, import_batch_id):
+                                    if save_deals_to_actual_trades(gc_for_save_data, deals_df, active_portfolio_id_for_actual, active_portfolio_name_for_actual, file_name_for_saving, import_batch_id):
                                         st.success(f"บันทึก Deals ({len(deals_df)} รายการ) สำเร็จ!")
                                     else:
                                         st.error("บันทึก Deals ไม่สำเร็จ."); processing_had_errors = True
@@ -2402,7 +2472,7 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
                                 # Save Orders
                                 orders_df = extracted_sections.get('orders')
                                 if orders_df is not None and not orders_df.empty:
-                                    if save_orders_to_gsheets(sh_for_save_data, orders_df, active_portfolio_id_for_actual, active_portfolio_name_for_actual, file_name_for_saving, import_batch_id):
+                                    if save_orders_to_gsheets(gc_for_save_data, orders_df, active_portfolio_id_for_actual, active_portfolio_name_for_actual, file_name_for_saving, import_batch_id):
                                         st.success(f"บันทึก Orders ({len(orders_df)} รายการ) สำเร็จ!")
                                     else:
                                         st.error("บันทึก Orders ไม่สำเร็จ."); processing_had_errors = True
@@ -2411,7 +2481,7 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
                                 # Save Positions
                                 positions_df = extracted_sections.get('positions')
                                 if positions_df is not None and not positions_df.empty:
-                                    if save_positions_to_gsheets(sh_for_save_data, positions_df, active_portfolio_id_for_actual, active_portfolio_name_for_actual, file_name_for_saving, import_batch_id):
+                                    if save_positions_to_gsheets(gc_for_save_data, positions_df, active_portfolio_id_for_actual, active_portfolio_name_for_actual, file_name_for_saving, import_batch_id):
                                         st.success(f"บันทึก Positions ({len(positions_df)} รายการ) สำเร็จ!")
                                     else:
                                         st.error("บันทึก Positions ไม่สำเร็จ."); processing_had_errors = True
@@ -2422,7 +2492,7 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
                                 results_summary_data = extracted_sections.get('results_summary', {})
 
                                 if balance_summary_data or results_summary_data:
-                                    if save_results_summary_to_gsheets(sh_for_save_data, balance_summary_data, results_summary_data, active_portfolio_id_for_actual, active_portfolio_name_for_actual, file_name_for_saving, import_batch_id):
+                                    if save_results_summary_to_gsheets(gc_for_save_data, balance_summary_data, results_summary_data, active_portfolio_id_for_actual, active_portfolio_name_for_actual, file_name_for_saving, import_batch_id):
                                         st.success("บันทึก Summary Data (Balance & Results) สำเร็จ!")
                                     else:
                                         st.error("บันทึก Summary Data ไม่สำเร็จ."); processing_had_errors = True
@@ -2472,8 +2542,9 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
                 gc_log_update = get_gspread_client()
                 if gc_log_update and initial_log_success: # Only attempt to update if initial log was written
                     try:
-                        sh_log_update = gc_log_update.open(GOOGLE_SHEET_NAME)
+                        sh_log_update = gc_log_update.open(GOOGLE_SHEET_NAME) # Re-open for specific update
                         ws_upload_history_update = sh_log_update.worksheet(WORKSHEET_UPLOAD_HISTORY)
+                        
                         history_rows = ws_upload_history_update.get_all_values()
                         row_to_update_idx = None
                         for idx_update, row_val_update in reversed(list(enumerate(history_rows))):
