@@ -38,6 +38,7 @@ def get_gspread_client():
         return None
 
 # ฟังก์ชันสำหรับโหลดข้อมูล Portfolios
+# ฟังก์ชันสำหรับโหลดข้อมูล Portfolios
 @st.cache_data(ttl=300) # Cache ข้อมูลไว้ 5 นาที
 def load_portfolios_from_gsheets():
     gc = get_gspread_client()
@@ -91,6 +92,57 @@ def load_portfolios_from_gsheets():
     except Exception as e:
         st.error(f"❌ เกิดข้อผิดพลาดในการโหลด Portfolios: {e}")
         return pd.DataFrame()
+
+# vvvvvv เพิ่มโค้ดของฟังก์ชัน load_all_planned_trade_logs_from_gsheets() ตรงนี้ vvvvvv
+@st.cache_data(ttl=180) # Cache ข้อมูลไว้ 3 นาที (ปรับ TTL ได้ตามความเหมาะสม)
+def load_all_planned_trade_logs_from_gsheets():
+    gc = get_gspread_client()
+    if gc is None:
+        # st.warning("GSpread client not available for loading planned trade logs.") # ลดการแสดงข้อความใน UI สำหรับการโหลดพื้นหลัง
+        print("Warning: GSpread client not available for loading planned trade logs.")
+        return pd.DataFrame()
+    try:
+        sh = gc.open(GOOGLE_SHEET_NAME)
+        worksheet = sh.worksheet(WORKSHEET_PLANNED_LOGS)
+        records = worksheet.get_all_records()
+        
+        if not records:
+            return pd.DataFrame()
+        
+        df_logs = pd.DataFrame(records)
+        
+        # การแปลงประเภทข้อมูลพื้นฐาน
+        if 'Timestamp' in df_logs.columns:
+            df_logs['Timestamp'] = pd.to_datetime(df_logs['Timestamp'], errors='coerce')
+        if 'Risk $' in df_logs.columns:
+            df_logs['Risk $'] = pd.to_numeric(df_logs['Risk $'], errors='coerce').fillna(0)
+        if 'RR' in df_logs.columns:
+            df_logs['RR'] = pd.to_numeric(df_logs['RR'], errors='coerce')
+        if 'PortfolioID' in df_logs.columns: # ตรวจสอบว่า PortfolioID เป็น string
+            df_logs['PortfolioID'] = df_logs['PortfolioID'].astype(str)
+        
+        # เพิ่มการแปลงประเภทข้อมูลอื่นๆ ที่จำเป็นสำหรับคอลัมน์ เช่น Entry, SL, TP, Lot
+        cols_to_numeric_viewer = ['Entry', 'SL', 'TP', 'Lot', 'Risk %'] 
+        for col_viewer in cols_to_numeric_viewer:
+            if col_viewer in df_logs.columns:
+                df_logs[col_viewer] = pd.to_numeric(df_logs[col_viewer], errors='coerce')
+
+        return df_logs
+    except gspread.exceptions.WorksheetNotFound:
+        print(f"Warning: Worksheet '{WORKSHEET_PLANNED_LOGS}' not found for centralized loading.")
+        return pd.DataFrame()
+    except gspread.exceptions.APIError as e_api:
+        if hasattr(e_api, 'response') and e_api.response and e_api.response.status_code == 429: # Quota Exceeded
+            print(f"APIError (Quota Exceeded) loading planned trade logs: {e_api.args[0] if e_api.args else 'Unknown quota error'}")
+        else:
+            print(f"APIError loading planned trade logs: {e_api}")
+        return pd.DataFrame() 
+    except Exception as e:
+        print(f"Unexpected error loading all planned trade logs: {e}")
+        return pd.DataFrame()
+# ^^^^^^ สิ้นสุดโค้ดของฟังก์ชัน load_all_planned_trade_logs_from_gsheets() ^^^^^^
+
+
 
 # ===================== SEC 1: PORTFOLIO SELECTION (Sidebar) =======================
 df_portfolios_gs = load_portfolios_from_gsheets() # โหลดข้อมูลพอร์ตก่อนส่วน UI อื่นๆ
