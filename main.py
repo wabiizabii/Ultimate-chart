@@ -2737,10 +2737,37 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
             print(f"Warning: Could not update final status in {WORKSHEET_UPLOAD_HISTORY} for batch {import_batch_id}: {e_update_hist}")
         
         # Clear the uploader state to prevent reprocessing the same file on rerun unless re-uploaded
-        st.session_state.ultimate_stmt_uploader_v7_final = True 
-        # st.rerun() # Consider if a rerun is always needed here. 
-        # It might be better to let user continue interaction.
-        # If rerun is needed to refresh some display dependent on these GSheets, then uncomment.
+         # +++ START: แก้ไขใหม่ - เคลียร์ Uploader State ทันทีหลังจากรับไฟล์ +++
+        current_file_to_process = uploaded_file_statement # เก็บไฟล์ไว้ในตัวแปร local ก่อน
+        st.session_state.ultimate_stmt_uploader_v7_final = None # เคลียร์ Session State ของ Uploader ทันที!
+        # print("Debug: Uploader state cleared at the beginning of processing.") # Optional
+        # +++ END: แก้ไขใหม่ +++
+
+        file_name_for_saving = current_file_to_process.name # ใช้ตัวแปร local
+        file_size_for_saving = current_file_to_process.size  # ใช้ตัวแปร local
+
+        file_hash_for_saving = ""
+        try:
+            current_file_to_process.seek(0) 
+            file_content_for_hash = current_file_to_process.read()
+            current_file_to_process.seek(0) # Reset pointer for further processing
+            file_hash_for_saving = hashlib.md5(file_content_for_hash).hexdigest()
+        except Exception as e_hash:
+            file_hash_for_saving = f"hash_error_{random.randint(1000,9999)}" 
+            print(f"Warning: Could not compute MD5 hash for file: {e_hash}")
+
+        if not active_portfolio_id_for_actual: 
+            st.error("กรุณาเลือกพอร์ตที่ใช้งาน (Active Portfolio) ใน Sidebar ก่อนประมวลผล Statement.")
+            st.stop() 
+
+        st.info(f"ไฟล์ที่อัปโหลด: {file_name_for_saving} (ขนาด: {file_size_for_saving} bytes, Hash: {file_hash_for_saving})")
+        gc_for_sheets = get_gspread_client()
+        # ... (โค้ดส่วนที่เหลือของการประมวลผลไฟล์ โดยใช้ current_file_to_process แทน uploaded_file_statement โดยตรง) ...
+        # ... จนถึงส่วนท้ายของการประมวลผล ...
+
+        # --- ลบการตั้ง Flag ที่ท้ายบล็อกนี้ออก ---
+        # st.session_state.clear_uploader_flag_v7_final = True # <<< ลบบรรทัดนี้ออก
+        # --- สิ้นสุดส่วนที่ให้ลบ ---
 
     st.markdown("---")
     
