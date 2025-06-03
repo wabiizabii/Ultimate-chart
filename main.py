@@ -674,29 +674,33 @@ with st.expander("💼 จัดการพอร์ต (เพิ่ม/ดู
 # This block ensures `active_balance_to_use` and `st.session_state.current_account_balance`
 # are consistently updated, prioritizing `latest_statement_equity`.
 
+active_balance_to_use = 10000.0 # Default fallback
+balance_source_message = "จากค่าเริ่มต้น"
+balance_color = "gray" # Default color
+
 if 'latest_statement_equity' in st.session_state and st.session_state.latest_statement_equity is not None:
-    active_balance_to_use = st.session_state.latest_statement_equity
-    st.session_state.current_account_balance = st.session_state.latest_statement_equity
-    st.sidebar.markdown(f"**💰 Balance สำหรับคำนวณ:** <font color='lime'>{st.session_state.current_account_balance:,.2f} USD (จาก Statement Equity)</font>", unsafe_allow_html=True)
-elif 'current_portfolio_details' in st.session_state and st.session_state.current_portfolio_details:
+    try:
+        val_equity = float(st.session_state.latest_statement_equity)
+        if pd.notna(val_equity):
+            active_balance_to_use = val_equity
+            balance_source_message = "จาก Statement Equity ล่าสุด"
+            balance_color = "lime"
+        else:
+            st.session_state.latest_statement_equity = None # Clear if it became NaN/None
+    except (ValueError, TypeError):
+        st.session_state.latest_statement_equity = None # Clear if conversion fails
+
+if st.session_state.latest_statement_equity is None and st.session_state.get('current_portfolio_details'):
     details = st.session_state.current_portfolio_details
     portfolio_initial_balance_val = details.get('InitialBalance')
     if pd.notna(portfolio_initial_balance_val):
         try:
-            active_balance_to_use = float(portfolio_initial_balance_val)
-            st.session_state.current_account_balance = active_balance_to_use
-            st.sidebar.markdown(f"**💰 Balance สำหรับคำนวณ:** <font color='gold'>{st.session_state.current_account_balance:,.2f} USD (จาก Initial Balance พอร์ต)</font>", unsafe_allow_html=True)
+            val_initial = float(portfolio_initial_balance_val)
+            active_balance_to_use = val_initial
+            balance_source_message = "จาก Initial Balance พอร์ต"
+            balance_color = "gold"
         except (ValueError, TypeError):
             st.sidebar.warning("ไม่สามารถแปลง InitialBalance จากพอร์ตเป็นตัวเลขได้ ใช้ค่าเริ่มต้นแทน.")
-            st.session_state.current_account_balance = 10000.0
-            st.sidebar.markdown(f"**💰 Balance สำหรับคำนวณ:** {st.session_state.current_account_balance:,.2f} USD (จากค่าเริ่มต้น)", unsafe_allow_html=True)
-    else:
-        st.session_state.current_account_balance = 10000.0
-        st.sidebar.markdown(f"**💰 Balance สำหรับคำนวณ:** {st.session_state.current_account_balance:,.2f} USD (จากค่าเริ่มต้น)", unsafe_allow_html=True)
-else:
-    st.session_state.current_account_balance = 10000.0
-    st.sidebar.info("ยังไม่ได้เลือกพอร์ต หรือไม่พบข้อมูลพอร์ต ใช้ Balance เริ่มต้น: 10,000.00 USD")
-    st.sidebar.markdown(f"**💰 Balance สำหรับคำนวณ:** {st.session_state.current_account_balance:,.2f} USD (จากค่าเริ่มต้น)", unsafe_allow_html=True)
 
 # Always update active_balance_to_use to reflect current_account_balance
 active_balance_to_use = st.session_state.current_account_balance
@@ -736,25 +740,28 @@ if st.sidebar.button("🔄 Reset Form"):
 
     sb_active_portfolio_selector_gs_keep = st.session_state.get('sb_active_portfolio_selector_gs', "")
 
-    keys_to_fully_preserve = {"gcp_service_account"}
-    temp_preserved_values = {}
-    for k_fp in keys_to_fully_preserve:
-        if k_fp in st.session_state:
-            temp_preserved_values[k_fp] = st.session_state[k_fp]
+    keys_to_fully_preserve = {"gcp_service_account", "latest_statement_equity", "current_account_balance"} # ADDED these two
+temp_preserved_values = {}
+for k_fp in keys_to_fully_preserve:
+    if k_fp in st.session_state:
+        temp_preserved_values[k_fp] = st.session_state[k_fp]
 
-    keys_to_clear = [k for k in st.session_state.keys() if k not in keys_to_fully_preserve]
-    for key in keys_to_clear:
-        del st.session_state[key]
+keys_to_clear = [k for k in st.session_state.keys() if k not in keys_to_fully_preserve]
+for key in keys_to_clear:
+    if key not in ["active_portfolio_name_gs", "active_portfolio_id_gs", "current_portfolio_details", "sb_active_portfolio_selector_gs", "mode", "drawdown_limit_pct"]: # Exclude other critical keys from being cleared as well
+         del st.session_state[key]
+# Re-assign preserved values after clearing
+for k_fp, v_fp in temp_preserved_values.items():
+    st.session_state[k_fp] = v_fp
 
-    for k_fp, v_fp in temp_preserved_values.items():
-        st.session_state[k_fp] = v_fp
+st.session_state.mode = mode_to_keep
+st.session_state.drawdown_limit_pct = dd_limit_to_keep
+st.session_state.active_portfolio_name_gs = active_portfolio_name_gs_keep
+st.session_state.active_portfolio_id_gs = active_portfolio_id_gs_keep
+st.session_state.current_portfolio_details = current_portfolio_details_keep
+if sb_active_portfolio_selector_gs_keep:
+    st.session_state.sb_active_portfolio_selector_gs = sb_active_portfolio_selector_gs_keep
 
-    st.session_state.mode = mode_to_keep
-    st.session_state.drawdown_limit_pct = dd_limit_to_keep
-
-    st.session_state.active_portfolio_name_gs = active_portfolio_name_gs_keep
-    st.session_state.active_portfolio_id_gs = active_portfolio_id_gs_keep
-    st.session_state.current_portfolio_details = current_portfolio_details_keep
 
     if sb_active_portfolio_selector_gs_keep:
         st.session_state.sb_active_portfolio_selector_gs = sb_active_portfolio_selector_gs_keep
