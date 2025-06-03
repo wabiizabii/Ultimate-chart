@@ -16,6 +16,10 @@ import hashlib # เพิ่มสำหรับ SEC 7
 
 st.set_page_config(page_title="Ultimate-Chart", layout="wide")
 acc_balance = 10000 # ยอดคงเหลือเริ่มต้นของบัญชีเทรด (อาจจะดึงมาจาก Active Portfolio ในอนาคต)
+# +++ START: โค้ดที่เพิ่มเข้ามาสำหรับจัดการ Key ของ File Uploader +++
+if 'uploader_key_version' not in st.session_state:
+    st.session_state.uploader_key_version = 0
+# +++ END: โค้ดที่เพิ่มเข้ามา +++
 
 # กำหนดชื่อ Google Sheet และ Worksheet ที่จะใช้เก็บข้อมูล
 GOOGLE_SHEET_NAME = "TradeLog" # ชื่อ Google Sheet ของลูกพี่ตั้ม
@@ -2437,10 +2441,14 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
     st.markdown("---")
     st.subheader("📤 อัปโหลด Statement Report (CSV) เพื่อประมวลผลและบันทึก")
     
-    uploaded_file_statement = st.file_uploader( 
+    # Ensure uploader_key_version is initialized (ideally in SEC 0, but double-check here if needed)
+    if 'uploader_key_version' not in st.session_state:
+        st.session_state.uploader_key_version = 0
+
+    uploaded_file_statement = st.file_uploader(
         "ลากและวางไฟล์ Statement Report (CSV) ที่นี่ หรือคลิกเพื่อเลือกไฟล์",
         type=["csv"],
-        key="ultimate_stmt_uploader_v7_final" 
+        key=f"ultimate_stmt_uploader_v7_final_{st.session_state.uploader_key_version}" # <<< แก้ไขบรรทัดนี้
     )
 
     # The debug checkbox was in the original code.
@@ -2735,7 +2743,7 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
             print(f"Warning: Could not update final status in {WORKSHEET_UPLOAD_HISTORY} for batch {import_batch_id}: {e_update_hist}")
         
         # Clear the uploader state to prevent reprocessing the same file on rerun unless re-uploaded
-        st.session_state.ultimate_stmt_uploader_v7_final = None 
+        st.session_state.uploader_key_version += 1
         # st.rerun() # Consider if a rerun is always needed here. 
         # It might be better to let user continue interaction.
         # If rerun is needed to refresh some display dependent on these GSheets, then uncomment.
