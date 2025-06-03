@@ -2388,19 +2388,26 @@ with st.expander("📂 Ultimate Chart Dashboard Import & Processing", expanded=T
                     # *** MODIFIED: Ensure UploadHistory worksheet exists and has headers ***
                     expected_upload_history_headers = ["UploadTimestamp", "PortfolioID", "PortfolioName", "FileName", "FileSize", "FileHash", "Status", "ImportBatchID", "Notes"]
                     ws_upload_history_init = create_or_get_worksheet(gc_log_init, GOOGLE_SHEET_NAME, WORKSHEET_UPLOAD_HISTORY, expected_upload_history_headers)
-                    if ws_upload_history_init is None:
-                        st.error("ไม่สามารถเตรียม Worksheet สำหรับบันทึกประวัติการอัปโหลดได้ การประมวลผลถูกยกเลิก")
-                        return # Exit if history worksheet can't be prepared
-
-                    ws_upload_history_init.append_row([
-                        current_upload_timestamp, str(active_portfolio_id_for_actual), str(active_portfolio_name_for_actual),
-                        file_name_for_saving, uploaded_file_statement.size, file_hash_for_saving,
-                        "Processing", import_batch_id, "Attempting to process new/previously failed file."
-                    ])
-                    initial_log_success = True
+                    
+                    if ws_upload_history_init is None: # ถ้าสร้าง/เข้าถึงไม่ได้ ให้ตั้งค่า initial_log_success เป็น False
+                        st.error("ไม่สามารถเตรียม Worksheet สำหรับบันทึกประวัติการอัปโหลดได้ การประมวลผลไฟล์นี้ถูกยกเลิก.")
+                        initial_log_success = False # กำหนดค่าเป็น False ชัดเจน
+                    else: # ถ้าเตรียม Worksheet สำเร็จ
+                        ws_upload_history_init.append_row([
+                            current_upload_timestamp, str(active_portfolio_id_for_actual), str(active_portfolio_name_for_actual),
+                            file_name_for_saving, uploaded_file_statement.size, file_hash_for_saving,
+                            "Processing", import_batch_id, "Attempting to process new/previously failed file."
+                        ])
+                        initial_log_success = True
                 except Exception as e_log_init:
                     st.error(f"ไม่สามารถบันทึก Log เริ่มต้นใน {WORKSHEET_UPLOAD_HISTORY}: {e_log_init}")
+                    initial_log_success = False # Ensure it's False on error
+            else: # If gc_log_init is None
+                st.error("ไม่สามารถเชื่อมต่อ Google Sheets Client เพื่อบันทึกประวัติการอัปโหลดได้ การประมวลผลไฟล์นี้ถูกยกเลิก.")
+                initial_log_success = False # Ensure it's False if client is not available
 
+
+            # *** MODIFIED: ใช้ if initial_log_success ล้อมรอบบล็อกการประมวลผลหลัก ***
             if initial_log_success:
                 st.markdown(f"--- \n**Import Batch ID: `{import_batch_id}`**")
                 st.info(f"กำลังประมวลผลไฟล์ (ใหม่/เคยล้มเหลว): {file_name_for_saving}")
@@ -2456,8 +2463,6 @@ with st.expander("📂 Ultimate Chart Dashboard Import & Processing", expanded=T
                         gc_for_save_data = get_gspread_client()
                         if gc_for_save_data:
                             try:
-                                # sh_for_save_data = gc_for_save_data.open(GOOGLE_SHEET_NAME) # No longer need to open it here, create_or_get_worksheet does it
-                                
                                 # Save Deals
                                 deals_df = extracted_sections.get('deals')
                                 if deals_df is not None and not deals_df.empty:
@@ -2565,12 +2570,11 @@ with st.expander("📂 Ultimate Chart Dashboard Import & Processing", expanded=T
 
                 st.session_state.uploader_key_version += 1 # Increment key to reset uploader widget
                 st.rerun() # Rerun to reflect changes immediately
+            # *** END MODIFIED: if initial_log_success block ***
     else: # No file uploaded
         st.info("โปรดอัปโหลดไฟล์ Statement Report (CSV) เพื่อเริ่มต้นประมวลผล.")
 
     st.markdown("---")
-
-# --- End of SEC 7 ---
 # ===================== SEC 7: MAIN AREA - TRADE LOG VIEWER =======================
 @st.cache_data(ttl=120) # Cache ผลลัพธ์ของฟังก์ชันนี้ (ซึ่งรวมการเรียงข้อมูลแล้ว) ไว้ 2 นาที
 def load_planned_trades_from_gsheets_for_viewer():
