@@ -2270,13 +2270,13 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
         key="ultimate_stmt_uploader_v7_final" # New key
     )
 
-    st.checkbox("⚙️ เปิดโหมด Debug (แสดงข้อมูลที่แยกได้)", value=False, key="debug_statement_processing_v2")
+   
     # --- ส่วนที่เพิ่ม/แก้ไข: Checkbox สำหรับ Debug Mode (ก้อนที่ 3) ---
     # ใช้ค่าจาก st.session_state เพื่อรักษาสถานะของ Checkbox
     show_debug_mode_stmt_processing = st.checkbox(
-        "⚙️ เปิดโหมด Debug (แสดงข้อมูลที่แยกได้และ DataFrame Deals)", 
+        "⚙️ เปิดโหมด Debug (แสดงข้อมูลที่แยกได้และ DataFrame Deals)",
         value=st.session_state.get("debug_statement_processing_v2", False),
-        key="debug_statement_processing_v2" # Key เดียวกันกับที่ใช้ใน extract_data_from_report_content
+        key="debug_stmt_import_processor_debug_checkbox" # <--- เปลี่ยน key เป็นชื่อใหม่ที่ไม่ซ้ำ
     )
     # --- สิ้นสุดส่วนที่เพิ่ม/แก้ไข ---
     
