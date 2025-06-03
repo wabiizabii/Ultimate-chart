@@ -1783,7 +1783,7 @@ with st.expander("🤖 AI Assistant", expanded=True):
         if df_ai_logs_all_cached.empty:
              st.markdown(f"### 🧠 AI Intelligence Report {report_title_suffix_planned}")
              st.info("ยังไม่มีข้อมูลแผนเทรดใน Log (Google Sheets) สำหรับวิเคราะห์")
-        elif active_portfolio_id_ai : # มี log ทั้งหมด แต่ไม่มีของพอร์ตที่เลือก
+        elif active_portfolio_id_ai : 
              st.markdown(f"### 🧠 AI Intelligence Report {report_title_suffix_planned}")
              st.info(f"ไม่พบข้อมูลแผนเทรดใน Log สำหรับพอร์ต '{active_portfolio_name_ai}'.")
     else: 
@@ -1802,8 +1802,7 @@ with st.expander("🤖 AI Assistant", expanded=True):
             rr_series_planned = pd.to_numeric(df_ai_logs_to_analyze["RR"], errors='coerce').dropna()
             if not rr_series_planned.empty: avg_rr_ai_planned = rr_series_planned.mean()
 
-        max_drawdown_ai_planned = 0.0 # Max Drawdown จากแผน (จำลอง)
-        # ... (โค้ดคำนวณ Max Drawdown จาก Planned Logs เหมือนเดิม) ...
+        max_drawdown_ai_planned = 0.0
         if "Risk $" in df_ai_logs_to_analyze.columns and not df_ai_logs_to_analyze.empty:
             df_ai_logs_sorted_for_dd_planned = df_ai_logs_to_analyze
             if "Timestamp" in df_ai_logs_to_analyze.columns and not df_ai_logs_to_analyze["Timestamp"].isnull().all():
@@ -1818,7 +1817,6 @@ with st.expander("🤖 AI Assistant", expanded=True):
                     if drawdown_val_planned > max_drawdown_ai_planned: max_drawdown_ai_planned = drawdown_val_planned
         
         win_day_ai_planned, loss_day_ai_planned = "-", "-"
-        # ... (โค้ดคำนวณ Win/Loss Day จาก Planned Logs เหมือนเดิม) ...
         if "Timestamp" in df_ai_logs_to_analyze.columns and "Risk $" in df_ai_logs_to_analyze.columns and \
            not df_ai_logs_to_analyze["Timestamp"].isnull().all() and not df_ai_logs_to_analyze.empty:
             df_for_daily_pnl_planned = df_ai_logs_to_analyze.copy()
@@ -1840,7 +1838,7 @@ with st.expander("🤖 AI Assistant", expanded=True):
         st.write(f"- **Max Drawdown (จำลองจากแผน):** {max_drawdown_ai_planned:,.2f} USD")
         st.write(f"- **วันที่ทำกำไรดีที่สุด (ตามแผน):** {win_day_ai_planned}")
         st.write(f"- **วันที่ขาดทุนมากที่สุด (ตามแผน):** {loss_day_ai_planned}")
-        # ... (ส่วนแสดง Insight จาก Planned Logs เหมือนเดิม) ...
+        
         st.markdown("#### 🤖 AI Insight (จากแผนเทรด)")
         insight_messages_planned = []
         if total_trades_ai_planned > 0 : 
@@ -1855,16 +1853,16 @@ with st.expander("🤖 AI Assistant", expanded=True):
             elif "🚨" in msg: st.error(msg)
             else: st.info(msg)
 
-    st.markdown("---") # เส้นคั่นระหว่าง Planned และ Actual Analysis
+    st.markdown("---") 
 
     # --- ส่วนที่ 2: วิเคราะห์จาก ActualTrades (Deals) ---
-    df_actual_trades_all = load_actual_trades_from_gsheets()
+    df_actual_trades_all = load_actual_trades_from_gsheets() # โหลดข้อมูล ActualTrades
     df_actual_trades_to_analyze = pd.DataFrame()
 
     if active_portfolio_id_ai and not df_actual_trades_all.empty:
         if 'PortfolioID' in df_actual_trades_all.columns:
             df_actual_trades_to_analyze = df_actual_trades_all[df_actual_trades_all['PortfolioID'] == str(active_portfolio_id_ai)].copy()
-    elif not df_actual_trades_all.empty: # No active portfolio, use all actual trades
+    elif not df_actual_trades_all.empty: 
         df_actual_trades_to_analyze = df_actual_trades_all.copy()
 
     st.markdown(f"### 📈 AI Intelligence Report {report_title_suffix_actual}")
@@ -1874,66 +1872,83 @@ with st.expander("🤖 AI Assistant", expanded=True):
         elif active_portfolio_id_ai:
              st.info(f"ไม่พบข้อมูลผลการเทรดจริงใน Log สำหรับพอร์ต '{active_portfolio_name_ai}'.")
     else:
-        # ตรวจสอบว่าคอลัมน์ 'Profit_Deal' มีอยู่จริง
         if 'Profit_Deal' not in df_actual_trades_to_analyze.columns:
             st.warning("ไม่พบคอลัมน์ 'Profit_Deal' ในข้อมูลผลการเทรดจริง ไม่สามารถคำนวณสถิติได้")
         else:
-            # กรองเฉพาะ Deals ที่ไม่ใช่ Balance/Credit (ถ้ายังไม่ได้กรองตอน extract)
-            # สมมติว่า Type_Deal ถูกโหลดมาด้วย
-            if 'Type_Deal' in df_actual_trades_to_analyze.columns:
-                df_trading_deals = df_actual_trades_to_analyze[
-                    ~df_actual_trades_to_analyze['Type_Deal'].astype(str).str.lower().isin(['balance', 'credit'])
-                ].copy()
-            else:
-                df_trading_deals = df_actual_trades_to_analyze.copy() # ถ้าไม่มี Type_Deal, ใช้ทั้งหมด (อาจต้องปรับปรุง)
+            df_trading_deals = df_actual_trades_to_analyze.copy() # เริ่มจาก copy ทั้งหมด
+            # กรอง Type_Deal ที่ไม่ใช่การเทรดออก (ถ้ามีข้อมูล Type_Deal)
+            if 'Type_Deal' in df_trading_deals.columns:
+                # ตรวจสอบให้แน่ใจว่าค่าใน Type_Deal เป็น string ก่อนใช้ .str.lower()
+                df_trading_deals['Type_Deal'] = df_trading_deals['Type_Deal'].astype(str)
+                df_trading_deals = df_trading_deals[
+                    ~df_trading_deals['Type_Deal'].str.lower().isin(['balance', 'credit'])
+                ]
+            
+            # ตรวจสอบว่า Profit_Deal เป็น numeric
+            if not pd.api.types.is_numeric_dtype(df_trading_deals['Profit_Deal']):
+                df_trading_deals['Profit_Deal'] = pd.to_numeric(df_trading_deals['Profit_Deal'], errors='coerce')
+            
+            df_trading_deals.dropna(subset=['Profit_Deal'], inplace=True) # ลบแถวที่ Profit_Deal เป็น NaN หลังการแปลง
 
             if df_trading_deals.empty:
-                st.info("ไม่พบรายการ Deals ที่เป็นการซื้อขายจริงสำหรับวิเคราะห์")
+                st.info("ไม่พบรายการ Deals ที่เป็นการซื้อขายจริงสำหรับวิเคราะห์ (หลังจากกรอง Type)")
             else:
                 actual_total_deals = len(df_trading_deals)
                 actual_winning_deals_df = df_trading_deals[df_trading_deals['Profit_Deal'] > 0]
-                actual_losing_deals_df = df_trading_deals[df_trading_deals['Profit_Deal'] < 0]
+                actual_losing_deals_df = df_trading_deals[df_trading_deals['Profit_Deal'] < 0] # ขาดทุนจริงๆ (ไม่รวมเสมอตัว)
                 
                 actual_winning_deals_count = len(actual_winning_deals_df)
                 actual_losing_deals_count = len(actual_losing_deals_df)
+                # actual_breakeven_deals_count = actual_total_deals - actual_winning_deals_count - actual_losing_deals_count
 
                 actual_win_rate = (100 * actual_winning_deals_count / actual_total_deals) if actual_total_deals > 0 else 0
                 
                 actual_gross_profit = actual_winning_deals_df['Profit_Deal'].sum()
-                actual_gross_loss = abs(actual_losing_deals_df['Profit_Deal'].sum()) # abs for positive value
+                actual_gross_loss = abs(actual_losing_deals_df['Profit_Deal'].sum()) 
 
-                actual_profit_factor = actual_gross_profit / actual_gross_loss if actual_gross_loss > 0 else float('inf') if actual_gross_profit > 0 else 0
+                actual_profit_factor = actual_gross_profit / actual_gross_loss if actual_gross_loss > 0 else float('inf') if actual_gross_profit > 0 else 0.0
                 
-                actual_avg_profit_deal = actual_gross_profit / actual_winning_deals_count if actual_winning_deals_count > 0 else 0
-                actual_avg_loss_deal = actual_gross_loss / actual_losing_deals_count if actual_losing_deals_count > 0 else 0 # abs value
+                actual_avg_profit_deal = actual_gross_profit / actual_winning_deals_count if actual_winning_deals_count > 0 else 0.0
+                actual_avg_loss_deal = actual_gross_loss / actual_losing_deals_count if actual_losing_deals_count > 0 else 0.0
                 
-                # --- แสดงผล Metrics จาก Actual Trades ---
-                st.write(f"- **จำนวน Deals ที่วิเคราะห์ (ผลจริง):** {actual_total_deals:,}")
-                st.write(f"- **Deal-Level Win Rate (ผลจริง):** {actual_win_rate:.2f}%")
+                st.write(f"- **จำนวน Deals ซื้อขายจริงที่วิเคราะห์:** {actual_total_deals:,}")
+                st.write(f"- **Deal-Level Win Rate (ผลจริง):** {actual_win_rate:.2f}% ({actual_winning_deals_count} ชนะ / {actual_losing_deals_count} แพ้)")
                 st.write(f"- **กำไรทั้งหมด (Gross Profit - ผลจริง):** {actual_gross_profit:,.2f} USD")
                 st.write(f"- **ขาดทุนทั้งหมด (Gross Loss - ผลจริง):** {actual_gross_loss:,.2f} USD")
-                st.write(f"- **Profit Factor (Deal-Level - ผลจริง):** {actual_profit_factor:.2f}" if actual_profit_factor != float('inf') else "∞ (No Losses)")
+                st.write(f"- **Profit Factor (Deal-Level - ผลจริง):** {actual_profit_factor:.2f}" if actual_profit_factor != float('inf') else "ไม่สามารถคำนวณได้ (ไม่มีการขาดทุน)" if actual_gross_profit > 0 else "0.00")
                 st.write(f"- **กำไรเฉลี่ยต่อ Deal ที่ชนะ (ผลจริง):** {actual_avg_profit_deal:,.2f} USD")
                 st.write(f"- **ขาดทุนเฉลี่ยต่อ Deal ที่แพ้ (ผลจริง):** {actual_avg_loss_deal:,.2f} USD")
 
-                # เพิ่ม AI Insights จาก Actual Trades ในอนาคตตรงนี้
                 st.markdown("#### 🤖 AI Insight (จากผลการเทรดจริง)")
                 insight_messages_actual = []
                 if actual_total_deals > 0:
-                    if actual_win_rate >= 50: insight_messages_actual.append("✅ Win Rate (ผลจริง) อยู่ในเกณฑ์ดี")
-                    else: insight_messages_actual.append("📉 Win Rate (ผลจริง) ควรปรับปรุง")
-                    if actual_profit_factor > 1.5: insight_messages_actual.append("📈 Profit Factor (ผลจริง) อยู่ในระดับที่ดี")
-                    elif actual_profit_factor < 1 and actual_total_deals > 10: insight_messages_actual.append("⚠️ Profit Factor (ผลจริง) ต่ำกว่า 1 บ่งชี้ว่าขาดทุนมากกว่ากำไร ควรทบทวนกลยุทธ์")
+                    if actual_win_rate >= 50: 
+                        insight_messages_actual.append(f"✅ Win Rate (ผลจริง) ที่ {actual_win_rate:.2f}% ถือว่าอยู่ในเกณฑ์ดี")
+                    elif actual_win_rate < 40 and actual_total_deals >= 10: # มีจำนวนเทรดพอสมควร
+                        insight_messages_actual.append(f"📉 Win Rate (ผลจริง) ที่ {actual_win_rate:.2f}% ค่อนข้างต่ำ ควรพิจารณากลยุทธ์การเข้าเทรด")
+                    else:
+                        insight_messages_actual.append(f"ℹ️ Win Rate (ผลจริง) ปัจจุบันคือ {actual_win_rate:.2f}%")
+
+                    if actual_profit_factor > 1.5: 
+                        insight_messages_actual.append(f"📈 Profit Factor (ผลจริง) ที่ {actual_profit_factor:.2f} อยู่ในระดับที่ดี แสดงว่ากำไรมากกว่าขาดทุนอย่างมีนัยสำคัญ")
+                    elif actual_profit_factor < 1 and actual_gross_loss > 0 : # PF < 1 และมีการขาดทุนเกิดขึ้นจริง
+                        insight_messages_actual.append(f"⚠️ Profit Factor (ผลจริง) ที่ {actual_profit_factor:.2f} ต่ำกว่า 1 บ่งชี้ว่าระบบเทรดปัจจุบันอาจจะยังขาดทุนอยู่ ควรทบทวนกลยุทธ์การบริหารจัดการความเสี่ยงและผลตอบแทน")
+                    elif actual_profit_factor == float('inf'):
+                         insight_messages_actual.append(f"🎉 ยอดเยี่ยม! ยังไม่มี Deal ที่ขาดทุนเลย (Profit Factor คำนวณไม่ได้)")
+                    else:
+                        insight_messages_actual.append(f"ℹ️ Profit Factor (ผลจริง) ปัจจุบันคือ {actual_profit_factor:.2f}")
                 
-                if not insight_messages_actual and actual_total_deals > 0 : insight_messages_actual = ["ข้อมูลผลการเทรดจริงกำลังถูกรวบรวม โปรดตรวจสอบ Insights เพิ่มเติมในอนาคต"]
-                elif not actual_total_deals > 0 : insight_messages_actual = ["ยังไม่มีข้อมูลผลการเทรดจริงเพียงพอสำหรับการสร้าง Insight"]
+                if not insight_messages_actual and actual_total_deals > 0 : 
+                    insight_messages_actual = ["ข้อมูลผลการเทรดจริงกำลังถูกรวบรวม โปรดตรวจสอบ Insights เพิ่มเติมในอนาคต"]
+                elif not actual_total_deals > 0 : 
+                    insight_messages_actual = ["ยังไม่มีข้อมูลผลการเทรดจริงเพียงพอสำหรับการสร้าง Insight"]
 
                 for msg in insight_messages_actual:
-                    if "✅" in msg or "📈" in msg : st.success(msg)
+                    if "✅" in msg or "📈" in msg or "🎉" in msg: st.success(msg)
                     elif "⚠️" in msg or "📉" in msg: st.warning(msg)
                     else: st.info(msg)
 
-# --- End of SEC 5 (formerly SEC 6) ---
+# --- End of SEC 5 (AI Assistant) ---
 
 
 # ===================== SEC 6: MAIN AREA - STATEMENT IMPORT & PROCESSING =======================
