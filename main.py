@@ -21,6 +21,21 @@ if 'uploader_key_version' not in st.session_state:
     st.session_state.uploader_key_version = 0
 # +++ END: โค้ดที่เพิ่มเข้ามา +++
 
+# +++ START: เพิ่มการจัดการ Current Equity ใน session_state +++
+if 'latest_statement_equity' not in st.session_state:
+    # ค่าเริ่มต้น: หากยังไม่มีการอัปโหลด statement หรือเลือกพอร์ต
+    # เราสามารถใช้ InitialBalance ของพอร์ตที่เลือกมาเป็นค่าเริ่มต้นได้
+    # หรือใช้ค่า default ทั่วไปก่อน
+    st.session_state.latest_statement_equity = None 
+
+# กำหนดค่าเริ่มต้นให้กับ st.session_state.current_account_balance
+# โดยจะใช้ InitialBalance ของพอร์ตก่อน หากไม่มี ให้ใช้ค่า default
+# แต่จะถูกทับด้วย latest_statement_equity หากมีการอัปโหลด Statement สำเร็จ
+if 'current_account_balance' not in st.session_state:
+    st.session_state.current_account_balance = 10000.0 # Default fallback
+
+# +++ END: เพิ่มการจัดการ Current Equity ใน session_state +++
+
 # กำหนดชื่อ Google Sheet และ Worksheet ที่จะใช้เก็บข้อมูล
 GOOGLE_SHEET_NAME = "TradeLog" # ชื่อ Google Sheet ของลูกพี่ตั้ม
 WORKSHEET_PORTFOLIOS = "Portfolios"
@@ -266,6 +281,26 @@ if selected_portfolio_name_gs != "":
             else:
                 st.session_state.active_portfolio_id_gs = None
                 st.sidebar.warning("ไม่พบ PortfolioID สำหรับพอร์ตที่เลือก.")
+
+            # +++ START: โค้ดที่ถูกแก้ไข/เพิ่ม: ปรับปรุงการตั้งค่า Balance เมื่อเลือกพอร์ต +++
+            # อัปเดต InitialBalance ของพอร์ตที่เลือกเข้าสู่ active_balance_to_use
+            # และกำหนดให้เป็น current_account_balance ใน session state ชั่วคราว
+            # ก่อนที่จะถูกทับด้วย latest_statement_equity หากมี
+            portfolio_initial_balance_val = st.session_state.current_portfolio_details.get('InitialBalance')
+            if pd.notna(portfolio_initial_balance_val):
+                try:
+                    st.session_state.current_account_balance = float(portfolio_initial_balance_val)
+                    # รีเซ็ต latest_statement_equity เมื่อเปลี่ยนพอร์ต เพื่อให้มั่นใจว่ากำลังใช้ InitialBalance ของพอร์ตใหม่
+                    st.session_state.latest_statement_equity = None 
+                except (ValueError, TypeError):
+                    st.sidebar.warning("ไม่สามารถแปลง InitialBalance จากพอร์ตเป็นตัวเลขได้ ใช้ค่าเริ่มต้นแทน.")
+                    st.session_state.current_account_balance = 10000.0 # Fallback default
+                    st.session_state.latest_statement_equity = None
+            else:
+                st.session_state.current_account_balance = 10000.0 # Fallback default
+                st.session_state.latest_statement_equity = None
+            # +++ END: โค้ดที่ถูกแก้ไข/เพิ่ม +++
+
         else:
             st.session_state.active_portfolio_id_gs = None
             st.session_state.current_portfolio_details = None
@@ -277,6 +312,10 @@ else:
     st.session_state.active_portfolio_name_gs = ""
     st.session_state.active_portfolio_id_gs = None
     st.session_state.current_portfolio_details = None
+    # +++ START: โค้ดที่ถูกแก้ไข/เพิ่ม: เมื่อ deselect พอร์ต +++
+    st.session_state.current_account_balance = 10000.0 # รีเซ็ตเป็นค่า default
+    st.session_state.latest_statement_equity = None # ล้างค่า Equity ที่เคยโหลด
+    # +++ END: โค้ดที่ถูกแก้ไข/เพิ่ม +++
 
 # Display details of the selected active portfolio
 if st.session_state.current_portfolio_details:
@@ -296,7 +335,6 @@ elif not df_portfolios_gs.empty and selected_portfolio_name_gs == "":
      st.sidebar.info("กรุณาเลือกพอร์ตที่ใช้งานจากรายการ")
 elif df_portfolios_gs.empty:
     st.sidebar.warning("ไม่พบข้อมูล Portfolio ใน Google Sheets หรือเกิดข้อผิดพลาดในการโหลด.")
-
 # ========== Function Utility (ต่อจากของเดิม) ==========
 def get_today_drawdown(log_source_df, acc_balance_input): # Renamed acc_balance to avoid conflict
     # ... (โค้ดเดิมของลูกพี่ตั้ม) ...
@@ -673,7 +711,6 @@ with st.expander("💼 จัดการพอร์ต (เพิ่ม/ดู
 # END: ส่วนจัดการ Portfolio (SEC 1.5)
 # ==============================================================================
 
-
 # ===================== SEC 2: COMMON INPUTS & MODE SELECTION =======================
 # --- ดึงค่า InitialBalance และ CurrentRiskPercent จาก Active Portfolio ---
 # หมายเหตุ: ส่วนนี้ถูกย้ายขึ้นมาเพื่อให้แน่ใจว่า active_balance_to_use และ initial_risk_pct_from_portfolio
@@ -683,7 +720,13 @@ with st.expander("💼 จัดการพอร์ต (เพิ่ม/ดู
 active_balance_to_use = 10000.0 # Fallback default value
 initial_risk_pct_from_portfolio = 1.0 # Fallback default value
 
-if 'current_portfolio_details' in st.session_state and st.session_state.current_portfolio_details:
+# +++ START: วางทับโค้ดส่วนนี้ทั้งหมด (ปรับปรุงการกำหนด active_balance_to_use) +++
+if 'latest_statement_equity' in st.session_state and st.session_state.latest_statement_equity is not None:
+    # ถ้ามีค่า Equity ล่าสุดจาก Statement ให้อัปเดต current_account_balance ด้วยค่านี้
+    active_balance_to_use = st.session_state.latest_statement_equity
+    st.session_state.current_account_balance = st.session_state.latest_statement_equity
+    st.sidebar.markdown(f"**💰 Balance สำหรับคำนวณ:** <font color='lime'>{st.session_state.current_account_balance:,.2f} USD (จาก Statement Equity)</font>", unsafe_allow_html=True)
+elif 'current_portfolio_details' in st.session_state and st.session_state.current_portfolio_details:
     details = st.session_state.current_portfolio_details
     
     # ดึง InitialBalance จาก current_portfolio_details ถ้ามี
@@ -691,11 +734,26 @@ if 'current_portfolio_details' in st.session_state and st.session_state.current_
     if pd.notna(portfolio_initial_balance_val):
         try:
             active_balance_to_use = float(portfolio_initial_balance_val)
+            st.session_state.current_account_balance = active_balance_to_use # อัปเดต session state
+            st.sidebar.markdown(f"**💰 Balance สำหรับคำนวณ:** <font color='gold'>{st.session_state.current_account_balance:,.2f} USD (จาก Initial Balance พอร์ต)</font>", unsafe_allow_html=True)
         except (ValueError, TypeError):
-            # st.sidebar.warning("ไม่สามารถแปลง InitialBalance จากพอร์ตเป็นตัวเลขได้ ใช้ค่าเริ่มต้นแทน")
-            pass # ใช้ active_balance_to_use ที่ตั้งไว้เป็น fallback
+            st.sidebar.warning("ไม่สามารถแปลง InitialBalance จากพอร์ตเป็นตัวเลขได้ ใช้ค่าเริ่มต้นแทน")
+            st.session_state.current_account_balance = 10000.0 # Fallback default
+            st.sidebar.markdown(f"**💰 Balance สำหรับคำนวณ:** {st.session_state.current_account_balance:,.2f} USD (จากค่าเริ่มต้น)", unsafe_allow_html=True)
+    else:
+        st.session_state.current_account_balance = 10000.0 # Fallback default
+        st.sidebar.markdown(f"**💰 Balance สำหรับคำนวณ:** {st.session_state.current_account_balance:,.2f} USD (จากค่าเริ่มต้น)", unsafe_allow_html=True)
 
-    # ดึง CurrentRiskPercent จาก current_portfolio_details ถ้ามี
+else:
+    # กรณีที่ยังไม่ได้เลือกพอร์ต หรือเกิดข้อผิดพลาดในการโหลดรายละเอียดพอร์ต
+    # ให้ใช้ค่า default ที่ตั้งไว้ด้านบน (10000.0) และแสดงข้อความ
+    st.session_state.current_account_balance = 10000.0 # Fallback default
+    st.sidebar.info("ยังไม่ได้เลือกพอร์ต หรือไม่พบข้อมูลพอร์ต ใช้ Balance เริ่มต้น: 10,000.00 USD")
+    st.sidebar.markdown(f"**💰 Balance สำหรับคำนวณ:** {st.session_state.current_account_balance:,.2f} USD (จากค่าเริ่มต้น)", unsafe_allow_html=True)
+
+# ดึง CurrentRiskPercent จาก current_portfolio_details ถ้ามี
+if 'current_portfolio_details' in st.session_state and st.session_state.current_portfolio_details:
+    details = st.session_state.current_portfolio_details
     current_risk_val_str = details.get('CurrentRiskPercent')
     if pd.notna(current_risk_val_str) and str(current_risk_val_str).strip() != "":
         try:
@@ -703,21 +761,9 @@ if 'current_portfolio_details' in st.session_state and st.session_state.current_
             if risk_val_float > 0:
                  initial_risk_pct_from_portfolio = risk_val_float
         except (ValueError, TypeError):
-            # st.sidebar.warning("ไม่สามารถแปลง CurrentRiskPercent จากพอร์ตเป็นตัวเลขได้ ใช้ค่าเริ่มต้นแทน")
+            st.sidebar.warning("ไม่สามารถแปลง CurrentRiskPercent จากพอร์ตเป็นตัวเลขได้ ใช้ค่าเริ่มต้นแทน")
             pass # ใช้ initial_risk_pct_from_portfolio ที่ตั้งไว้เป็น fallback
-elif 'active_portfolio_name_gs' in st.session_state and st.session_state.active_portfolio_name_gs == "":
-    # กรณีที่ยังไม่ได้เลือกพอร์ต (active_portfolio_name_gs เป็นสตริงว่าง)
-    # ให้ใช้ค่า default ที่ตั้งไว้ด้านบน (10000.0 และ 1.0)
-    pass
-else:
-    # กรณีอื่นๆ ที่ current_portfolio_details อาจจะไม่มี (เช่น โหลดไม่สำเร็จ)
-    # st.sidebar.warning("ไม่พบรายละเอียดพอร์ตที่ใช้งาน (active portfolio) อาจกำลังใช้ค่า Balance และ Risk เริ่มต้นของระบบ")
-    pass
-
-
-# กำหนดค่าเริ่มต้นให้กับ st.session_state.current_account_balance หากยังไม่มี
-if 'current_account_balance' not in st.session_state:
-    st.session_state.current_account_balance = active_balance_to_use
+# +++ END: วางทับโค้ดส่วนนี้ทั้งหมด +++
 
 
 drawdown_limit_pct = st.sidebar.number_input(
@@ -773,10 +819,15 @@ if st.sidebar.button("🔄 Reset Form"):
     if sb_active_portfolio_selector_gs_keep: 
         st.session_state.sb_active_portfolio_selector_gs = sb_active_portfolio_selector_gs_keep
 
+    # +++ START: วางทับโค้ดส่วนนี้ (ปรับปรุงการตั้งค่า Balance ใน Reset Form) +++
     # Re-evaluate active_balance_to_use and initial_risk_pct_from_portfolio based on preserved details
     preserved_active_balance = 10000.0
     preserved_initial_risk = 1.0
-    if current_portfolio_details_keep:
+    preserved_latest_statement_equity = None # เพิ่มการรักษาค่านี้
+    if 'latest_statement_equity' in st.session_state and st.session_state.latest_statement_equity is not None:
+        preserved_latest_statement_equity = st.session_state.latest_statement_equity
+        preserved_active_balance = preserved_latest_statement_equity # ใช้ equity ล่าสุดเป็นค่าเริ่มต้น
+    elif current_portfolio_details_keep:
         pf_balance_val = current_portfolio_details_keep.get('InitialBalance')
         if pd.notna(pf_balance_val):
             try: preserved_active_balance = float(pf_balance_val)
@@ -790,6 +841,8 @@ if st.sidebar.button("🔄 Reset Form"):
             except (ValueError, TypeError): pass
             
     st.session_state.current_account_balance = preserved_active_balance # ตั้งค่า current_account_balance ใหม่
+    st.session_state.latest_statement_equity = preserved_latest_statement_equity # คืนค่า latest_statement_equity
+    # +++ END: วางทับโค้ดส่วนนี้ +++
 
     # ตั้งค่า session state สำหรับ input fields โดยใช้ค่า default หรือค่าจาก portfolio ที่ preserve ไว้
     st.session_state.risk_pct_fibo_val_v2 = preserved_initial_risk
@@ -813,6 +866,10 @@ if st.sidebar.button("🔄 Reset Form"):
         
     st.toast("รีเซ็ตฟอร์มเรียบร้อยแล้ว!", icon="🔄")
     st.rerun()
+
+# ===================== SEC 2.1: FIBO TRADE DETAILS =======================
+# ... (โค้ดที่เหลือของ SEC 2.1 ถึง SEC 2.5)
+
 
 # ===================== SEC 2.1: FIBO TRADE DETAILS =======================
 if mode == "FIBO": # mode ควรจะถูก define ใน SEC 2 (เดิม SEC 2.1)
@@ -2511,6 +2568,7 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
                         final_processing_notes.append("Failed to extract meaningful data.")
                         processing_had_errors = True # Treat as error if no data to process
                     
+                    # +++ START: วางทับโค้ดส่วนนี้ (เพิ่มการอัปเดต Equity จาก Statement) +++
                     if not processing_had_errors:
                         st.subheader("💾 กำลังบันทึกข้อมูลส่วนต่างๆไปยัง Google Sheets...")
                         
@@ -2548,6 +2606,22 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
                         elif summary_status_note == "skipped_duplicate_content": st.info(f"({WORKSHEET_STATEMENT_SUMMARIES}) Summary: ข้อมูลซ้ำ, ไม่บันทึกเพิ่ม")
                         elif summary_status_note != "no_data_to_save": st.error(f"❌ ({WORKSHEET_STATEMENT_SUMMARIES}) Summary: ล้มเหลว ({summary_status_note})"); processing_had_errors = True
                         
+                        # อัปเดต st.session_state.latest_statement_equity และ current_account_balance
+                        # ด้วยค่า Equity ล่าสุดจาก Statement ที่เพิ่งประมวลผล
+                        if 'equity' in balance_summary and balance_summary['equity'] is not None:
+                            try:
+                                latest_equity_from_stmt = float(balance_summary['equity'])
+                                st.session_state.latest_statement_equity = latest_equity_from_stmt
+                                st.session_state.current_account_balance = latest_equity_from_stmt
+                                st.success(f"✔️ อัปเดต Balance สำหรับคำนวณจาก Statement Equity ล่าสุด: {latest_equity_from_stmt:,.2f} USD")
+                                final_processing_notes.append(f"Updated_Equity={latest_equity_from_stmt}")
+                            except ValueError:
+                                st.warning("⚠️ ไม่สามารถแปลงค่า Equity จาก Statement เป็นตัวเลขได้")
+                                final_processing_notes.append("Warning: Failed to convert Equity from Statement.")
+                        else:
+                            st.warning("⚠️ ไม่พบค่า 'Equity' ใน Statement ที่อัปโหลด. จะใช้ Balance ที่ตั้งไว้")
+                            final_processing_notes.append("Warning: 'Equity' not found in Statement.")
+
                         if not processing_had_errors:
                             final_status_for_history = "Success"
                             st.balloons()
@@ -2555,7 +2629,8 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
                         else:
                             final_status_for_history = "Failed_PartialSave"
                             st.error(f"การประมวลผลไฟล์ '{file_name_for_saving}' (Batch ID '{import_batch_id}') มีบางส่วนล้มเหลว โปรดตรวจสอบข้อความด้านบนและ Log")
-                
+                    # +++ END: วางทับโค้ดส่วนนี้ +++
+
                 except UnicodeDecodeError as e_decode_main:
                     st.error(f"เกิดข้อผิดพลาดในการ Decode ไฟล์: {e_decode_main}. กรุณาตรวจสอบ Encoding (ควรเป็น UTF-8).")
                     final_status_for_history = "Failed_UnicodeDecode"
