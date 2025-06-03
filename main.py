@@ -15,7 +15,7 @@ import uuid # <<< เพิ่ม import uuid
 import hashlib # เพิ่มสำหรับ SEC 7
 
 st.set_page_config(page_title="Ultimate-Chart", layout="wide")
-acc_balance = 10000 # ยอดคงเหลือเริ่มต้นของบัญชีเทรด (อาจจะดึงมาจาก Active Portfolio ในอนาคต)
+#acc_balance = 10000 # ยอดคงเหลือเริ่มต้นของบัญชีเทรด (อาจจะดึงมาจาก Active Portfolio ในอนาคต)
 # +++ START: โค้ดที่เพิ่มเข้ามาสำหรับจัดการ Key ของ File Uploader +++
 if 'uploader_key_version' not in st.session_state:
     st.session_state.uploader_key_version = 0
