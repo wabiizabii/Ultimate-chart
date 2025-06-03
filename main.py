@@ -2149,8 +2149,6 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
         # ค้นหาจุดเริ่มต้นของส่วนสรุป Balance
         balance_start_line_idx = -1
         for i, line in enumerate(lines):
-            # ตรวจสอบบรรทัดที่เริ่มต้นด้วย "Balance:" หรือ "Name:" (เป็นจุดเริ่มต้นของ header ทั่วไป)
-            # หรือ "Deals" (หากส่วนสรุปอยู่ต่อจาก Deals ทันที)
             if line.strip().startswith("Balance:"):
                 balance_start_line_idx = i
                 break
@@ -2223,7 +2221,7 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
             "Largest profit trade": "Largest_profit_trade", "Largest loss trade": "Largest_loss_trade", "Average profit trade": "Average_profit_trade", "Average loss trade": "Average_loss_trade",
             "Maximum consecutive wins ($)": "Maximum_consecutive_wins_Count", "Maximal consecutive profit (count)": "Maximal_consecutive_profit_Amount",
             "Average consecutive wins": "Average_consecutive_wins", "Maximum consecutive losses ($)": "Maximum_consecutive_losses_Count",
-            "Maximal consecutive loss (count)": "Maximal_consecutive_loss_Amount", "Average consecutive losses": "Average_consecutive_losses"
+            "Maximal consecutive loss (count)": "Maximal_consecutive_loss_Count", "Average consecutive losses": "Average_consecutive_losses"
         }
         results_start_line_idx = -1; results_section_processed_lines = 0; max_lines_for_results = 35
         for i_res, line_res in enumerate(lines):
@@ -2260,6 +2258,10 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
                                                     elif current_label == "Long Trades (won %)": results_summary_dict["Long_Trades_won_Percent"] = paren_numeric_value
                                                     elif current_label == "Profit Trades (% of total)": results_summary_dict["Profit_Trades_Percent_of_total"] = paren_numeric_value
                                                     elif current_label == "Loss Trades (% of total)": results_summary_dict["Loss_Trades_Percent_of_total"] = paren_numeric_value
+                                                    elif current_label == "Largest profit trade": results_summary_dict["Largest_profit_trade"] = paren_numeric_value
+                                                    elif current_label == "Largest loss trade": results_summary_dict["Largest_loss_trade"] = paren_numeric_value
+                                                    elif current_label == "Average profit trade": results_summary_dict["Average_profit_trade"] = paren_numeric_value
+                                                    elif current_label == "Average loss trade": results_summary_dict["Average_loss_trade"] = paren_numeric_value
                                                     elif current_label == "Maximum consecutive wins ($)": results_summary_dict["Maximum_consecutive_wins_Profit"] = paren_numeric_value
                                                     elif current_label == "Maximal consecutive profit (count)": results_summary_dict["Maximal_consecutive_profit_Count"] = paren_numeric_value
                                                     elif current_label == "Maximum consecutive losses ($)": results_summary_dict["Maximum_consecutive_losses_Profit"] = paren_numeric_value
@@ -2270,7 +2272,7 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
             elif results_start_line_idx != -1 and results_section_processed_lines >= max_lines_for_results: break
         extracted_data['results_summary'] = results_summary_dict
         return extracted_data
-    # --- END: วางทับ (Overwrite) ฟังก์ชัน extract_data_from_report_content นี้ทั้งฟังก์ชัน ---
+    # --- END: ฟังก์ชัน extract_data_from_report_content ---
 
     # --- START: ฟังก์ชันสำหรับบันทึกข้อมูลพร้อม Deduplication และ Header Handling ---
     def save_transactional_data_to_gsheets(ws, df_input, unique_id_col, expected_headers_with_portfolio, data_type_name, portfolio_id, portfolio_name, source_file_name="N/A", import_batch_id="N/A"):
@@ -2522,7 +2524,11 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
             WORKSHEET_ACTUAL_TRADES: {"rows": "2000", "cols": "18", "headers": ["Time_Deal", "Deal_ID", "Symbol_Deal", "Type_Deal", "Direction_Deal", "Volume_Deal", "Price_Deal", "Order_ID_Deal", "Commission_Deal", "Fee_Deal", "Swap_Deal", "Profit_Deal", "Balance_Deal", "Comment_Deal", "PortfolioID", "PortfolioName", "SourceFile", "ImportBatchID"]},
             WORKSHEET_ACTUAL_ORDERS: {"rows": "1000", "cols": "16", "headers": ["Open_Time_Ord", "Order_ID_Ord", "Symbol_Ord", "Type_Ord", "Volume_Ord", "Price_Ord", "S_L_Ord", "T_P_Ord", "Close_Time_Ord", "State_Ord", "Filler_Ord", "Comment_Ord", "PortfolioID", "PortfolioName", "SourceFile", "ImportBatchID"]},
             WORKSHEET_ACTUAL_POSITIONS: {"rows": "1000", "cols": "17", "headers": ["Time_Pos", "Position_ID", "Symbol_Pos", "Type_Pos", "Volume_Pos", "Price_Open_Pos", "S_L_Pos", "T_P_Pos", "Time_Close_Pos", "Price_Close_Pos", "Commission_Pos", "Swap_Pos", "Profit_Pos", "PortfolioID", "PortfolioName", "SourceFile", "ImportBatchID"]},
-            WORKSHEET_STATEMENT_SUMMARIES: {"rows": "1000", "cols": "46", "headers": ["Timestamp", "PortfolioID", "PortfolioName", "SourceFile", "ImportBatchID", "Balance", "Equity", "Free_Margin", "Margin", "Floating_P_L", "Margin_Level", "Credit_Facility", "Total_Net_Profit", "Gross_Profit", "Gross_Loss", "Profit_Factor", "Expected_Payoff", "Recovery_Factor", "Sharpe_Ratio", "Balance_Drawdown_Absolute", "Balance_Drawdown_Maximal", "Balance_Drawdown_Maximal_Percent", "Balance_Drawdown_Relative_Percent", "Balance_Drawdown_Relative_Amount", "Total_Trades", "Short_Trades", "Short_Trades_won_Percent", "Long_Trades", "Long_Trades_won_Percent", "Profit_Trades", "Profit_Trades_Percent_of_total", "Loss_Trades", "Loss_Trades_Percent_of_total", "Largest_profit_trade", "Largest_loss_trade", "Average_profit_trade", "Average_loss_trade", "Maximum_consecutive_wins_Count", "Maximum_consecutive_wins_Profit", "Maximal_consecutive_profit_Amount", "Maximal_consecutive_profit_Count", "Maximum_consecutive_losses_Count", "Maximum_consecutive_losses_Profit", "Maximal_consecutive_loss_Amount", "Maximal_consecutive_loss_Count", "Average_consecutive_wins", "Average_consecutive_losses"]}
+            WORKSHEET_STATEMENT_SUMMARIES: {"rows": "1000", "cols": "46", "headers": ["Timestamp", "PortfolioID", "PortfolioName", "SourceFile", "ImportBatchID", "Balance", "Equity", "Free_Margin", "Margin", "Floating_P_L", "Margin_Level", "Credit_Facility", "Total_Net_Profit", "Gross_Profit", "Gross_Loss", "Profit_Factor", "Expected_Payoff", "Recovery_Factor", "Sharpe_Ratio", "Balance_Drawdown_Absolute", "Balance_Drawdown_Maximal", "Balance_Drawdown_Maximal_Percent", "Balance_Drawdown_Relative_Percent", "Balance_Drawdown_Relative_Amount", "Total_Trades", "Short_Trades", "Short_Trades_won_Percent", "Long_Trades", "Long_Trades_won_Percent", "Profit_Trades", "Profit_Trades_Percent_of_total", "Loss_Trades", "Loss_Trades_Percent_of_total", "Largest_profit_trade", "Largest_loss_trade", "Average_profit_trade", "Average_loss_trade", "Maximum_consecutive_wins_Count", "Maximum_consecutive_wins_Profit", 
+                "Maximal_consecutive_profit_Amount", "Maximal_consecutive_profit_Count",
+                "Maximum_consecutive_losses_Count", "Maximum_consecutive_losses_Profit", 
+                "Maximal_consecutive_loss_Amount", "Maximal_consecutive_loss_Count",
+                "Average_consecutive_wins", "Average_consecutive_losses"]}
         }
         all_sheets_successfully_accessed_or_created = True
         sh_trade_log = None
@@ -2617,6 +2623,14 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
                     
                     with st.spinner(f"กำลังแยกส่วนข้อมูลจาก {file_name_for_saving}..."):
                         extracted_sections = extract_data_from_report_content(file_content_str)
+
+                    # +++ START: เพิ่มโค้ด DEBUG ตรงนี้ (ตามที่คุณขอ เพื่อให้เห็น extracted_sections) +++
+                    # แสดงค่า balance_summary ที่ถูกดึงออกมาใน Streamlit App และ Console
+                    st.sidebar.markdown("---")
+                    st.sidebar.info(f"DEBUG: Extracted Balance Summary (Pre-Save): {extracted_sections.get('balance_summary', {})}")
+                    print(f"DEBUG Console: Extracted Balance Summary (Pre-Save): {extracted_sections.get('balance_summary', {})}")
+                    st.sidebar.markdown("---")
+                    # +++ END: เพิ่มโค้ด DEBUG ตรงนี้ +++
 
                     if st.session_state.get("debug_statement_processing_v2", False):
                         st.write("--- DEBUG: Extracted Sections ---"); # ... (debug display) ...; st.write("--- END DEBUG ---")
