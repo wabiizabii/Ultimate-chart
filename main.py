@@ -2735,7 +2735,7 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
             print(f"Warning: Could not update final status in {WORKSHEET_UPLOAD_HISTORY} for batch {import_batch_id}: {e_update_hist}")
         
         # Clear the uploader state to prevent reprocessing the same file on rerun unless re-uploaded
-        st.session_state.ultimate_stmt_uploader_v7_final = None 
+        st.session_state.ultimate_stmt_uploader_v7_final = True 
         # st.rerun() # Consider if a rerun is always needed here. 
         # It might be better to let user continue interaction.
         # If rerun is needed to refresh some display dependent on these GSheets, then uncomment.
