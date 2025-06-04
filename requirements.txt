@@ -5,4 +5,4 @@ plotly
 openpyxl
 google-generativeai 
 gspread==6.0.0 
-yfinance
+
