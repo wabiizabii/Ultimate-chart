@@ -2444,41 +2444,41 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
                     # st.exception(e_main_proc_stmt) 
 
                 try:
-                # --- START OF CORRECTLY INDENTED BLOCK ---
-                # ตรวจสอบว่า ws_stmt_dict และ worksheet ที่ต้องการมีอยู่จริง (ควรมีถ้า initial_log_ok_stmt เป็น True)
-                if WORKSHEET_UPLOAD_HISTORY in ws_stmt_dict and ws_stmt_dict[WORKSHEET_UPLOAD_HISTORY] is not None:
-                    ws_upload_history = ws_stmt_dict[WORKSHEET_UPLOAD_HISTORY]
-                    hist_rows_update_stmt = ws_upload_history.get_all_values() # ดึงข้อมูลล่าสุดอีกครั้งเผื่อมีการเปลี่ยนแปลง
-                    row_idx_to_update_stmt = None
+                    # --- START OF CORRECTLY INDENTED BLOCK ---
+                    # ตรวจสอบว่า ws_stmt_dict และ worksheet ที่ต้องการมีอยู่จริง (ควรมีถ้า initial_log_ok_stmt เป็น True)
+                    if WORKSHEET_UPLOAD_HISTORY in ws_stmt_dict and ws_stmt_dict[WORKSHEET_UPLOAD_HISTORY] is not None:
+                        ws_upload_history = ws_stmt_dict[WORKSHEET_UPLOAD_HISTORY]
+                        hist_rows_update_stmt = ws_upload_history.get_all_values() # ดึงข้อมูลล่าสุดอีกครั้งเผื่อมีการเปลี่ยนแปลง
+                        row_idx_to_update_stmt = None
                     
-                    for r_idx, r_val in reversed(list(enumerate(hist_rows_update_stmt))):
-                        # ตรวจสอบว่าแถวมีข้อมูลครบตามที่คาดหวัง (อย่างน้อย 8 คอลัมน์สำหรับ ImportBatchID, index 7)
-                        if len(r_val) > 7 and r_val[7] == import_batch_id_stmt:
-                            row_idx_to_update_stmt = r_idx + 1  # gspread rows are 1-indexed
-                            break
+                        for r_idx, r_val in reversed(list(enumerate(hist_rows_update_stmt))):
+                            # ตรวจสอบว่าแถวมีข้อมูลครบตามที่คาดหวัง (อย่างน้อย 8 คอลัมน์สำหรับ ImportBatchID, index 7)
+                            if len(r_val) > 7 and r_val[7] == import_batch_id_stmt:
+                                row_idx_to_update_stmt = r_idx + 1  # gspread rows are 1-indexed
+                                break
                     
-                    notes_str_stmt = " | ".join(filter(None, processing_notes_stmt))[:49999] # จำกัดความยาว notes
+                        notes_str_stmt = " | ".join(filter(None, processing_notes_stmt))[:49999] # จำกัดความยาว notes
 
-                    if row_idx_to_update_stmt:
-                        ws_upload_history.batch_update([
-                            {'range': f'G{row_idx_to_update_stmt}', 'values': [[final_status_stmt]]},
-                            {'range': f'I{row_idx_to_update_stmt}', 'values': [[notes_str_stmt]]}
-                        ])
-                        print(f"Info: Successfully updated UploadHistory for ImportBatchID '{import_batch_id_stmt}' to '{final_status_stmt}'.")
-                    else:
-                        # กรณีไม่พบ ImportBatchID เดิม (อาจเกิดจากปัญหาตอน initial log) ให้พยายาม append แถวใหม่สถานะสุดท้ายไปเลย
-                        print(f"Warning: Could not find ImportBatchID '{import_batch_id_stmt}' in {WORKSHEET_UPLOAD_HISTORY} to update. Appending new final status row.")
-                        ws_upload_history.append_row([
-                            upload_timestamp_stmt, 
-                            str(active_portfolio_id_for_stmt_import), 
-                            str(active_portfolio_name_for_stmt_import),
-                            file_name_stmt, 
-                            file_size_stmt, 
-                            file_hash_stmt,
-                            final_status_stmt, 
-                            import_batch_id_stmt, 
-                            notes_str_stmt
-                        ])
+                        if row_idx_to_update_stmt:
+                            ws_upload_history.batch_update([
+                                {'range': f'G{row_idx_to_update_stmt}', 'values': [[final_status_stmt]]},
+                                {'range': f'I{row_idx_to_update_stmt}', 'values': [[notes_str_stmt]]}
+                            ])
+                            print(f"Info: Successfully updated UploadHistory for ImportBatchID '{import_batch_id_stmt}' to '{final_status_stmt}'.")
+                        else:
+                            # กรณีไม่พบ ImportBatchID เดิม (อาจเกิดจากปัญหาตอน initial log) ให้พยายาม append แถวใหม่สถานะสุดท้ายไปเลย
+                            print(f"Warning: Could not find ImportBatchID '{import_batch_id_stmt}' in {WORKSHEET_UPLOAD_HISTORY} to update. Appending new final status row.")
+                                ws_upload_history.append_row([
+                                upload_timestamp_stmt, 
+                                str(active_portfolio_id_for_stmt_import), 
+                                str(active_portfolio_name_for_stmt_import),
+                                file_name_stmt, 
+                                file_size_stmt, 
+                                file_hash_stmt,
+                                final_status_stmt, 
+                                import_batch_id_stmt, 
+                                notes_str_stmt
+                            ])
                 else:
                     # กรณีร้ายแรง: worksheet object สำหรับ UploadHistory ไม่พร้อมใช้งาน
                     print(f"CRITICAL Error: Worksheet object for '{WORKSHEET_UPLOAD_HISTORY}' is None or not in ws_stmt_dict. Cannot update final status.")
@@ -2489,6 +2489,7 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
                 # บรรทัดนี้ (except) จะต้องอยู่ในระดับเดียวกับ try ด้านบน
                 print(f"CRITICAL Warning: Could not update/append final status in {WORKSHEET_UPLOAD_HISTORY} for batch {import_batch_id_stmt}: {e_update_hist_final_stmt}")
                 st.warning(f"⚠️ ไม่สามารถอัปเดตสถานะสุดท้ายใน UploadHistory ได้: {e_update_hist_final_stmt}")
+
 
 
             # 2. Increment uploader key version (helps reset the file_uploader state on rerun)
