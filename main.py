@@ -1756,7 +1756,7 @@ with st.expander("🤖 AI Assistant", expanded=True):
 
 # --- End of SEC 5 (formerly SEC 6) ---
 
-# ===================== SEC 7: MAIN AREA - STATEMENT IMPORT & PROCESSING =======================
+# ===================== SEC 6: MAIN AREA - STATEMENT IMPORT & PROCESSING =======================
 with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=True):
     st.markdown("### 📊 จัดการ Statement และข้อมูลดิบ")
 
