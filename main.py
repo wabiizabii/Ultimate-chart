@@ -38,7 +38,7 @@ def get_gspread_client():
         return None
 
 # ฟังก์ชันสำหรับโหลดข้อมูล Portfolios
-@st.cache_data(ttl=300) # Cache ข้อมูลไว้ 5 นาที
+@st.cache_data(ttl=600) # Cache ข้อมูลไว้ 5 นาที
 def load_portfolios_from_gsheets():
     gc = get_gspread_client()
     if gc is None:
