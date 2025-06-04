@@ -2321,52 +2321,60 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
             WORKSHEET_STATEMENT_SUMMARIES: {"rows": "1000", "cols": "40", "headers": ["Timestamp", "PortfolioID", "PortfolioName", "SourceFile", "ImportBatchID", "Balance", "Equity", "Free_Margin", "Margin", "Floating_P_L", "Margin_Level", "Total_Net_Profit", "Gross_Profit", "Gross_Loss", "Profit_Factor", "Expected_Payoff", "Recovery_Factor", "Sharpe_Ratio", "Balance_Drawdown_Absolute", "Balance_Drawdown_Maximal", "Balance_Drawdown_Maximal_Percent", "Balance_Drawdown_Relative_Percent", "Balance_Drawdown_Relative_Amount", "Total_Trades", "Short_Trades", "Short_Trades_won_Percent", "Long_Trades", "Long_Trades_won_Percent", "Profit_Trades", "Profit_Trades_Percent_of_total", "Loss_Trades", "Loss_Trades_Percent_of_total", "Largest_profit_trade", "Largest_loss_trade", "Average_profit_trade", "Average_loss_trade", "Maximum_consecutive_wins_Count", "Maximum_consecutive_wins_Profit", "Maximum_consecutive_losses_Count", "Maximum_consecutive_losses_Profit", "Maximal_consecutive_profit_Amount", "Maximal_consecutive_profit_Count", "Maximal_consecutive_loss_Amount", "Maximal_consecutive_loss_Count", "Average_consecutive_wins", "Average_consecutive_losses"]}
         }
 
+       if gc_for_sheets is None: # หาก get_gspread_client() ล้มเหลว gc_for_sheets จะเป็น None
+            st.error("❌ ไม่สามารถเชื่อมต่อ Google Sheets Client ได้ โปรดตรวจสอบการตั้งค่า Service Account")
+            st.stop() # หยุดการทำงานทันทีหาก Client ไม่พร้อมใช้งาน
+
         all_sheets_successfully_accessed_or_created = True 
         sh_trade_log = None 
         try:
-            sh_trade_log = gc_for_sheets.open(GOOGLE_SHEET_NAME)
-            for ws_name, specs in worksheet_definitions.items():
-                try:
-                    ws_dict[ws_name] = sh_trade_log.worksheet(ws_name)
-                    current_ws_headers_check = []
-                    if ws_dict[ws_name].row_count > 0 :
-                        try: current_ws_headers_check = ws_dict[ws_name].row_values(1)
-                        except Exception: pass 
-                    if not current_ws_headers_check or all(h=="" for h in current_ws_headers_check) or set(current_ws_headers_check) != set(specs["headers"]):
-                        if "headers" in specs: 
-                            ws_dict[ws_name].update([specs["headers"]], value_input_option='USER_ENTERED')
-                            st.info(f"Ensured/Updated headers for '{ws_name}' sheet.")
-                except gspread.exceptions.WorksheetNotFound:
-                    st.info(f"Worksheet '{ws_name}' not found. Creating it now...")
-                    try:
-                        new_ws = sh_trade_log.add_worksheet(title=ws_name, rows=specs.get("rows", default_sheet_specs["rows"]), cols=specs.get("cols", default_sheet_specs["cols"]))
-                        ws_dict[ws_name] = new_ws 
-                        if "headers" in specs: 
-                            new_ws.update([specs["headers"]], value_input_option='USER_ENTERED') 
-                            st.info(f"Created worksheet '{ws_name}' and added headers.")
-                    except Exception as e_add_ws:
-                        st.error(f"❌ Failed to create worksheet '{ws_name}': {e_add_ws}")
-                        all_sheets_successfully_accessed_or_created = False; break 
-                except Exception as e_open_ws: 
-                    st.error(f"❌ Error accessing worksheet '{ws_name}': {e_open_ws}")
-                    all_sheets_successfully_accessed_or_created = False; break
-            
-            if not all_sheets_successfully_accessed_or_created:
-                st.error("One or more essential worksheets could not be accessed or created. Aborting.")
-                st.stop()
-        
-        except gspread.exceptions.APIError as e_api:
-            st.error(f"❌ Google Sheets API Error (Opening Spreadsheet or Initial Worksheet Access/Creation): {e_api}.")
+            # พยายามเปิด Spreadsheet หลัก
+            sh_trade_log = gc_for_sheets.open(GOOGLE_SHEET_NAME) 
+        except gspread.exceptions.SpreadsheetNotFound: # ดักจับถ้าไม่พบ Sheet
+            st.error(f"❌ ไม่พบ Google Spreadsheet ชื่อ '{GOOGLE_SHEET_NAME}' โปรดตรวจสอบชื่อชีทและสิทธิ์การเข้าถึง.")
             st.stop()
-        except Exception as e_setup: 
-            st.error(f"❌ เกิดข้อผิดพลาดในการเข้าถึง Spreadsheet หรือสร้าง Worksheet: {type(e_setup).__name__} - {str(e_setup)[:200]}...")
+        except gspread.exceptions.APIError as e_api: # ดักจับ API Error อื่นๆ
+            st.error(f"❌ Google Sheets API Error (ขณะเปิด Spreadsheet '{GOOGLE_SHEET_NAME}'): {e_api}.")
+            st.stop()
+        except Exception as e_setup: # ดักจับ Error อื่นๆ ทั่วไป
+            st.error(f"❌ เกิดข้อผิดพลาดไม่คาดคิดขณะเข้าถึง Spreadsheet '{GOOGLE_SHEET_NAME}': {type(e_setup).__name__} - {str(e_setup)[:200]}...")
             st.stop()
 
-        for ws_name_key in worksheet_definitions.keys():
-            if ws_name_key not in ws_dict or ws_dict[ws_name_key] is None:
-                st.error(f"❌ ไม่สามารถเข้าถึงหรือสร้าง Worksheet '{ws_name_key}' ได้อย่างสมบูรณ์ โปรดตรวจสอบ Google Sheets และลองอีกครั้ง")
-                st.stop()  
-        # ***** END: โค้ดสำหรับเปิด/สร้าง Worksheet อัตโนมัติ *****
+        # ตรวจสอบให้แน่ใจว่า sh_trade_log ไม่เป็น None ก่อนเข้าลูปสร้าง/เข้าถึง Worksheet
+        if sh_trade_log is None:
+            st.error(f"❌ ไม่สามารถเชื่อมต่อกับ Google Spreadsheet '{GOOGLE_SHEET_NAME}' ได้อย่างสมบูรณ์. การทำงานถูกหยุด.")
+            st.stop()
+
+        # หากมาถึงตรงนี้ sh_trade_log จะต้องเป็น object ที่ถูกต้อง
+        for ws_name, specs in worksheet_definitions.items():
+            try:
+                ws_dict[ws_name] = sh_trade_log.worksheet(ws_name)
+                current_ws_headers_check = []
+                if ws_dict[ws_name].row_count > 0 :
+                    try: current_ws_headers_check = ws_dict[ws_name].row_values(1)
+                    except Exception: pass 
+                if not current_ws_headers_check or all(h=="" for h in current_ws_headers_check) or set(current_ws_headers_check) != set(specs["headers"]):
+                    if "headers" in specs: 
+                        ws_dict[ws_name].update([specs["headers"]], value_input_option='USER_ENTERED')
+                        st.info(f"Ensured/Updated headers for '{ws_name}' sheet.")
+            except gspread.exceptions.WorksheetNotFound:
+                st.info(f"Worksheet '{ws_name}' not found. Creating it now...")
+                try:
+                    new_ws = sh_trade_log.add_worksheet(title=ws_name, rows=specs.get("rows", default_sheet_specs["rows"]), cols=specs.get("cols", default_sheet_specs["cols"]))
+                    ws_dict[ws_name] = new_ws 
+                    if "headers" in specs: 
+                        new_ws.update([specs["headers"]], value_input_option='USER_ENTERED') 
+                        st.info(f"Created worksheet '{ws_name}' and added headers.")
+                except Exception as e_add_ws:
+                    st.error(f"❌ Failed to create worksheet '{ws_name}': {e_add_ws}")
+                    all_sheets_successfully_accessed_or_created = False; break 
+            except Exception as e_open_ws: 
+                st.error(f"❌ Error accessing worksheet '{ws_name}': {e_open_ws}")
+                all_sheets_successfully_accessed_or_created = False; break
+        
+        if not all_sheets_successfully_accessed_or_created:
+            st.error("One or more essential worksheets could not be accessed or created. Aborting.")
+            st.stop()
 
         import_batch_id = str(uuid.uuid4()) 
         current_upload_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
