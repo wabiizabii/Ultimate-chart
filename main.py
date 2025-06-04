@@ -15,7 +15,7 @@ import plotly.express as px
 import gspread
 import plotly.graph_objects as go
 import random
-import io 
+import io
 import uuid
 import hashlib
 
@@ -102,10 +102,10 @@ def load_portfolios_from_gsheets():
         
         if not records:
             # st.info(f"ไม่พบข้อมูลใน Worksheet '{WORKSHEET_PORTFOLIOS}'.")
-            print(f"Info: No records found in Worksheet '{WORKSHEET_PORTFOLIOS}'.")
+            print(f"Info: No records found in Worksheet '{WORKSHEET_PORTFOLIOS}'.") #
             return pd.DataFrame()
         
-        df_portfolios = pd.DataFrame(records)
+        df_portfolios = pd.DataFrame(records) #
         
         cols_to_numeric_type = {
             'InitialBalance': float, 'ProfitTargetPercent': float, 
@@ -120,122 +120,169 @@ def load_portfolios_from_gsheets():
         for col, target_type in cols_to_numeric_type.items():
             if col in df_portfolios.columns:
                 # Replace empty strings with NaN before converting to numeric
-                df_portfolios[col] = df_portfolios[col].replace('', np.nan)
-                df_portfolios[col] = pd.to_numeric(df_portfolios[col], errors='coerce').fillna(0)
+                df_portfolios[col] = df_portfolios[col].replace('', np.nan) #
+                df_portfolios[col] = pd.to_numeric(df_portfolios[col], errors='coerce').fillna(0) #
                 if target_type == int:
-                    df_portfolios[col] = df_portfolios[col].astype(int)
+                    df_portfolios[col] = df_portfolios[col].astype(int) #
 
         if 'EnableScaling' in df_portfolios.columns:
-             df_portfolios['EnableScaling'] = df_portfolios['EnableScaling'].astype(str).str.upper().map({'TRUE': True, 'YES': True, '1': True, 'FALSE': False, 'NO': False, '0': False}).fillna(False)
+             df_portfolios['EnableScaling'] = df_portfolios['EnableScaling'].astype(str).str.upper().map({'TRUE': True, 'YES': True, '1': True, 'FALSE': False, 'NO': False, '0': False}).fillna(False) #
 
-        date_cols = ['CompetitionEndDate', 'TargetEndDate', 'CreationDate']
+        date_cols = ['CompetitionEndDate', 'TargetEndDate', 'CreationDate'] #
         for col in date_cols:
             if col in df_portfolios.columns:
-                df_portfolios[col] = pd.to_datetime(df_portfolios[col], errors='coerce').dt.strftime('%Y-%m-%d %H:%M:%S')
+                df_portfolios[col] = pd.to_datetime(df_portfolios[col], errors='coerce').dt.strftime('%Y-%m-%d %H:%M:%S') #
         return df_portfolios
     except gspread.exceptions.WorksheetNotFound:
-        st.error(f"❌ ไม่พบ Worksheet ชื่อ '{WORKSHEET_PORTFOLIOS}' ใน Google Sheet '{GOOGLE_SHEET_NAME}'.")
+        st.error(f"❌ ไม่พบ Worksheet ชื่อ '{WORKSHEET_PORTFOLIOS}' ใน Google Sheet '{GOOGLE_SHEET_NAME}'.") #
         return pd.DataFrame()
     except gspread.exceptions.APIError as e_api:
         if hasattr(e_api, 'response') and e_api.response and e_api.response.status_code == 429:
-            st.error(f"❌ เกิดข้อผิดพลาดในการโหลด Portfolios (Quota Exceeded). ลองอีกครั้งในภายหลัง")
+            st.error(f"❌ เกิดข้อผิดพลาดในการโหลด Portfolios (Quota Exceeded). ลองอีกครั้งในภายหลัง") #
         else:
-            st.error(f"❌ เกิดข้อผิดพลาดในการโหลด Portfolios (API Error): {e_api}")
+            st.error(f"❌ เกิดข้อผิดพลาดในการโหลด Portfolios (API Error): {e_api}") #
         return pd.DataFrame()
     except Exception as e:
-        st.error(f"❌ เกิดข้อผิดพลาดในการโหลด Portfolios: {e}")
+        st.error(f"❌ เกิดข้อผิดพลาดในการโหลด Portfolios: {e}") #
         return pd.DataFrame()
 
 @st.cache_data(ttl=180)
 def load_all_planned_trade_logs_from_gsheets():
     gc = get_gspread_client()
     if gc is None:
-        print("Warning: GSpread client not available for loading planned trade logs.")
+        print("Warning: GSpread client not available for loading planned trade logs.") #
         return pd.DataFrame()
     try:
         sh = gc.open(GOOGLE_SHEET_NAME)
         worksheet = sh.worksheet(WORKSHEET_PLANNED_LOGS)
-        records = worksheet.get_all_records(numericise_ignore=['all'])
+        records = worksheet.get_all_records(numericise_ignore=['all']) #
         
         if not records:
             return pd.DataFrame()
         
-        df_logs = pd.DataFrame(records)
+        df_logs = pd.DataFrame(records) #
         
         if 'Timestamp' in df_logs.columns:
-            df_logs['Timestamp'] = pd.to_datetime(df_logs['Timestamp'], errors='coerce')
+            df_logs['Timestamp'] = pd.to_datetime(df_logs['Timestamp'], errors='coerce') #
         
-        cols_to_numeric_planned = ['Risk $', 'RR', 'Entry', 'SL', 'TP', 'Lot', 'Risk %']
+        cols_to_numeric_planned = ['Risk $', 'RR', 'Entry', 'SL', 'TP', 'Lot', 'Risk %'] #
         for col_viewer in cols_to_numeric_planned:
             if col_viewer in df_logs.columns:
                 df_logs[col_viewer] = df_logs[col_viewer].replace('', np.nan) # Treat empty strings as NaN
-                df_logs[col_viewer] = pd.to_numeric(df_logs[col_viewer], errors='coerce')
-                if col_viewer == 'Risk $': df_logs[col_viewer] = df_logs[col_viewer].fillna(0)
+                df_logs[col_viewer] = pd.to_numeric(df_logs[col_viewer], errors='coerce') #
+                if col_viewer == 'Risk $': df_logs[col_viewer] = df_logs[col_viewer].fillna(0) #
 
 
         if 'PortfolioID' in df_logs.columns:
-            df_logs['PortfolioID'] = df_logs['PortfolioID'].astype(str)
+            df_logs['PortfolioID'] = df_logs['PortfolioID'].astype(str) #
         
         return df_logs
     except gspread.exceptions.WorksheetNotFound:
-        print(f"Warning: Worksheet '{WORKSHEET_PLANNED_LOGS}' not found.")
+        print(f"Warning: Worksheet '{WORKSHEET_PLANNED_LOGS}' not found.") #
         return pd.DataFrame()
     except gspread.exceptions.APIError as e_api:
         if hasattr(e_api, 'response') and e_api.response and e_api.response.status_code == 429:
-            print(f"APIError (Quota Exceeded) loading planned trade logs: {e_api.args[0] if e_api.args else 'Unknown quota error'}")
+            print(f"APIError (Quota Exceeded) loading planned trade logs: {e_api.args[0] if e_api.args else 'Unknown quota error'}") #
         else:
-            print(f"APIError loading planned trade logs: {e_api}")
+            print(f"APIError loading planned trade logs: {e_api}") #
         return pd.DataFrame()
     except Exception as e:
-        print(f"Unexpected error loading all planned trade logs: {e}")
+        print(f"Unexpected error loading all planned trade logs: {e}") #
         return pd.DataFrame()
 
 @st.cache_data(ttl=180)
 def load_actual_trades_from_gsheets(): # Loads "Deals"
     gc = get_gspread_client()
     if gc is None:
-        print("Warning: GSpread client not available for loading actual trades (deals).")
+        print("Warning: GSpread client not available for loading actual trades (deals).") #
         return pd.DataFrame()
     try:
         sh = gc.open(GOOGLE_SHEET_NAME)
         worksheet = sh.worksheet(WORKSHEET_ACTUAL_TRADES)
-        records = worksheet.get_all_records(numericise_ignore=['all'])
+        records = worksheet.get_all_records(numericise_ignore=['all']) #
         
         if not records:
             return pd.DataFrame()
         
-        df_actual_trades = pd.DataFrame(records)
+        df_actual_trades = pd.DataFrame(records) #
         
         if 'Time_Deal' in df_actual_trades.columns:
-            df_actual_trades['Time_Deal'] = pd.to_datetime(df_actual_trades['Time_Deal'], errors='coerce')
+            df_actual_trades['Time_Deal'] = pd.to_datetime(df_actual_trades['Time_Deal'], errors='coerce') #
 
         numeric_cols_actual = [
             'Volume_Deal', 'Price_Deal', 'Commission_Deal', 
             'Fee_Deal', 'Swap_Deal', 'Profit_Deal', 'Balance_Deal'
-        ]
+        ] #
         for col in numeric_cols_actual:
             if col in df_actual_trades.columns:
-                df_actual_trades[col] = df_actual_trades[col].replace('', np.nan)
-                df_actual_trades[col] = pd.to_numeric(df_actual_trades[col], errors='coerce')
+                df_actual_trades[col] = df_actual_trades[col].replace('', np.nan) #
+                df_actual_trades[col] = pd.to_numeric(df_actual_trades[col], errors='coerce') #
 
         if 'PortfolioID' in df_actual_trades.columns:
-            df_actual_trades['PortfolioID'] = df_actual_trades['PortfolioID'].astype(str)
+            df_actual_trades['PortfolioID'] = df_actual_trades['PortfolioID'].astype(str) #
         
         return df_actual_trades
     except gspread.exceptions.WorksheetNotFound:
-        print(f"Warning: Worksheet '{WORKSHEET_ACTUAL_TRADES}' not found.")
+        print(f"Warning: Worksheet '{WORKSHEET_ACTUAL_TRADES}' not found.") #
         return pd.DataFrame()
     except gspread.exceptions.APIError as e_api:
         if hasattr(e_api, 'response') and e_api.response and e_api.response.status_code == 429:
-            print(f"APIError (Quota Exceeded) loading actual trades from '{WORKSHEET_ACTUAL_TRADES}'.")
+            print(f"APIError (Quota Exceeded) loading actual trades from '{WORKSHEET_ACTUAL_TRADES}'.") #
         else:
-            print(f"APIError loading actual trades from '{WORKSHEET_ACTUAL_TRADES}': {e_api}")
+            print(f"APIError loading actual trades from '{WORKSHEET_ACTUAL_TRADES}': {e_api}") #
         return pd.DataFrame()
     except Exception as e:
-        print(f"Unexpected error loading actual trades from '{WORKSHEET_ACTUAL_TRADES}': {e}")
+        print(f"Unexpected error loading actual trades from '{WORKSHEET_ACTUAL_TRADES}': {e}") #
         return pd.DataFrame()
 
+# +++ FUNCTION TO LOAD STATEMENT SUMMARIES (NEW) +++
+@st.cache_data(ttl=180) # Cache for 3 minutes
+def load_statement_summaries_from_gsheets():
+    gc = get_gspread_client()
+    if gc is None:
+        print("Error: GSpread client not available for loading statement summaries.")
+        return pd.DataFrame()
+    try:
+        sh = gc.open(GOOGLE_SHEET_NAME)
+        worksheet = sh.worksheet(WORKSHEET_STATEMENT_SUMMARIES)
+        # numericise_ignore=['all'] is important to handle mixed types and formatting issues
+        records = worksheet.get_all_records(numericise_ignore=['all']) 
+        
+        if not records:
+            print(f"Info: No records found in Worksheet '{WORKSHEET_STATEMENT_SUMMARIES}'.")
+            return pd.DataFrame()
+        
+        df_summaries = pd.DataFrame(records)
+        
+        # Convert necessary columns
+        if 'PortfolioID' in df_summaries.columns:
+            df_summaries['PortfolioID'] = df_summaries['PortfolioID'].astype(str)
+        
+        if 'Equity' in df_summaries.columns:
+            # Clean common issues like commas before converting to numeric
+            df_summaries['Equity'] = df_summaries['Equity'].astype(str).str.replace(',', '', regex=False)
+            df_summaries['Equity'] = pd.to_numeric(df_summaries['Equity'], errors='coerce')
+        
+        if 'Timestamp' in df_summaries.columns:
+            df_summaries['Timestamp'] = pd.to_datetime(df_summaries['Timestamp'], errors='coerce')
+            
+        return df_summaries
+    except gspread.exceptions.WorksheetNotFound:
+        print(f"Warning: Worksheet '{WORKSHEET_STATEMENT_SUMMARIES}' not found during summary load.")
+        return pd.DataFrame()
+    except gspread.exceptions.APIError as e_api:
+        if hasattr(e_api, 'response') and e_api.response and e_api.response.status_code == 429:
+            print(f"APIError (Quota Exceeded) loading statement summaries: {e_api.args[0] if e_api.args else 'Unknown quota error'}")
+        else:
+            print(f"APIError loading statement summaries: {e_api}")
+        return pd.DataFrame()
+    except Exception as e:
+        print(f"Unexpected error loading statement summaries: {e}")
+        return pd.DataFrame()
+# +++ END FUNCTION TO LOAD STATEMENT SUMMARIES +++
+
 # ============== PART 1.6: GENERAL UTILITY FUNCTIONS ==============
+# (Your existing get_today_drawdown, get_performance, save_plan_to_gsheets, save_new_portfolio_to_gsheets should be here)
 def get_today_drawdown(log_source_df):
     if log_source_df.empty:
         return 0.0
@@ -243,110 +290,110 @@ def get_today_drawdown(log_source_df):
     try:
         # Ensure Timestamp is datetime before strftime
         if 'Timestamp' not in log_source_df.columns or not pd.api.types.is_datetime64_any_dtype(log_source_df['Timestamp']):
-            log_source_df['Timestamp'] = pd.to_datetime(log_source_df['Timestamp'], errors='coerce')
+            log_source_df['Timestamp'] = pd.to_datetime(log_source_df['Timestamp'], errors='coerce') #
         
-        log_source_df_cleaned = log_source_df.dropna(subset=['Timestamp'])
+        log_source_df_cleaned = log_source_df.dropna(subset=['Timestamp']) #
         if 'Risk $' not in log_source_df_cleaned.columns:
             return 0.0
             
-        df_today = log_source_df_cleaned[log_source_df_cleaned["Timestamp"].dt.strftime("%Y-%m-%d") == today_str]
+        df_today = log_source_df_cleaned[log_source_df_cleaned["Timestamp"].dt.strftime("%Y-%m-%d") == today_str] #
         # Ensure "Risk $" is numeric; it should be after load_all_planned_trade_logs_from_gsheets
-        drawdown = df_today["Risk $"].sum() 
+        drawdown = df_today["Risk $"].sum()  #
         return float(drawdown) if pd.notna(drawdown) else 0.0
     except KeyError as e: 
-        print(f"KeyError in get_today_drawdown: {e}")
+        print(f"KeyError in get_today_drawdown: {e}") #
         return 0.0
     except Exception as e: 
-        print(f"Exception in get_today_drawdown: {e}")
+        print(f"Exception in get_today_drawdown: {e}") #
         return 0.0
 
 def get_performance(log_source_df, mode="week"):
-    if log_source_df.empty: return 0.0, 0.0, 0
+    if log_source_df.empty: return 0.0, 0.0, 0 #
     try:
         if 'Timestamp' not in log_source_df.columns or not pd.api.types.is_datetime64_any_dtype(log_source_df['Timestamp']):
-            log_source_df['Timestamp'] = pd.to_datetime(log_source_df['Timestamp'], errors='coerce')
+            log_source_df['Timestamp'] = pd.to_datetime(log_source_df['Timestamp'], errors='coerce') #
         
-        log_source_df_cleaned = log_source_df.dropna(subset=['Timestamp'])
+        log_source_df_cleaned = log_source_df.dropna(subset=['Timestamp']) #
         if 'Risk $' not in log_source_df_cleaned.columns:
-            return 0.0, 0.0, 0
+            return 0.0, 0.0, 0 #
 
-        now = datetime.now()
+        now = datetime.now() #
         if mode == "week":
-            week_start_date = now - pd.Timedelta(days=now.weekday())
-            df_period = log_source_df_cleaned[log_source_df_cleaned["Timestamp"] >= week_start_date.replace(hour=0, minute=0, second=0, microsecond=0)]
+            week_start_date = now - pd.Timedelta(days=now.weekday()) #
+            df_period = log_source_df_cleaned[log_source_df_cleaned["Timestamp"] >= week_start_date.replace(hour=0, minute=0, second=0, microsecond=0)] #
         else:  # month
-            month_start_date = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-            df_period = log_source_df_cleaned[log_source_df_cleaned["Timestamp"] >= month_start_date]
+            month_start_date = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0) #
+            df_period = log_source_df_cleaned[log_source_df_cleaned["Timestamp"] >= month_start_date] #
         
-        win = df_period[df_period["Risk $"] > 0].shape[0]
+        win = df_period[df_period["Risk $"] > 0].shape[0] #
         loss = df_period[df_period["Risk $"] <= 0].shape[0] # Assuming 0 or negative is a loss or break-even
-        total_trades = win + loss
-        winrate = (100 * win / total_trades) if total_trades > 0 else 0.0
-        gain = df_period["Risk $"].sum()
+        total_trades = win + loss #
+        winrate = (100 * win / total_trades) if total_trades > 0 else 0.0 #
+        gain = df_period["Risk $"].sum() #
         return float(winrate), float(gain) if pd.notna(gain) else 0.0, int(total_trades)
     except KeyError as e: 
-        print(f"KeyError in get_performance: {e}")
+        print(f"KeyError in get_performance: {e}") #
         return 0.0, 0.0, 0
     except Exception as e: 
-        print(f"Exception in get_performance: {e}")
+        print(f"Exception in get_performance: {e}") #
         return 0.0, 0.0, 0
 
 def save_plan_to_gsheets(plan_data_list, trade_mode_arg, asset_name, risk_percentage, trade_direction, portfolio_id, portfolio_name):
     gc = get_gspread_client()
     if not gc:
-        st.error("ไม่สามารถเชื่อมต่อ Google Sheets Client เพื่อบันทึกแผนได้")
+        st.error("ไม่สามารถเชื่อมต่อ Google Sheets Client เพื่อบันทึกแผนได้") #
         return False
     try:
         sh = gc.open(GOOGLE_SHEET_NAME)
         ws = sh.worksheet(WORKSHEET_PLANNED_LOGS)
-        timestamp_now = datetime.now()
+        timestamp_now = datetime.now() #
         rows_to_append = []
         expected_headers_plan = [ 
             "LogID", "PortfolioID", "PortfolioName", "Timestamp", "Asset", "Mode", "Direction",
             "Risk %", "Fibo Level", "Entry", "SL", "TP", "Lot", "Risk $", "RR"
-        ]
+        ] #
         current_headers_plan = []
         if ws.row_count > 0:
-            try: current_headers_plan = ws.row_values(1)
+            try: current_headers_plan = ws.row_values(1) #
             except Exception: current_headers_plan = []
         
         if not current_headers_plan or all(h == "" for h in current_headers_plan) or set(current_headers_plan) != set(expected_headers_plan):
-            ws.update([expected_headers_plan], value_input_option='USER_ENTERED')
+            ws.update([expected_headers_plan], value_input_option='USER_ENTERED') #
 
         for idx, plan_entry in enumerate(plan_data_list):
-            log_id = f"{timestamp_now.strftime('%Y%m%d%H%M%S')}-{random.randint(1000,9999)}-{idx}"
+            log_id = f"{timestamp_now.strftime('%Y%m%d%H%M%S')}-{random.randint(1000,9999)}-{idx}" #
             row_data = {
-                "LogID": log_id, "PortfolioID": str(portfolio_id), "PortfolioName": str(portfolio_name),
-                "Timestamp": timestamp_now.strftime("%Y-%m-%d %H:%M:%S"), "Asset": str(asset_name),
-                "Mode": str(trade_mode_arg), "Direction": str(trade_direction), 
-                "Risk %": str(risk_percentage) if pd.notna(risk_percentage) else "",
-                "Fibo Level": str(plan_entry.get("Fibo Level", "")), 
-                "Entry": str(plan_entry.get("Entry", "")),
-                "SL": str(plan_entry.get("SL", "")), 
-                "TP": str(plan_entry.get("TP", "")),
-                "Lot": str(plan_entry.get("Lot", "")), 
-                "Risk $": str(plan_entry.get("Risk $", "")), 
-                "RR": str(plan_entry.get("RR", ""))
+                "LogID": log_id, "PortfolioID": str(portfolio_id), "PortfolioName": str(portfolio_name), #
+                "Timestamp": timestamp_now.strftime("%Y-%m-%d %H:%M:%S"), "Asset": str(asset_name), #
+                "Mode": str(trade_mode_arg), "Direction": str(trade_direction),  #
+                "Risk %": str(risk_percentage) if pd.notna(risk_percentage) else "", #
+                "Fibo Level": str(plan_entry.get("Fibo Level", "")),  #
+                "Entry": str(plan_entry.get("Entry", "")), #
+                "SL": str(plan_entry.get("SL", "")),  #
+                "TP": str(plan_entry.get("TP", "")), #
+                "Lot": str(plan_entry.get("Lot", "")),  #
+                "Risk $": str(plan_entry.get("Risk $", "")),  #
+                "RR": str(plan_entry.get("RR", "")) #
             }
-            rows_to_append.append([row_data.get(h, "") for h in expected_headers_plan])
+            rows_to_append.append([row_data.get(h, "") for h in expected_headers_plan]) #
         if rows_to_append:
-            ws.append_rows(rows_to_append, value_input_option='USER_ENTERED')
+            ws.append_rows(rows_to_append, value_input_option='USER_ENTERED') #
             # Clear cache for planned logs after saving
             if hasattr(load_all_planned_trade_logs_from_gsheets, 'clear'):
-                load_all_planned_trade_logs_from_gsheets.clear()
+                load_all_planned_trade_logs_from_gsheets.clear() #
             return True
         return False
     except gspread.exceptions.WorksheetNotFound:
-        st.error(f"❌ ไม่พบ Worksheet ชื่อ '{WORKSHEET_PLANNED_LOGS}'.")
+        st.error(f"❌ ไม่พบ Worksheet ชื่อ '{WORKSHEET_PLANNED_LOGS}'.") #
         return False
     except Exception as e:
-        st.error(f"❌ เกิดข้อผิดพลาดในการบันทึกแผน: {e}")
+        st.error(f"❌ เกิดข้อผิดพลาดในการบันทึกแผน: {e}") #
         return False
 
 def save_new_portfolio_to_gsheets(portfolio_data_dict):
     gc = get_gspread_client() 
     if not gc:
-        st.error("ไม่สามารถเชื่อมต่อ Google Sheets Client เพื่อบันทึกพอร์ตได้")
+        st.error("ไม่สามารถเชื่อมต่อ Google Sheets Client เพื่อบันทึกพอร์ตได้") #
         return False
     try:
         sh = gc.open(GOOGLE_SHEET_NAME) 
@@ -365,58 +412,50 @@ def save_new_portfolio_to_gsheets(portfolio_data_dict):
             'ScaleDown_MaxLossPercent', 'ScaleDown_LowWinRate', 'ScaleDown_RiskDecrementPercent',
             'MinRiskPercentAllowed', 'MaxRiskPercentAllowed', 'CurrentRiskPercent',
             'Notes' 
-        ]
+        ] #
         
         current_sheet_headers = []
         if ws.row_count > 0:
-            try: current_sheet_headers = ws.row_values(1)
+            try: current_sheet_headers = ws.row_values(1) #
             except Exception: pass 
         
         if not current_sheet_headers or all(h == "" for h in current_sheet_headers) or set(current_sheet_headers) != set(expected_gsheet_headers_portfolio):
-             ws.update([expected_gsheet_headers_portfolio], value_input_option='USER_ENTERED') 
+             ws.update([expected_gsheet_headers_portfolio], value_input_option='USER_ENTERED')  #
 
-        new_row_values = [str(portfolio_data_dict.get(header, "")).strip() for header in expected_gsheet_headers_portfolio]
-        ws.append_row(new_row_values, value_input_option='USER_ENTERED')
+        new_row_values = [str(portfolio_data_dict.get(header, "")).strip() for header in expected_gsheet_headers_portfolio] #
+        ws.append_row(new_row_values, value_input_option='USER_ENTERED') #
         # Clear cache for portfolios after saving new one
         if hasattr(load_portfolios_from_gsheets, 'clear'):
-            load_portfolios_from_gsheets.clear()
+            load_portfolios_from_gsheets.clear() #
         return True
     except gspread.exceptions.WorksheetNotFound:
-        st.error(f"❌ ไม่พบ Worksheet ชื่อ '{WORKSHEET_PORTFOLIOS}'. กรุณาสร้างชีตนี้ก่อน และใส่ Headers ให้ถูกต้อง")
+        st.error(f"❌ ไม่พบ Worksheet ชื่อ '{WORKSHEET_PORTFOLIOS}'. กรุณาสร้างชีตนี้ก่อน และใส่ Headers ให้ถูกต้อง") #
         return False
     except Exception as e:
-        st.error(f"❌ เกิดข้อผิดพลาดในการบันทึกพอร์ตใหม่ไปยัง Google Sheets: {e}")
-        st.exception(e) 
+        st.error(f"❌ เกิดข้อผิดพลาดในการบันทึกพอร์ตใหม่ไปยัง Google Sheets: {e}") #
+        st.exception(e)  #
         return False
-        
 
 # ===================== SEC 1: PORTFOLIO SELECTION (Sidebar) =======================
-# โหลดข้อมูล Portfolios ทั้งหมด (ใช้ Cache)
-df_portfolios_gs = load_portfolios_from_gsheets()
+df_portfolios_gs = load_portfolios_from_gsheets() #
 
-st.sidebar.markdown("---")
-st.sidebar.subheader("เลือกพอร์ตที่ใช้งาน (Active Portfolio)")
+st.sidebar.markdown("---") #
+st.sidebar.subheader("เลือกพอร์ตที่ใช้งาน (Active Portfolio)") #
 
-# Initialize session state variables for portfolio selection if not already handled in global setup
-# (These are already in global setup in this version)
-
-# Populate portfolio names list
 portfolio_names_list_gs = [""] # Start with an empty option for deselection
 if not df_portfolios_gs.empty and 'PortfolioName' in df_portfolios_gs.columns:
-    valid_portfolio_names = sorted(df_portfolios_gs['PortfolioName'].dropna().unique().tolist())
-    portfolio_names_list_gs.extend(valid_portfolio_names)
+    valid_portfolio_names = sorted(df_portfolios_gs['PortfolioName'].dropna().unique().tolist()) #
+    portfolio_names_list_gs.extend(valid_portfolio_names) #
 
-# Ensure current selection is valid
 if st.session_state.active_portfolio_name_gs not in portfolio_names_list_gs:
     st.session_state.active_portfolio_name_gs = portfolio_names_list_gs[0] # Default to empty or first valid
 
-# Store previous portfolio name to detect change
-previous_portfolio_name_gs = st.session_state.active_portfolio_name_gs
+previous_portfolio_name_gs = st.session_state.active_portfolio_name_gs #
 
 selected_portfolio_name_gs = st.sidebar.selectbox(
     "เลือกพอร์ต:",
-    options=portfolio_names_list_gs,
-    index=portfolio_names_list_gs.index(st.session_state.active_portfolio_name_gs),
+    options=portfolio_names_list_gs, #
+    index=portfolio_names_list_gs.index(st.session_state.active_portfolio_name_gs), #
     key='sb_active_portfolio_selector_gs' # This key will update st.session_state.active_portfolio_name_gs on change through rerun
 )
 
@@ -427,256 +466,115 @@ if selected_portfolio_name_gs != previous_portfolio_name_gs:
     st.session_state.current_account_balance = DEFAULT_ACCOUNT_BALANCE # Reset to default, will be updated below
     
     if 'ultimate_stmt_uploader_v7_final' in st.session_state: # Assuming this is the key for file uploader state
-         # Check if the uploader key includes version, if so, adapt:
-        uploader_key_to_check = f"ultimate_stmt_uploader_v7_final_{st.session_state.get('uploader_key_version', 0)}"
+        uploader_key_to_check = f"ultimate_stmt_uploader_v7_final_{st.session_state.get('uploader_key_version', 0)}" #
         if uploader_key_to_check in st.session_state and st.session_state[uploader_key_to_check] is not None:
             st.session_state[uploader_key_to_check] = None # Reset file uploader
-            st.sidebar.warning("⚠️ การเปลี่ยนพอร์ตทำให้ไฟล์ที่อัปโหลดไว้ (ในส่วน Statement Import) ถูกรีเซ็ต")
+            st.sidebar.warning("⚠️ การเปลี่ยนพอร์ตทำให้ไฟล์ที่อัปโหลดไว้ (ในส่วน Statement Import) ถูกรีเซ็ต") #
 
     if selected_portfolio_name_gs != "":
         if not df_portfolios_gs.empty:
-            selected_portfolio_row_df = df_portfolios_gs[df_portfolios_gs['PortfolioName'] == selected_portfolio_name_gs]
+            selected_portfolio_row_df = df_portfolios_gs[df_portfolios_gs['PortfolioName'] == selected_portfolio_name_gs] #
             if not selected_portfolio_row_df.empty:
-                st.session_state.current_portfolio_details = selected_portfolio_row_df.iloc[0].to_dict()
-                st.session_state.active_portfolio_id_gs = st.session_state.current_portfolio_details.get('PortfolioID', None)
+                st.session_state.current_portfolio_details = selected_portfolio_row_df.iloc[0].to_dict() #
+                st.session_state.active_portfolio_id_gs = st.session_state.current_portfolio_details.get('PortfolioID', None) #
                 
-                # Set current_account_balance from InitialBalance of the new portfolio
-                # latest_statement_equity is None, so this will be the primary source until a statement is uploaded for this port
-                initial_bal_val = st.session_state.current_portfolio_details.get('InitialBalance', DEFAULT_ACCOUNT_BALANCE)
-                try:
-                    st.session_state.current_account_balance = float(initial_bal_val)
-                except (ValueError, TypeError):
-                    st.session_state.current_account_balance = DEFAULT_ACCOUNT_BALANCE
-                    st.sidebar.warning(f"ไม่สามารถแปลง InitialBalance ของพอร์ต '{selected_portfolio_name_gs}' เป็นตัวเลขได้")
+                # +++ NEW: Attempt to load latest equity from StatementSummaries for the NEWLY selected portfolio +++
+                if st.session_state.active_portfolio_id_gs:
+                    df_all_summaries = load_statement_summaries_from_gsheets() # Calls the new cached function
+                    if not df_all_summaries.empty and \
+                       'PortfolioID' in df_all_summaries.columns and \
+                       'Equity' in df_all_summaries.columns and \
+                       'Timestamp' in df_all_summaries.columns:
+                        
+                        # Ensure columns are of correct type for filtering and sorting
+                        # This was already handled in load_statement_summaries_from_gsheets, but defensive check is okay
+                        if not pd.api.types.is_string_dtype(df_all_summaries['PortfolioID']):
+                             df_all_summaries['PortfolioID'] = df_all_summaries['PortfolioID'].astype(str)
+                        if not pd.api.types.is_numeric_dtype(df_all_summaries['Equity']):
+                             df_all_summaries['Equity'] = pd.to_numeric(df_all_summaries['Equity'].astype(str).str.replace(',', '', regex=False), errors='coerce')
+                        if not pd.api.types.is_datetime64_any_dtype(df_all_summaries['Timestamp']):
+                             df_all_summaries['Timestamp'] = pd.to_datetime(df_all_summaries['Timestamp'], errors='coerce')
+                        
+                        df_portfolio_specific_summaries = df_all_summaries[
+                            (df_all_summaries['PortfolioID'] == str(st.session_state.active_portfolio_id_gs)) &
+                            (df_all_summaries['Equity'].notna()) &
+                            (df_all_summaries['Timestamp'].notna()) # Ensure timestamp is valid for sorting
+                        ].copy() # Use .copy() to avoid SettingWithCopyWarning
 
+                        if not df_portfolio_specific_summaries.empty:
+                            # Sort by Timestamp to get the latest
+                            df_portfolio_specific_summaries.sort_values(by='Timestamp', ascending=False, inplace=True)
+                            latest_equity_value = df_portfolio_specific_summaries.iloc[0]['Equity']
+                            if pd.notna(latest_equity_value):
+                                st.session_state.latest_statement_equity = float(latest_equity_value)
+                                print(f"SEC 1 (Portfolio Change): Loaded latest equity {latest_equity_value} for portfolio '{selected_portfolio_name_gs}' from summaries.")
+                            else:
+                                st.session_state.latest_statement_equity = None
+                                print(f"SEC 1 (Portfolio Change): Latest equity value from summary is NaN for portfolio '{selected_portfolio_name_gs}'.")
+                        else:
+                            st.session_state.latest_statement_equity = None 
+                            print(f"SEC 1 (Portfolio Change): No valid equity summary found for portfolio '{selected_portfolio_name_gs}'.")
+                    else:
+                        st.session_state.latest_statement_equity = None
+                        print(f"SEC 1 (Portfolio Change): StatementSummaries sheet empty or missing required columns for portfolio '{selected_portfolio_name_gs}'.")
+                else: 
+                    st.session_state.latest_statement_equity = None
+                # +++ END NEW +++
+
+                # Set current_account_balance: Prioritize latest_statement_equity, then InitialBalance from portfolio details
+                if st.session_state.latest_statement_equity is not None:
+                    st.session_state.current_account_balance = st.session_state.latest_statement_equity #
+                else: 
+                    initial_bal_val = st.session_state.current_portfolio_details.get('InitialBalance', DEFAULT_ACCOUNT_BALANCE) #
+                    try:
+                        st.session_state.current_account_balance = float(initial_bal_val) #
+                    except (ValueError, TypeError):
+                        st.session_state.current_account_balance = DEFAULT_ACCOUNT_BALANCE #
+                        st.sidebar.warning(f"ไม่สามารถแปลง InitialBalance ของพอร์ต '{selected_portfolio_name_gs}' เป็นตัวเลขได้") #
+                
                 if st.session_state.active_portfolio_id_gs is None:
-                     st.sidebar.warning("ไม่พบ PortfolioID สำหรับพอร์ตที่เลือก.")
-            else: # Should not happen if name is in list, but defensive
-                st.session_state.active_portfolio_id_gs = None
-                st.session_state.current_portfolio_details = None
-                st.session_state.current_account_balance = DEFAULT_ACCOUNT_BALANCE
-        else: # df_portfolios_gs is empty
-            st.session_state.active_portfolio_id_gs = None
-            st.session_state.current_portfolio_details = None
-            st.session_state.current_account_balance = DEFAULT_ACCOUNT_BALANCE
+                     st.sidebar.warning("ไม่พบ PortfolioID สำหรับพอร์ตที่เลือก.") #
+            else: 
+                st.session_state.active_portfolio_id_gs = None #
+                st.session_state.current_portfolio_details = None #
+                st.session_state.latest_statement_equity = None
+                st.session_state.current_account_balance = DEFAULT_ACCOUNT_BALANCE #
+        else: 
+            st.session_state.active_portfolio_id_gs = None #
+            st.session_state.current_portfolio_details = None #
+            st.session_state.latest_statement_equity = None
+            st.session_state.current_account_balance = DEFAULT_ACCOUNT_BALANCE #
     else: # Portfolio deselected (selected_portfolio_name_gs is "")
-        st.session_state.active_portfolio_id_gs = None
-        st.session_state.current_portfolio_details = None
+        st.session_state.active_portfolio_id_gs = None #
+        st.session_state.current_portfolio_details = None #
+        st.session_state.latest_statement_equity = None 
         st.session_state.current_account_balance = DEFAULT_ACCOUNT_BALANCE # Reset to default
     
     st.rerun() # Rerun to apply changes immediately, especially for balance display
 
 # --- Display details of the selected active portfolio ---
 if st.session_state.current_portfolio_details:
-    details = st.session_state.current_portfolio_details
-    st.sidebar.markdown(f"**💡 ข้อมูลพอร์ต '{details.get('PortfolioName', 'N/A')}'**")
-    # Display InitialBalance as defined in portfolio sheet
-    initial_balance_display = details.get('InitialBalance')
+    details = st.session_state.current_portfolio_details #
+    st.sidebar.markdown(f"**💡 ข้อมูลพอร์ต '{details.get('PortfolioName', 'N/A')}'**") #
+    initial_balance_display = details.get('InitialBalance') #
     if pd.notna(initial_balance_display):
         try:
-            st.sidebar.write(f"- Balance เริ่มต้น (พอร์ต): {float(initial_balance_display):,.2f} USD")
+            st.sidebar.write(f"- Balance เริ่มต้น (พอร์ต): {float(initial_balance_display):,.2f} USD") #
         except ValueError:
-            st.sidebar.write(f"- Balance เริ่มต้น (พอร์ต): {initial_balance_display} (ไม่สามารถแปลงเป็นตัวเลข)")
+            st.sidebar.write(f"- Balance เริ่มต้น (พอร์ต): {initial_balance_display} (ไม่สามารถแปลงเป็นตัวเลข)") #
             
-    if pd.notna(details.get('ProgramType')): st.sidebar.write(f"- ประเภท: {details['ProgramType']}")
-    if pd.notna(details.get('Status')): st.sidebar.write(f"- สถานะ: {details['Status']}")
+    if pd.notna(details.get('ProgramType')): st.sidebar.write(f"- ประเภท: {details['ProgramType']}") #
+    if pd.notna(details.get('Status')): st.sidebar.write(f"- สถานะ: {details['Status']}") #
     
-    if details.get('ProgramType') in ["Prop Firm Challenge", "Funded Account", "Trading Competition"]:
-        if pd.notna(details.get('ProfitTargetPercent')): st.sidebar.write(f"- เป้าหมายกำไร: {float(details['ProfitTargetPercent']):.1f}%")
-        if pd.notna(details.get('DailyLossLimitPercent')): st.sidebar.write(f"- Daily Loss Limit: {float(details['DailyLossLimitPercent']):.1f}%")
-        if pd.notna(details.get('TotalStopoutPercent')): st.sidebar.write(f"- Total Stopout: {float(details['TotalStopoutPercent']):.1f}%")
+    if details.get('ProgramType') in ["Prop Firm Challenge", "Funded Account", "Trading Competition"]: #
+        if pd.notna(details.get('ProfitTargetPercent')): st.sidebar.write(f"- เป้าหมายกำไร: {float(details['ProfitTargetPercent']):.1f}%") #
+        if pd.notna(details.get('DailyLossLimitPercent')): st.sidebar.write(f"- Daily Loss Limit: {float(details['DailyLossLimitPercent']):.1f}%") #
+        if pd.notna(details.get('TotalStopoutPercent')): st.sidebar.write(f"- Total Stopout: {float(details['TotalStopoutPercent']):.1f}%") #
 
 elif not df_portfolios_gs.empty and selected_portfolio_name_gs == "": # Corrected key
-     st.sidebar.info("กรุณาเลือกพอร์ตที่ใช้งานจากรายการ")
+     st.sidebar.info("กรุณาเลือกพอร์ตที่ใช้งานจากรายการ") #
 elif df_portfolios_gs.empty:
-    st.sidebar.warning("ไม่พบข้อมูล Portfolio ใน Google Sheets หรือเกิดข้อผิดพลาดในการโหลด.")
-
-
-# ===================== SEC 1.5: PORTFOLIO MANAGEMENT UI (Main Area) =======================
-def on_program_type_change_v8():
-    # This callback ensures that the form uses the most recent selection from the "Program Type" selectbox
-    # which is outside the form for better conditional UI updates.
-    st.session_state.exp_pf_type_select_v8_key = st.session_state.exp_pf_type_selector_widget_v8
-
-with st.expander("💼 จัดการพอร์ต (เพิ่ม/ดูพอร์ต)", expanded=False): # Set expanded to False by default
-    st.subheader("พอร์ตทั้งหมดของคุณ")
-    # df_portfolios_gs is loaded in SEC 1
-    if df_portfolios_gs.empty:
-        st.info("ยังไม่มีข้อมูลพอร์ต หรือยังไม่ได้โหลดข้อมูลพอร์ต โปรดเพิ่มพอร์ตใหม่ด้านล่าง หรือตรวจสอบการเชื่อมต่อ Google Sheets")
-    else:
-        cols_to_display_pf_table = ['PortfolioID', 'PortfolioName', 'ProgramType', 'EvaluationStep', 'Status', 'InitialBalance', 'CurrentRiskPercent', 'EnableScaling']
-        cols_exist_pf_table = [col for col in cols_to_display_pf_table if col in df_portfolios_gs.columns]
-        if cols_exist_pf_table:
-            st.dataframe(df_portfolios_gs[cols_exist_pf_table], use_container_width=True, hide_index=True)
-        else:
-            st.info("ไม่พบคอลัมน์ที่ต้องการแสดงในตารางพอร์ต")
-
-    st.markdown("---")
-    st.subheader("➕ เพิ่มพอร์ตใหม่")
-
-    program_type_options_outside = ["", "Personal Account", "Prop Firm Challenge", "Funded Account", "Trading Competition"]
-    
-    # Ensure exp_pf_type_select_v8_key is initialized (handled in global setup)
-
-    st.selectbox(
-        "ประเภทพอร์ต (Program Type)*", 
-        options=program_type_options_outside, 
-        index=program_type_options_outside.index(st.session_state.exp_pf_type_select_v8_key) if st.session_state.exp_pf_type_select_v8_key in program_type_options_outside else 0, 
-        key="exp_pf_type_selector_widget_v8", 
-        on_change=on_program_type_change_v8 
-    )
-    
-    selected_program_type_to_use_in_form = st.session_state.exp_pf_type_select_v8_key
-
-    with st.form("new_portfolio_form_main_v8_final", clear_on_submit=True): 
-        st.markdown(f"**กรอกข้อมูลพอร์ต (สำหรับประเภท: {selected_program_type_to_use_in_form if selected_program_type_to_use_in_form else 'ยังไม่ได้เลือก'})**")
-        
-        form_c1, form_c2 = st.columns(2)
-        with form_c1:
-            form_new_portfolio_name = st.text_input("ชื่อพอร์ต (Portfolio Name)*", key="form_pf_name_v8_input")
-        with form_c2:
-            form_new_initial_balance = st.number_input("บาลานซ์เริ่มต้น (Initial Balance)*", min_value=0.01, value=DEFAULT_ACCOUNT_BALANCE, format="%.2f", key="form_pf_balance_v8_input")
-        
-        form_status_options = ["Active", "Inactive", "Pending", "Passed", "Failed"]
-        form_new_status = st.selectbox("สถานะพอร์ต (Status)*", options=form_status_options, index=0, key="form_pf_status_v8_select")
-        
-        form_new_evaluation_step_val = ""
-        if selected_program_type_to_use_in_form == "Prop Firm Challenge":
-            evaluation_step_options = ["", "Phase 1", "Phase 2", "Phase 3", "Verification"]
-            form_new_evaluation_step_val = st.selectbox("ขั้นตอนการประเมิน (Evaluation Step)", 
-                                                        options=evaluation_step_options, index=0, 
-                                                        key="form_pf_eval_step_v8_select")
-
-        # --- Conditional Inputs Defaults (kept as in original File1 for form structure) ---
-        form_profit_target_val = 8.0; form_daily_loss_val = 5.0; form_total_stopout_val = 10.0; form_leverage_val = 100.0; form_min_days_val = 0
-        form_comp_end_date = None; form_comp_goal_metric = ""; form_profit_target_val_comp = 20.0; form_daily_loss_val_comp = 5.0; form_total_stopout_val_comp = 10.0
-        form_pers_overall_profit_val = 0.0; form_pers_target_end_date = None; form_pers_weekly_profit_val = 0.0; form_pers_daily_profit_val = 0.0
-        form_pers_max_dd_overall_val = 0.0; form_pers_max_dd_daily_val = 0.0
-        form_enable_scaling_checkbox_val = False; form_scaling_freq_val = "Weekly"; form_su_wr_val = 55.0; form_su_gain_val = 2.0; form_su_inc_val = 0.25
-        form_sd_loss_val = -5.0; form_sd_wr_val = 40.0; form_sd_dec_val = 0.25; form_min_risk_val = 0.25; form_max_risk_val = 2.0; form_current_risk_val = DEFAULT_RISK_PERCENT
-        form_notes_val = ""
-
-        if selected_program_type_to_use_in_form in ["Prop Firm Challenge", "Funded Account"]:
-            st.markdown("**กฎเกณฑ์ Prop Firm/Funded:**")
-            f_pf1, f_pf2, f_pf3 = st.columns(3)
-            with f_pf1: form_profit_target_val = st.number_input("เป้าหมายกำไร %*", value=form_profit_target_val, format="%.1f", key="f_pf_profit_v8_input")
-            with f_pf2: form_daily_loss_val = st.number_input("จำกัดขาดทุนต่อวัน %*", value=form_daily_loss_val, format="%.1f", key="f_pf_dd_v8_input")
-            with f_pf3: form_total_stopout_val = st.number_input("จำกัดขาดทุนรวม %*", value=form_total_stopout_val, format="%.1f", key="f_pf_maxdd_v8_input")
-            f_pf_col1, f_pf_col2 = st.columns(2)
-            with f_pf_col1: form_leverage_val = st.number_input("Leverage", value=form_leverage_val, format="%.0f", key="f_pf_lev_v8_input")
-            with f_pf_col2: form_min_days_val = st.number_input("จำนวนวันเทรดขั้นต่ำ", value=form_min_days_val, step=1, key="f_pf_mindays_v8_input", format="%d")
-        
-        if selected_program_type_to_use_in_form == "Trading Competition":
-            st.markdown("**ข้อมูลการแข่งขัน:**")
-            f_tc1, f_tc2 = st.columns(2)
-            with f_tc1: 
-                form_comp_end_date = st.date_input("วันสิ้นสุดการแข่งขัน", value=form_comp_end_date, key="f_tc_enddate_v8_input")
-                form_profit_target_val_comp = st.number_input("เป้าหมายกำไร % (Comp)", value=form_profit_target_val_comp, format="%.1f", key="f_tc_profit_v8_input") 
-            with f_tc2: 
-                form_comp_goal_metric = st.text_input("ตัวชี้วัดเป้าหมาย (Comp)", value=form_comp_goal_metric, help="เช่น %Gain, ROI", key="f_tc_goalmetric_v8_input")
-                form_daily_loss_val_comp = st.number_input("จำกัดขาดทุนต่อวัน % (Comp)", value=form_daily_loss_val_comp, format="%.1f", key="f_tc_dd_v8_input")
-                form_total_stopout_val_comp = st.number_input("จำกัดขาดทุนรวม % (Comp)", value=form_total_stopout_val_comp, format="%.1f", key="f_tc_maxdd_v8_input")
-
-        if selected_program_type_to_use_in_form == "Personal Account":
-            st.markdown("**เป้าหมายส่วนตัว (Optional):**")
-            f_ps1, f_ps2 = st.columns(2)
-            with f_ps1:
-                form_pers_overall_profit_val = st.number_input("เป้าหมายกำไรโดยรวม ($)", value=form_pers_overall_profit_val, format="%.2f", key="f_ps_profit_overall_v8_input")
-                form_pers_weekly_profit_val = st.number_input("เป้าหมายกำไรรายสัปดาห์ ($)", value=form_pers_weekly_profit_val, format="%.2f", key="f_ps_profit_weekly_v8_input")
-                form_pers_max_dd_overall_val = st.number_input("Max DD รวมที่ยอมรับได้ ($)", value=form_pers_max_dd_overall_val, format="%.2f", key="f_ps_dd_overall_v8_input")
-            with f_ps2:
-                form_pers_target_end_date = st.date_input("วันที่คาดว่าจะถึงเป้าหมายรวม", value=form_pers_target_end_date, key="f_ps_enddate_v8_input")
-                form_pers_daily_profit_val = st.number_input("เป้าหมายกำไรรายวัน ($)", value=form_pers_daily_profit_val, format="%.2f", key="f_ps_profit_daily_v8_input")
-                form_pers_max_dd_daily_val = st.number_input("Max DD ต่อวันที่ยอมรับได้ ($)", value=form_pers_max_dd_daily_val, format="%.2f", key="f_ps_dd_daily_v8_input")
-
-        st.markdown("**การตั้งค่า Scaling Manager (Optional):**")
-        form_enable_scaling_checkbox_val = st.checkbox("เปิดใช้งาน Scaling Manager?", value=form_enable_scaling_checkbox_val, key="f_scale_enable_v8_check")
-        if form_enable_scaling_checkbox_val:
-            f_sc1, f_sc2, f_sc3 = st.columns(3)
-            with f_sc1:
-                form_scaling_freq_val = st.selectbox("ความถี่ตรวจสอบ Scaling", ["Weekly", "Monthly"], index=["Weekly", "Monthly"].index(form_scaling_freq_val), key="f_scale_freq_v8_select")
-                form_su_wr_val = st.number_input("Scale Up: Min Winrate %", value=form_su_wr_val, format="%.1f", key="f_scale_su_wr_v8_input")
-                form_sd_loss_val = st.number_input("Scale Down: Max Loss %", value=form_sd_loss_val, format="%.1f", key="f_scale_sd_loss_v8_input")
-            with f_sc2:
-                form_min_risk_val = st.number_input("Min Risk % Allowed", value=form_min_risk_val, format="%.2f", key="f_scale_min_risk_v8_input")
-                form_su_gain_val = st.number_input("Scale Up: Min Gain %", value=form_su_gain_val, format="%.1f", key="f_scale_su_gain_v8_input")
-                form_sd_wr_val = st.number_input("Scale Down: Low Winrate %", value=form_sd_wr_val, format="%.1f", key="f_scale_sd_wr_v8_input")
-            with f_sc3:
-                form_max_risk_val = st.number_input("Max Risk % Allowed", value=form_max_risk_val, format="%.2f", key="f_scale_max_risk_v8_input")
-                form_su_inc_val = st.number_input("Scale Up: Risk Increment %", value=form_su_inc_val, format="%.2f", key="f_scale_su_inc_v8_input")
-                form_sd_dec_val = st.number_input("Scale Down: Risk Decrement %", value=form_sd_dec_val, format="%.2f", key="f_scale_sd_dec_v8_input")
-            form_current_risk_val = st.number_input("Current Risk % (สำหรับ Scaling)*", value=form_current_risk_val, format="%.2f", key="f_scale_current_risk_v8_input")
-
-        form_notes_val = st.text_area("หมายเหตุเพิ่มเติม (Notes)", value=form_notes_val, key="f_pf_notes_v8_text")
-
-        submitted_add_portfolio = st.form_submit_button("💾 บันทึกพอร์ตใหม่")
-        
-        if submitted_add_portfolio:
-            if not form_new_portfolio_name or not selected_program_type_to_use_in_form or not form_new_status or form_new_initial_balance <= 0:
-                st.warning("กรุณากรอกข้อมูลที่จำเป็น (*) ให้ครบถ้วนและถูกต้อง: ชื่อพอร์ต, ประเภทพอร์ต, สถานะพอร์ต, และยอดเงินเริ่มต้นต้องมากกว่า 0")
-            elif not df_portfolios_gs.empty and form_new_portfolio_name in df_portfolios_gs['PortfolioName'].astype(str).values:
-                st.error(f"ชื่อพอร์ต '{form_new_portfolio_name}' มีอยู่แล้ว กรุณาใช้ชื่ออื่น")
-            else:
-                new_id_value = str(uuid.uuid4())
-                data_to_save = {
-                    'PortfolioID': new_id_value,
-                    'PortfolioName': form_new_portfolio_name, 
-                    'ProgramType': selected_program_type_to_use_in_form,
-                    'EvaluationStep': form_new_evaluation_step_val if selected_program_type_to_use_in_form == "Prop Firm Challenge" else "", 
-                    'Status': form_new_status,
-                    'InitialBalance': form_new_initial_balance, 
-                    'CreationDate': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                    'Notes': form_notes_val,
-                    # Initialize all other fields to ensure consistent structure
-                    'ProfitTargetPercent': None, 'DailyLossLimitPercent': None, 'TotalStopoutPercent': None, 'Leverage': None, 'MinTradingDays': None,
-                    'CompetitionEndDate': None, 'CompetitionGoalMetric': None,
-                    'OverallProfitTarget': None, 'TargetEndDate': None, 'WeeklyProfitTarget': None, 'DailyProfitTarget': None,
-                    'MaxAcceptableDrawdownOverall': None, 'MaxAcceptableDrawdownDaily': None,
-                    'EnableScaling': form_enable_scaling_checkbox_val, 'ScalingCheckFrequency': None,
-                    'ScaleUp_MinWinRate': None, 'ScaleUp_MinGainPercent': None, 'ScaleUp_RiskIncrementPercent': None,
-                    'ScaleDown_MaxLossPercent': None, 'ScaleDown_LowWinRate': None, 'ScaleDown_RiskDecrementPercent': None,
-                    'MinRiskPercentAllowed': None, 'MaxRiskPercentAllowed': None, 
-                    'CurrentRiskPercent': form_current_risk_val # Always save current risk
-                }
-
-                if selected_program_type_to_use_in_form in ["Prop Firm Challenge", "Funded Account"]:
-                    data_to_save.update({
-                        'ProfitTargetPercent': form_profit_target_val, 'DailyLossLimitPercent': form_daily_loss_val,
-                        'TotalStopoutPercent': form_total_stopout_val, 'Leverage': form_leverage_val, 'MinTradingDays': form_min_days_val
-                    })
-                
-                if selected_program_type_to_use_in_form == "Trading Competition":
-                    data_to_save.update({
-                        'CompetitionEndDate': form_comp_end_date.strftime("%Y-%m-%d") if form_comp_end_date else None,
-                        'CompetitionGoalMetric': form_comp_goal_metric, 'ProfitTargetPercent': form_profit_target_val_comp, 
-                        'DailyLossLimitPercent': form_daily_loss_val_comp, 'TotalStopoutPercent': form_total_stopout_val_comp
-                    })
-
-                if selected_program_type_to_use_in_form == "Personal Account":
-                    data_to_save.update({
-                        'OverallProfitTarget': form_pers_overall_profit_val,
-                        'TargetEndDate': form_pers_target_end_date.strftime("%Y-%m-%d") if form_pers_target_end_date else None,
-                        'WeeklyProfitTarget': form_pers_weekly_profit_val, 'DailyProfitTarget': form_pers_daily_profit_val,
-                        'MaxAcceptableDrawdownOverall': form_pers_max_dd_overall_val, 'MaxAcceptableDrawdownDaily': form_pers_max_dd_daily_val
-                    })
-
-                if form_enable_scaling_checkbox_val:
-                    data_to_save.update({
-                        'ScalingCheckFrequency': form_scaling_freq_val,
-                        'ScaleUp_MinWinRate': form_su_wr_val, 'ScaleUp_MinGainPercent': form_su_gain_val, 'ScaleUp_RiskIncrementPercent': form_su_inc_val,
-                        'ScaleDown_MaxLossPercent': form_sd_loss_val, 'ScaleDown_LowWinRate': form_sd_wr_val, 'ScaleDown_RiskDecrementPercent': form_sd_dec_val,
-                        'MinRiskPercentAllowed': form_min_risk_val, 'MaxRiskPercentAllowed': form_max_risk_val
-                        # CurrentRiskPercent is already in data_to_save
-                    })
-                
-                success_save = save_new_portfolio_to_gsheets(data_to_save) 
-                
-                if success_save:
-                    st.success(f"เพิ่มพอร์ต '{form_new_portfolio_name}' (ID: {new_id_value}) สำเร็จ!")
-                    st.session_state.exp_pf_type_select_v8_key = "" # Reset selectbox outside form
-                    st.rerun()
-                else:
-                    st.error("เกิดข้อผิดพลาดในการบันทึกพอร์ตใหม่ไปยัง Google Sheets")
+    st.sidebar.warning("ไม่พบข้อมูล Portfolio ใน Google Sheets หรือเกิดข้อผิดพลาดในการโหลด.") #
 
 # ===================== SEC 2: COMMON INPUTS, BALANCE DISPLAY & MODE SELECTION (Sidebar) =======================
 # --- Determine active_balance_to_use and initial_risk_pct_from_portfolio ---
@@ -1866,255 +1764,172 @@ with st.expander("🤖 AI Assistant (วิเคราะห์ข้อมู�
                 else: st.info(msg_ai_a)
 
 # ===================== SEC 6: MAIN AREA - STATEMENT IMPORT & PROCESSING =======================
-# This section integrates the improved statement parsing and balance updating logic.
-# Helper functions for saving to GSheets are defined here for context, but could be global.
+# Helper functions (extract_data_from_report_content_sec6, save_transactional_data_to_gsheets_sec6, 
+# save_deals_to_actual_trades_sec6, save_orders_to_gsheets_sec6, save_positions_to_gsheets_sec6,
+# save_results_summary_to_gsheets_sec6) are assumed to be defined above or globally as in your original mainV2.0.0.py.
+# Ensure they are correctly defined and accessible.
 
-# --- START: Helper Functions for SEC 6 (Statement Data Saving) ---
-# Using refined versions inspired by File2 for saving data, especially results_summary.
-
-def extract_data_from_report_content_sec6(file_content_str_input): # Make sure this function is defined as in your mainV2.0.0.py
+# --- START: Placeholder for Helper Functions for SEC 6 (Copy from your mainV2.0.0.py) ---
+def extract_data_from_report_content_sec6(file_content_str_input):
+    # ... (Full implementation from your mainV2.0.0.py) ...
     extracted_data = {'deals': pd.DataFrame(), 'orders': pd.DataFrame(), 'positions': pd.DataFrame(), 'balance_summary': {}, 'results_summary': {}}
-    
     def safe_float_convert(value_str):
         if isinstance(value_str, (int, float)): return value_str
         try:
             clean_value = str(value_str).strip().replace(" ", "").replace(",", "").replace("%", "")
-            if not clean_value: return None # Handle empty string after cleaning
-            if clean_value.count('.') > 1: # Handle cases like "1.234.56" -> "1234.56"
+            if not clean_value: return None
+            if clean_value.count('.') > 1:
                 parts = clean_value.split('.'); integer_part = "".join(parts[:-1]); decimal_part = parts[-1]
                 clean_value = integer_part + "." + decimal_part
             return float(clean_value)
         except (ValueError, TypeError, AttributeError): return None
-
     lines = []
-    if isinstance(file_content_str_input, str):
-        lines = file_content_str_input.strip().split('\n')
-    elif isinstance(file_content_str_input, bytes):
-        lines = file_content_str_input.decode('utf-8', errors='replace').strip().split('\n')
-    else:
-        print("Error: Invalid file_content type in extract_data_from_report_content_sec6.")
-        return extracted_data
-    
-    if not lines:
-        print("Warning: File content is empty in extract_data_from_report_content_sec6.")
-        return extracted_data
-
-    section_raw_headers = {
-        "Positions": "Time,Position,Symbol,Type,Volume,Price,S / L,T / P,Time,Price,Commission,Swap,Profit",
-        "Orders": "Open Time,Order,Symbol,Type,Volume,Price,S / L,T / P,Time,State,,Comment",
-        "Deals": "Time,Deal,Symbol,Type,Direction,Volume,Price,Order,Commission,Fee,Swap,Profit,Balance,Comment",
-    }
-    expected_cleaned_columns = {
-        "Positions": ["Time_Pos", "Position_ID", "Symbol_Pos", "Type_Pos", "Volume_Pos", "Price_Open_Pos", "S_L_Pos", "T_P_Pos", "Time_Close_Pos", "Price_Close_Pos", "Commission_Pos", "Swap_Pos", "Profit_Pos"],
-        "Orders": ["Open_Time_Ord", "Order_ID_Ord", "Symbol_Ord", "Type_Ord", "Volume_Ord", "Price_Ord", "S_L_Ord", "T_P_Ord", "Close_Time_Ord", "State_Ord", "Filler_Ord","Comment_Ord"],
-        "Deals": ["Time_Deal", "Deal_ID", "Symbol_Deal", "Type_Deal", "Direction_Deal", "Volume_Deal", "Price_Deal", "Order_ID_Deal", "Commission_Deal", "Fee_Deal", "Swap_Deal", "Profit_Deal", "Balance_Deal", "Comment_Deal"],
-    }
-    section_order_for_tables = ["Positions", "Orders", "Deals"]
-    section_header_indices = {}
-    
+    if isinstance(file_content_str_input, str): lines = file_content_str_input.strip().split('\n')
+    elif isinstance(file_content_str_input, bytes): lines = file_content_str_input.decode('utf-8', errors='replace').strip().split('\n')
+    else: return extracted_data
+    if not lines: return extracted_data
+    section_raw_headers = {"Positions": "Time,Position,Symbol,Type,Volume,Price,S / L,T / P,Time,Price,Commission,Swap,Profit", "Orders": "Open Time,Order,Symbol,Type,Volume,Price,S / L,T / P,Time,State,,Comment", "Deals": "Time,Deal,Symbol,Type,Direction,Volume,Price,Order,Commission,Fee,Swap,Profit,Balance,Comment"}
+    expected_cleaned_columns = {"Positions": ["Time_Pos", "Position_ID", "Symbol_Pos", "Type_Pos", "Volume_Pos", "Price_Open_Pos", "S_L_Pos", "T_P_Pos", "Time_Close_Pos", "Price_Close_Pos", "Commission_Pos", "Swap_Pos", "Profit_Pos"], "Orders": ["Open_Time_Ord", "Order_ID_Ord", "Symbol_Ord", "Type_Ord", "Volume_Ord", "Price_Ord", "S_L_Ord", "T_P_Ord", "Close_Time_Ord", "State_Ord", "Filler_Ord","Comment_Ord"], "Deals": ["Time_Deal", "Deal_ID", "Symbol_Deal", "Type_Deal", "Direction_Deal", "Volume_Deal", "Price_Deal", "Order_ID_Deal", "Commission_Deal", "Fee_Deal", "Swap_Deal", "Profit_Deal", "Balance_Deal", "Comment_Deal"]}
+    section_order_for_tables = ["Positions", "Orders", "Deals"]; section_header_indices = {}
     for line_idx, current_line_str in enumerate(lines):
         stripped_line = current_line_str.strip()
         for section_name, raw_header_template in section_raw_headers.items():
             if section_name not in section_header_indices:
                 first_col_of_template = raw_header_template.split(',')[0].strip()
-                if stripped_line.startswith(first_col_of_template) and raw_header_template in stripped_line:
-                    section_header_indices[section_name] = line_idx
-                    break
-    
+                if stripped_line.startswith(first_col_of_template) and raw_header_template in stripped_line: section_header_indices[section_name] = line_idx; break
     for table_idx, section_name in enumerate(section_order_for_tables):
         section_key_lower = section_name.lower()
         if section_name in section_header_indices:
-            header_line_num = section_header_indices[section_name]
-            data_start_line_num = header_line_num + 1
-            data_end_line_num = len(lines)
+            header_line_num = section_header_indices[section_name]; data_start_line_num = header_line_num + 1; data_end_line_num = len(lines)
             for next_table_name_idx in range(table_idx + 1, len(section_order_for_tables)):
                 next_table_section_name = section_order_for_tables[next_table_name_idx]
-                if next_table_section_name in section_header_indices:
-                    data_end_line_num = section_header_indices[next_table_section_name]
-                    break
-            
+                if next_table_section_name in section_header_indices: data_end_line_num = section_header_indices[next_table_section_name]; break
             current_table_data_lines = []
             for line_num_for_data in range(data_start_line_num, data_end_line_num):
                 line_content_for_data = lines[line_num_for_data].strip()
                 if not line_content_for_data:
-                    if any(current_table_data_lines): pass # Allow pandas to handle if already started collecting
+                    if any(current_table_data_lines): pass
                     else: continue
-                if line_content_for_data.startswith(("Balance:", "Credit Facility:", "Floating P/L:", "Equity:", "Results", "Total Net Profit:")):
-                    break
+                if line_content_for_data.startswith(("Balance:", "Credit Facility:", "Floating P/L:", "Equity:", "Results", "Total Net Profit:")): break
                 is_another_header_line = False
                 for other_sec_name, other_raw_hdr_template in section_raw_headers.items():
-                    if other_sec_name != section_name and \
-                       line_content_for_data.startswith(other_raw_hdr_template.split(',')[0]) and \
-                       other_raw_hdr_template in line_content_for_data:
-                        is_another_header_line = True; break
+                    if other_sec_name != section_name and line_content_for_data.startswith(other_raw_hdr_template.split(',')[0]) and other_raw_hdr_template in line_content_for_data: is_another_header_line = True; break
                 if is_another_header_line: break
-                
                 if section_name == "Deals":
-                    cols_in_line = [col.strip() for col in line_content_for_data.split(',')]
-                    is_balance_type_row = False
-                    if len(cols_in_line) > 3 and str(cols_in_line[3]).lower() in ['balance', 'credit', 'initial_deposit', 'deposit', 'withdrawal', 'correction']:
-                         is_balance_type_row = True
+                    cols_in_line = [col.strip() for col in line_content_for_data.split(',')]; is_balance_type_row = False
+                    if len(cols_in_line) > 3 and str(cols_in_line[3]).lower() in ['balance', 'credit', 'initial_deposit', 'deposit', 'withdrawal', 'correction']: is_balance_type_row = True
                     missing_essential_identifiers = False
                     if len(cols_in_line) < 3: missing_essential_identifiers = True
                     elif not cols_in_line[0] or not cols_in_line[1] or not cols_in_line[2]: missing_essential_identifiers = True
-                    if is_balance_type_row or missing_essential_identifiers:
-                        if st.session_state.get("debug_statement_processing_v2", False):
-                            print(f"DEBUG [extract_data_sec6]: SKIPPING Deals line: '{line_content_for_data}' (Balance/Credit: {is_balance_type_row}, MissingIDs: {missing_essential_identifiers})")
-                        continue
+                    if is_balance_type_row or missing_essential_identifiers: continue
                 current_table_data_lines.append(line_content_for_data)
-
             if current_table_data_lines:
                 csv_data_str = "\n".join(current_table_data_lines)
                 try:
-                    col_names_for_df = expected_cleaned_columns[section_name]
-                    df_section = pd.read_csv(io.StringIO(csv_data_str),
-                                             header=None, names=col_names_for_df,
-                                             skipinitialspace=True, on_bad_lines='warn',
-                                             engine='python', dtype=str)
-                    df_section.dropna(how='all', inplace=True)
-                    final_cols = expected_cleaned_columns[section_name]
+                    col_names_for_df = expected_cleaned_columns[section_name]; df_section = pd.read_csv(io.StringIO(csv_data_str), header=None, names=col_names_for_df, skipinitialspace=True, on_bad_lines='warn', engine='python', dtype=str)
+                    df_section.dropna(how='all', inplace=True); final_cols = expected_cleaned_columns[section_name]
                     for col in final_cols:
                         if col not in df_section.columns: df_section[col] = ""
                     df_section = df_section[final_cols]
-                    if section_name == "Deals" and not df_section.empty:
-                        if "Symbol_Deal" in df_section.columns:
-                            df_section = df_section[df_section["Symbol_Deal"].astype(str).str.strip() != ""]
-                    if not df_section.empty:
-                        extracted_data[section_key_lower] = df_section
-                except pd.errors.ParserError as e_parse_df:
-                    if st.session_state.get("debug_statement_processing_v2", False): print(f"ParserError for {section_name}: {e_parse_df}. Data: {csv_data_str[:300]}")
-                except Exception as e_gen_parse_df:
-                    if st.session_state.get("debug_statement_processing_v2", False): print(f"Error parsing table data for {section_name}: {e_gen_parse_df}")
-    
-    balance_summary_dict = {}
-    balance_start_line_idx = -1
+                    if section_name == "Deals" and not df_section.empty and "Symbol_Deal" in df_section.columns: df_section = df_section[df_section["Symbol_Deal"].astype(str).str.strip() != ""]
+                    if not df_section.empty: extracted_data[section_key_lower] = df_section
+                except Exception: pass
+    balance_summary_dict = {}; balance_start_line_idx = -1
     for i, line in enumerate(lines):
-        if line.strip().lower().startswith("balance:"): # More robust check for "Balance:"
-            balance_start_line_idx = i; break
-    
+        if line.strip().lower().startswith("balance:"): balance_start_line_idx = i; break
     if balance_start_line_idx != -1:
-        for i_bal in range(balance_start_line_idx, min(balance_start_line_idx + 8, len(lines))): # Limit search range
+        for i_bal in range(balance_start_line_idx, min(balance_start_line_idx + 8, len(lines))):
             line_stripped = lines[i_bal].strip()
             if not line_stripped : continue
-            if line_stripped.startswith(("Results", "Total Net Profit:")) and i_bal > balance_start_line_idx: break # Stop before Results section
-            
+            if line_stripped.startswith(("Results", "Total Net Profit:")) and i_bal > balance_start_line_idx: break
             parts_raw = line_stripped.split(',')
-            # Handle specific known lines like "Balance: ..., ..., ..., VALUE" and "Equity: ..., ..., ..., VALUE"
             if line_stripped.lower().startswith("balance:"):
-                if len(parts_raw) > 3 : # Assuming value is in 4th part for MT4/5 like structure
+                if len(parts_raw) > 3:
                     val_from_parts = safe_float_convert(parts_raw[3].strip())
                     if val_from_parts is not None: balance_summary_dict['balance'] = val_from_parts
             elif line_stripped.lower().startswith("equity:"):
                 if len(parts_raw) > 3:
                     val_from_parts = safe_float_convert(parts_raw[3].strip())
                     if val_from_parts is not None: balance_summary_dict['equity'] = val_from_parts
-            
-            # General key: value parsing for other balance stats in the vicinity
             temp_key = ""; val_expected_next = False
-            for part_val in parts_raw: # Iterate through all parts of the split line
+            for part_val in parts_raw:
                 part_val_clean = part_val.strip()
                 if not part_val_clean: continue
                 if ':' in part_val_clean:
-                    key_str, val_str = part_val_clean.split(':', 1)
-                    key_clean = key_str.strip().replace(" ", "_").replace(".", "").replace("/","_").lower()
-                    val_strip = val_str.strip()
-                    if val_strip: # Value is on the same part after ':'
-                        num_val = safe_float_convert(val_strip.split(' ')[0]) # Take first part if "USD" follows
-                        if num_val is not None and (key_clean not in balance_summary_dict or balance_summary_dict[key_clean] is None): # Prioritize first found
-                            balance_summary_dict[key_clean] = num_val
+                    key_str, val_str = part_val_clean.split(':', 1); key_clean = key_str.strip().replace(" ", "_").replace(".", "").replace("/","_").lower(); val_strip = val_str.strip()
+                    if val_strip:
+                        num_val = safe_float_convert(val_strip.split(' ')[0])
+                        if num_val is not None and (key_clean not in balance_summary_dict or balance_summary_dict[key_clean] is None): balance_summary_dict[key_clean] = num_val
                         val_expected_next = False; temp_key = ""
-                    else: # Value might be in the next part
-                        temp_key = key_clean; val_expected_next = True
-                elif val_expected_next and temp_key: # This part is the value for temp_key
+                    else: temp_key = key_clean; val_expected_next = True
+                elif val_expected_next and temp_key:
                     num_val = safe_float_convert(part_val_clean.split(' ')[0])
-                    if num_val is not None and (temp_key not in balance_summary_dict or balance_summary_dict[temp_key] is None):
-                         balance_summary_dict[temp_key] = num_val
+                    if num_val is not None and (temp_key not in balance_summary_dict or balance_summary_dict[temp_key] is None): balance_summary_dict[temp_key] = num_val
                     temp_key = ""; val_expected_next = False
     essential_balance_keys = ["balance", "equity", "free_margin", "margin", "floating_p_l", "margin_level", "credit_facility"]
     for k_b in essential_balance_keys:
-        if k_b not in balance_summary_dict: balance_summary_dict[k_b] = None # Ensure keys exist
+        if k_b not in balance_summary_dict: balance_summary_dict[k_b] = None
     extracted_data['balance_summary'] = balance_summary_dict
-    
-    results_summary_dict = {}
-    stat_definitions_map = { # From your original file
-        "Total Net Profit": "Total_Net_Profit", "Gross Profit": "Gross_Profit", "Gross Loss": "Gross_Loss", "Profit Factor": "Profit_Factor", "Expected Payoff": "Expected_Payoff",
-        "Recovery Factor": "Recovery_Factor", "Sharpe Ratio": "Sharpe_Ratio", "Balance Drawdown Absolute": "Balance_Drawdown_Absolute", "Balance Drawdown Maximal": "Balance_Drawdown_Maximal",
-        "Balance Drawdown Relative": "Balance_Drawdown_Relative_Percent", "Total Trades": "Total_Trades", "Short Trades (won %)": "Short_Trades",
-        "Long Trades (won %)": "Long_Trades", "Profit Trades (% of total)": "Profit_Trades", "Loss Trades (% of total)": "Loss_Trades",
-        "Largest profit trade": "Largest_profit_trade", "Largest loss trade": "Largest_loss_trade", "Average profit trade": "Average_profit_trade", "Average loss trade": "Average_loss_trade",
-        "Maximum consecutive wins ($)": "Maximum_consecutive_wins_Count", "Maximal consecutive profit (count)": "Maximal_consecutive_profit_Amount", # Note: key name might need swap based on value type
-        "Average consecutive wins": "Average_consecutive_wins", "Maximum consecutive losses ($)": "Maximum_consecutive_losses_Count",
-        "Maximal consecutive loss (count)": "Maximal_consecutive_loss_Amount", # Note: key name might need swap
-        "Average consecutive losses": "Average_consecutive_losses"
-    }
-    results_start_line_idx = -1; results_section_processed_lines = 0; max_lines_for_results = 35 # Limit search to avoid full file scan
+    results_summary_dict = {}; stat_definitions_map = {"Total Net Profit": "Total_Net_Profit", "Gross Profit": "Gross_Profit", "Gross Loss": "Gross_Loss", "Profit Factor": "Profit_Factor", "Expected Payoff": "Expected_Payoff", "Recovery Factor": "Recovery_Factor", "Sharpe Ratio": "Sharpe_Ratio", "Balance Drawdown Absolute": "Balance_Drawdown_Absolute", "Balance Drawdown Maximal": "Balance_Drawdown_Maximal", "Balance Drawdown Relative": "Balance_Drawdown_Relative_Percent", "Total Trades": "Total_Trades", "Short Trades (won %)": "Short_Trades", "Long Trades (won %)": "Long_Trades", "Profit Trades (% of total)": "Profit_Trades", "Loss Trades (% of total)": "Loss_Trades", "Largest profit trade": "Largest_profit_trade", "Largest loss trade": "Largest_loss_trade", "Average profit trade": "Average_profit_trade", "Average loss trade": "Average_loss_trade", "Maximum consecutive wins ($)": "Maximum_consecutive_wins_Count", "Maximal consecutive profit (count)": "Maximal_consecutive_profit_Amount", "Average consecutive wins": "Average_consecutive_wins", "Maximum consecutive losses ($)": "Maximum_consecutive_losses_Count", "Maximal consecutive loss (count)": "Maximal_consecutive_loss_Amount", "Average consecutive losses": "Average_consecutive_losses"}
+    results_start_line_idx = -1; results_section_processed_lines = 0; max_lines_for_results = 35
     for i_res, line_res in enumerate(lines):
         if results_start_line_idx == -1 and (line_res.strip().startswith("Results") or line_res.strip().startswith("Total Net Profit:")):
             results_start_line_idx = i_res
-            if line_res.strip().startswith("Total Net Profit:"): results_start_line_idx -=1 # Adjust if "Results" header is missing
-            continue # Move to next line to start processing from after "Results" or "Total Net Profit" line
-        
+            if line_res.strip().startswith("Total Net Profit:"): results_start_line_idx -=1
+            continue
         if results_start_line_idx != -1 and results_section_processed_lines < max_lines_for_results:
             line_stripped_res = line_res.strip()
-            if not line_stripped_res: # Skip empty lines or stop if section seems to end
-                if results_section_processed_lines > 2 : break # If already processed some lines, consider this end of section
+            if not line_stripped_res:
+                if results_section_processed_lines > 2: break
                 else: continue
-            results_section_processed_lines += 1
-            
-            row_cells = [cell.strip() for cell in line_stripped_res.split(',')]
+            results_section_processed_lines += 1; row_cells = [cell.strip() for cell in line_stripped_res.split(',')]
             for c_idx, cell_content in enumerate(row_cells):
                 if not cell_content: continue
                 current_label = cell_content.replace(':', '').strip()
                 if current_label in stat_definitions_map:
                     gsheet_key = stat_definitions_map[current_label]
-                    # Search for value in next few cells (MT4/5 reports have varied cell counts)
-                    for k_val_search in range(1, 5): # Check up to 4 cells to the right for a value
+                    for k_val_search in range(1, 5):
                         if (c_idx + k_val_search) < len(row_cells):
                             raw_value_from_cell = row_cells[c_idx + k_val_search]
-                            if raw_value_from_cell: # If cell is not empty
-                                value_part_before_paren = raw_value_from_cell.split('(')[0].strip()
-                                numeric_value = safe_float_convert(value_part_before_paren)
+                            if raw_value_from_cell:
+                                value_part_before_paren = raw_value_from_cell.split('(')[0].strip(); numeric_value = safe_float_convert(value_part_before_paren)
                                 if numeric_value is not None:
                                     results_summary_dict[gsheet_key] = numeric_value
-                                    # Handle values in parentheses (e.g., percentages, counts)
                                     if '(' in raw_value_from_cell and ')' in raw_value_from_cell:
                                         try:
-                                            paren_content_str = raw_value_from_cell[raw_value_from_cell.find('(')+1:raw_value_from_cell.find(')')].strip().replace('%','')
-                                            paren_numeric_value = safe_float_convert(paren_content_str)
+                                            paren_content_str = raw_value_from_cell[raw_value_from_cell.find('(')+1:raw_value_from_cell.find(')')].strip().replace('%',''); paren_numeric_value = safe_float_convert(paren_content_str)
                                             if paren_numeric_value is not None:
-                                                # Assign to specific secondary keys based on label
                                                 if current_label == "Balance Drawdown Maximal": results_summary_dict["Balance_Drawdown_Maximal_Percent"] = paren_numeric_value
-                                                elif current_label == "Balance Drawdown Relative": results_summary_dict["Balance_Drawdown_Relative_Amount"] = numeric_value # Main value is already %; if there's an amount it might be here
+                                                elif current_label == "Balance Drawdown Relative": results_summary_dict["Balance_Drawdown_Relative_Amount"] = numeric_value
                                                 elif current_label == "Short Trades (won %)": results_summary_dict["Short_Trades_won_Percent"] = paren_numeric_value
                                                 elif current_label == "Long Trades (won %)": results_summary_dict["Long_Trades_won_Percent"] = paren_numeric_value
                                                 elif current_label == "Profit Trades (% of total)": results_summary_dict["Profit_Trades_Percent_of_total"] = paren_numeric_value
                                                 elif current_label == "Loss Trades (% of total)": results_summary_dict["Loss_Trades_Percent_of_total"] = paren_numeric_value
                                                 elif current_label == "Maximum consecutive wins ($)": results_summary_dict["Maximum_consecutive_wins_Profit"] = paren_numeric_value
-                                                elif current_label == "Maximal consecutive profit (count)": results_summary_dict["Maximal_consecutive_profit_Count"] = paren_numeric_value # Swapped from original logic
+                                                elif current_label == "Maximal consecutive profit (count)": results_summary_dict["Maximal_consecutive_profit_Count"] = paren_numeric_value
                                                 elif current_label == "Maximum consecutive losses ($)": results_summary_dict["Maximum_consecutive_losses_Profit"] = paren_numeric_value
-                                                elif current_label == "Maximal consecutive loss (count)": results_summary_dict["Maximal_consecutive_loss_Count"] = paren_numeric_value # Swapped
-                                        except Exception: pass # Ignore errors in parsing parenthesis content
-                                break # Found value for this label, move to next cell in row_cells
-            if line_stripped_res.startswith("Average consecutive losses"): break # A common last line for MT4 stats
-        elif results_start_line_idx != -1 and results_section_processed_lines >= max_lines_for_results: break # Stop if too many lines processed
+                                                elif current_label == "Maximal consecutive loss (count)": results_summary_dict["Maximal_consecutive_loss_Count"] = paren_numeric_value
+                                        except Exception: pass
+                                break 
+            if line_stripped_res.startswith("Average consecutive losses"): break
+        elif results_start_line_idx != -1 and results_section_processed_lines >= max_lines_for_results: break
     extracted_data['results_summary'] = results_summary_dict
     return extracted_data
 
 def save_transactional_data_to_gsheets_sec6(ws, df_input, unique_id_col, expected_headers_with_portfolio, data_type_name, portfolio_id, portfolio_name, source_file_name="N/A", import_batch_id="N/A"):
+    # ... (Full implementation from your mainV2.0.0.py) ...
     if df_input is None or df_input.empty: return True, 0, 0
     try:
         if ws is None: return False, 0, 0
-        current_headers = []
-        header_check_successful = False
+        current_headers = []; header_check_successful = False
         if ws.row_count > 0:
             try: current_headers = ws.row_values(1); header_check_successful = True
             except Exception: pass
         if not header_check_successful or not current_headers or all(h == "" for h in current_headers) or set(current_headers) != set(expected_headers_with_portfolio):
             try: ws.update([expected_headers_with_portfolio], value_input_option='USER_ENTERED')
             except Exception: return False, 0, 0
-        
         existing_ids = set()
-        if ws.row_count > 1: # Check only if there's more than a header row
+        if ws.row_count > 1:
             try:
                 all_sheet_records = ws.get_all_records(expected_headers=expected_headers_with_portfolio, numericise_ignore=['all'])
                 if all_sheet_records:
@@ -2122,41 +1937,24 @@ def save_transactional_data_to_gsheets_sec6(ws, df_input, unique_id_col, expecte
                     if 'PortfolioID' in df_existing_sheet_data.columns and unique_id_col in df_existing_sheet_data.columns:
                         df_existing_sheet_data['PortfolioID'] = df_existing_sheet_data['PortfolioID'].astype(str)
                         df_portfolio_data = df_existing_sheet_data[df_existing_sheet_data['PortfolioID'] == str(portfolio_id)]
-                        if not df_portfolio_data.empty:
-                            existing_ids = set(df_portfolio_data[unique_id_col].astype(str).str.strip().tolist())
-            except Exception as e_get_existing_ids:
-                print(f"Warning ({data_type_name}): Could not get existing IDs from '{ws.title}'. Deduplication might be incomplete: {e_get_existing_ids}")
-
+                        if not df_portfolio_data.empty: existing_ids = set(df_portfolio_data[unique_id_col].astype(str).str.strip().tolist())
+            except Exception as e_get_existing_ids: print(f"Warning ({data_type_name}): Could not get existing IDs from '{ws.title}'. Deduplication incomplete: {e_get_existing_ids}")
         df_to_check = df_input.copy()
-        if unique_id_col not in df_to_check.columns:
-            st.error(f"Unique ID column '{unique_id_col}' MISSING from extracted '{data_type_name}'. All data treated as new.")
-            new_df = df_to_check # Treat all as new if ID col is missing
+        if unique_id_col not in df_to_check.columns: new_df = df_to_check
         else:
             df_to_check[unique_id_col] = df_to_check[unique_id_col].astype(str).str.strip()
             new_df = df_to_check[~df_to_check[unique_id_col].isin(existing_ids)]
-        
-        num_new = len(new_df)
-        num_duplicates_skipped = len(df_to_check) - num_new
-        
+        num_new = len(new_df); num_duplicates_skipped = len(df_to_check) - num_new
         if new_df.empty: return True, num_new, num_duplicates_skipped
-        
-        new_df_to_save = new_df.copy()
-        new_df_to_save["PortfolioID"] = str(portfolio_id)
-        new_df_to_save["PortfolioName"] = str(portfolio_name)
-        new_df_to_save["SourceFile"] = str(source_file_name)
-        new_df_to_save["ImportBatchID"] = str(import_batch_id)
-        
+        new_df_to_save = new_df.copy(); new_df_to_save["PortfolioID"] = str(portfolio_id); new_df_to_save["PortfolioName"] = str(portfolio_name); new_df_to_save["SourceFile"] = str(source_file_name); new_df_to_save["ImportBatchID"] = str(import_batch_id)
         final_df_for_append = pd.DataFrame(columns=expected_headers_with_portfolio)
         for col_h in expected_headers_with_portfolio:
             if col_h in new_df_to_save.columns: final_df_for_append[col_h] = new_df_to_save[col_h]
-            else: final_df_for_append[col_h] = "" # Ensure all expected columns are present
-        
+            else: final_df_for_append[col_h] = ""
         list_of_lists = final_df_for_append.astype(str).replace('nan', '').replace('None','').fillna("").values.tolist()
         if list_of_lists: ws.append_rows(list_of_lists, value_input_option='USER_ENTERED')
         return True, num_new, num_duplicates_skipped
-    except Exception as e_save_trans: 
-        print(f"Error saving {data_type_name} to GSheets: {e_save_trans}")
-        return False, 0, 0
+    except Exception as e_save_trans: print(f"Error saving {data_type_name} to GSheets: {e_save_trans}"); return False, 0, 0
 
 def save_deals_to_actual_trades_sec6(ws, df_deals_input, portfolio_id, portfolio_name, source_file_name="N/A", import_batch_id="N/A"):
     expected_headers_deals = ["Time_Deal", "Deal_ID", "Symbol_Deal", "Type_Deal", "Direction_Deal", "Volume_Deal", "Price_Deal", "Order_ID_Deal", "Commission_Deal", "Fee_Deal", "Swap_Deal", "Profit_Deal", "Balance_Deal", "Comment_Deal", "PortfolioID", "PortfolioName", "SourceFile", "ImportBatchID"]
@@ -2169,61 +1967,35 @@ def save_orders_to_gsheets_sec6(ws, df_orders_input, portfolio_id, portfolio_nam
 def save_positions_to_gsheets_sec6(ws, df_positions_input, portfolio_id, portfolio_name, source_file_name="N/A", import_batch_id="N/A"):
     expected_headers_positions = ["Time_Pos", "Position_ID", "Symbol_Pos", "Type_Pos", "Volume_Pos", "Price_Open_Pos", "S_L_Pos", "T_P_Pos", "Time_Close_Pos", "Price_Close_Pos", "Commission_Pos", "Swap_Pos", "Profit_Pos", "PortfolioID", "PortfolioName", "SourceFile", "ImportBatchID"]
     return save_transactional_data_to_gsheets_sec6(ws, df_positions_input, "Position_ID", expected_headers_positions, "Positions", portfolio_id, portfolio_name, source_file_name, import_batch_id)
-
+    
 def save_results_summary_to_gsheets_sec6(ws, balance_summary_data, results_summary_data, portfolio_id, portfolio_name, source_file_name="N/A", import_batch_id="N/A"):
+    # ... (Full implementation from your mainV2.0.0.py) ...
     try:
         if ws is None: return False, "Worksheet object is None"
-        expected_headers = [
-            "Timestamp", "PortfolioID", "PortfolioName", "SourceFile", "ImportBatchID", 
-            "Balance", "Equity", "Free_Margin", "Margin", "Floating_P_L", "Margin_Level", "Credit_Facility",
-            "Total_Net_Profit", "Gross_Profit", "Gross_Loss", "Profit_Factor", "Expected_Payoff", 
-            "Recovery_Factor", "Sharpe_Ratio", 
-            "Balance_Drawdown_Absolute", "Balance_Drawdown_Maximal", "Balance_Drawdown_Maximal_Percent", 
-            "Balance_Drawdown_Relative_Percent", "Balance_Drawdown_Relative_Amount", 
-            "Total_Trades", "Short_Trades", "Short_Trades_won_Percent", "Long_Trades", "Long_Trades_won_Percent", 
-            "Profit_Trades", "Profit_Trades_Percent_of_total", "Loss_Trades", "Loss_Trades_Percent_of_total", 
-            "Largest_profit_trade", "Largest_loss_trade", "Average_profit_trade", "Average_loss_trade", 
-            "Maximum_consecutive_wins_Count", "Maximum_consecutive_wins_Profit", 
-            "Maximal_consecutive_profit_Amount", "Maximal_consecutive_profit_Count",
-            "Maximum_consecutive_losses_Count", "Maximum_consecutive_losses_Profit", 
-            "Maximal_consecutive_loss_Amount", "Maximal_consecutive_loss_Count",
-            "Average_consecutive_wins", "Average_consecutive_losses"
-        ]
+        expected_headers = ["Timestamp", "PortfolioID", "PortfolioName", "SourceFile", "ImportBatchID", "Balance", "Equity", "Free_Margin", "Margin", "Floating_P_L", "Margin_Level", "Credit_Facility", "Total_Net_Profit", "Gross_Profit", "Gross_Loss", "Profit_Factor", "Expected_Payoff", "Recovery_Factor", "Sharpe_Ratio", "Balance_Drawdown_Absolute", "Balance_Drawdown_Maximal", "Balance_Drawdown_Maximal_Percent", "Balance_Drawdown_Relative_Percent", "Balance_Drawdown_Relative_Amount", "Total_Trades", "Short_Trades", "Short_Trades_won_Percent", "Long_Trades", "Long_Trades_won_Percent", "Profit_Trades", "Profit_Trades_Percent_of_total", "Loss_Trades", "Loss_Trades_Percent_of_total", "Largest_profit_trade", "Largest_loss_trade", "Average_profit_trade", "Average_loss_trade", "Maximum_consecutive_wins_Count", "Maximum_consecutive_wins_Profit", "Maximal_consecutive_profit_Amount", "Maximal_consecutive_profit_Count", "Maximum_consecutive_losses_Count", "Maximum_consecutive_losses_Profit", "Maximal_consecutive_loss_Amount", "Maximal_consecutive_loss_Count", "Average_consecutive_wins", "Average_consecutive_losses"]
         current_headers_ws = []
         if ws.row_count > 0:
             try: current_headers_ws = ws.row_values(1)
             except Exception: pass
-        if not current_headers_ws or all(h == "" for h in current_headers_ws) or set(current_headers_ws) != set(expected_headers):
-            ws.update([expected_headers], value_input_option='USER_ENTERED')
-        
-        new_summary_row_data = {h: None for h in expected_headers}
-        new_summary_row_data.update({
-            "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "PortfolioID": str(portfolio_id), 
-            "PortfolioName": str(portfolio_name), "SourceFile": str(source_file_name), 
-            "ImportBatchID": str(import_batch_id) 
-        })
+        if not current_headers_ws or all(h == "" for h in current_headers_ws) or set(current_headers_ws) != set(expected_headers): ws.update([expected_headers], value_input_option='USER_ENTERED')
+        new_summary_row_data = {h: None for h in expected_headers}; new_summary_row_data.update({"Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "PortfolioID": str(portfolio_id), "PortfolioName": str(portfolio_name), "SourceFile": str(source_file_name), "ImportBatchID": str(import_batch_id)})
         balance_key_map = {"balance":"Balance", "equity":"Equity", "free_margin":"Free_Margin", "margin":"Margin", "floating_p_l":"Floating_P_L", "margin_level":"Margin_Level", "credit_facility": "Credit_Facility"}
         if isinstance(balance_summary_data, dict):
             for k_extract, k_gsheet in balance_key_map.items():
                 if k_extract in balance_summary_data: new_summary_row_data[k_gsheet] = balance_summary_data[k_extract]
         if isinstance(results_summary_data, dict):
-            for k_gsheet_expected in expected_headers: # Iterate through all expected GSheet keys
-                if k_gsheet_expected in results_summary_data: # If the key exists in extracted results_summary_data
-                    new_summary_row_data[k_gsheet_expected] = results_summary_data[k_gsheet_expected]
-        
-        # Deduplication logic for summary (simplified from File2 for brevity, use File2's fingerprint if more robust needed)
-        comparison_keys_summary = ["Balance", "Equity", "Total_Net_Profit", "Total_Trades", "ImportBatchID"] # Using ImportBatchID for uniqueness
+            for k_gsheet_expected in expected_headers:
+                if k_gsheet_expected in results_summary_data: new_summary_row_data[k_gsheet_expected] = results_summary_data[k_gsheet_expected]
+        comparison_keys_summary = ["Balance", "Equity", "Total_Net_Profit", "Total_Trades", "ImportBatchID"]
         new_summary_fingerprint_values = []
         for k_comp_sum in comparison_keys_summary:
             val_sum = new_summary_row_data.get(k_comp_sum)
             try: new_summary_fingerprint_values.append(f"{float(val_sum):.2f}" if pd.notna(val_sum) and isinstance(val_sum, (float, int)) else str(val_sum).strip())
             except (ValueError, TypeError): new_summary_fingerprint_values.append(str(val_sum).strip() if pd.notna(val_sum) else "None")
         new_summary_fingerprint = tuple(new_summary_fingerprint_values)
-
         if ws.row_count > 1:
             try:
-                existing_summaries_records = ws.get_all_records(expected_headers=expected_headers, numericise_ignore=['all'])
-                df_existing_summaries = pd.DataFrame(existing_summaries_records)
+                existing_summaries_records = ws.get_all_records(expected_headers=expected_headers, numericise_ignore=['all']); df_existing_summaries = pd.DataFrame(existing_summaries_records)
                 if not df_existing_summaries.empty and 'PortfolioID' in df_existing_summaries.columns:
                     df_portfolio_summaries = df_existing_summaries[df_existing_summaries['PortfolioID'].astype(str) == str(portfolio_id)]
                     for _, existing_row_sum in df_portfolio_summaries.iterrows():
@@ -2232,71 +2004,78 @@ def save_results_summary_to_gsheets_sec6(ws, balance_summary_data, results_summa
                             val_exist = existing_row_sum.get(k_comp_sum_exist)
                             try: existing_summary_comparable_values.append(f"{float(val_exist):.2f}" if pd.notna(val_exist) and isinstance(val_exist, (float,int)) else str(val_exist).strip())
                             except (ValueError, TypeError): existing_summary_comparable_values.append(str(val_exist).strip() if pd.notna(val_exist) else "None")
-                        if tuple(existing_summary_comparable_values) == new_summary_fingerprint:
-                            return True, "skipped_duplicate_content" # Found a duplicate summary based on fingerprint
-            except Exception as e_get_sum_records_dedup:
-                 print(f"Warning (Summary Deduplication): Could not get existing summaries for deduplication: {e_get_sum_records_dedup}")
-
-
-        final_row_values = [str(new_summary_row_data.get(h, "")).strip() for h in expected_headers]
-        ws.append_rows([final_row_values], value_input_option='USER_ENTERED')
+                        if tuple(existing_summary_comparable_values) == new_summary_fingerprint: return True, "skipped_duplicate_content"
+            except Exception as e_get_sum_records_dedup: print(f"Warning (Summary Deduplication): Could not get existing summaries for deduplication: {e_get_sum_records_dedup}")
+        final_row_values = [str(new_summary_row_data.get(h, "")).strip() for h in expected_headers]; ws.append_rows([final_row_values], value_input_option='USER_ENTERED')
         return True, "saved_new"
-    except Exception as e_save_summary: 
-        print(f"Error saving results summary to GSheet: {e_save_summary}")
-        return False, f"Exception during save: {e_save_summary}"
+    except Exception as e_save_summary: print(f"Error saving results summary to GSheet: {e_save_summary}"); return False, f"Exception during save: {e_save_summary}"
 # --- END: Helper Functions for SEC 6 ---
 
-st.markdown("---")
-st.subheader("📤 อัปโหลด Statement Report (CSV) เพื่อประมวลผลและบันทึก")
+st.markdown("---") #
+st.subheader("📤 อัปโหลด Statement Report (CSV) เพื่อประมวลผลและบันทึก") #
 
-if 'uploader_key_version' not in st.session_state:
-    st.session_state.uploader_key_version = 0
+if 'uploader_key_version' not in st.session_state: # Should be in SEC 0, but defensive check
+    st.session_state.uploader_key_version = 0 #
 
 uploaded_file_statement = st.file_uploader(
     "ลากและวางไฟล์ Statement Report (CSV) ที่นี่ หรือคลิกเพื่อเลือกไฟล์",
-    type=["csv"],
-    key=f"ultimate_stmt_uploader_v2_{st.session_state.uploader_key_version}" # Key from mainV2.0.0.py
+    type=["csv"], #
+    key=f"ultimate_stmt_uploader_v2_{st.session_state.uploader_key_version}" # Use a distinct key
 )
 
 st.checkbox("⚙️ เปิดโหมด Debug (แสดงข้อมูลที่แยกได้ + Log การทำงานบางส่วนใน Console)", 
-            value=st.session_state.get("debug_statement_processing_v2", False),
-            key="debug_statement_processing_v2")
+            value=st.session_state.get("debug_statement_processing_v2", False), # Persist debug mode choice
+            key="debug_statement_processing_v2") #
 
-active_portfolio_id_for_stmt_import = st.session_state.get('active_portfolio_id_gs', None)
-active_portfolio_name_for_stmt_import = st.session_state.get('active_portfolio_name_gs', None)
+active_portfolio_id_for_stmt_import = st.session_state.get('active_portfolio_id_gs', None) #
+active_portfolio_name_for_stmt_import = st.session_state.get('active_portfolio_name_gs', None) #
 
-if uploaded_file_statement is not None:
-    file_name_stmt = uploaded_file_statement.name
-    file_size_stmt = uploaded_file_statement.size
+# Flag to ensure processing logic for a single upload runs only once per script execution cycle
+_UPLOAD_PROCESSED_IN_THIS_CYCLE = "_upload_processed_in_this_cycle_v2" 
+if _UPLOAD_PROCESSED_IN_THIS_CYCLE not in st.session_state:
+    st.session_state[_UPLOAD_PROCESSED_IN_THIS_CYCLE] = False
+
+if uploaded_file_statement is not None and not st.session_state[_UPLOAD_PROCESSED_IN_THIS_CYCLE]:
+    st.session_state[_UPLOAD_PROCESSED_IN_THIS_CYCLE] = True # Mark as processing for this cycle
+    
+    file_name_stmt = uploaded_file_statement.name #
+    file_size_stmt = uploaded_file_statement.size #
     
     file_hash_stmt = ""
     try:
-        uploaded_file_statement.seek(0)
-        file_content_for_hash_stmt = uploaded_file_statement.read()
-        uploaded_file_statement.seek(0)
-        file_hash_stmt = hashlib.md5(file_content_for_hash_stmt).hexdigest()
+        uploaded_file_statement.seek(0) #
+        file_content_for_hash_stmt = uploaded_file_statement.read() #
+        uploaded_file_statement.seek(0) #
+        file_hash_stmt = hashlib.md5(file_content_for_hash_stmt).hexdigest() #
     except Exception as e_hash_stmt:
-        file_hash_stmt = f"hash_error_{random.randint(1000,9999)}"
-        print(f"Warning: Could not compute MD5 hash for file: {e_hash_stmt}")
+        file_hash_stmt = f"hash_error_{random.randint(1000,9999)}" #
+        print(f"Warning: Could not compute MD5 hash for file: {e_hash_stmt}") #
+
+    # This flag will determine if a st.rerun() is needed at the very end of this block
+    # It's true by default to ensure the uploader is reset.
+    # It can be set to False only if we are absolutely sure no rerun is needed (very rare).
+    _trigger_rerun_after_upload_handling = True 
+    _equity_updated_successfully_this_cycle = False
 
     if not active_portfolio_id_for_stmt_import:
-        st.error("กรุณาเลือกพอร์ตที่ใช้งาน (Active Portfolio) ใน Sidebar ก่อนประมวลผล Statement.")
-        # No st.stop() here, let key increment and rerun handle reset if user uploads without portfolio
+        st.error("กรุณาเลือกพอร์ตที่ใช้งาน (Active Portfolio) ใน Sidebar ก่อนประมวลผล Statement.") #
+        # No st.stop(), proceed to uploader reset logic at the end
     else:
-        st.info(f"ไฟล์ที่อัปโหลด: {file_name_stmt} (ขนาด: {file_size_stmt} bytes, Hash: {file_hash_stmt})")
+        st.info(f"ไฟล์ที่อัปโหลด: {file_name_stmt} (ขนาด: {file_size_stmt} bytes, Hash: {file_hash_stmt})") #
         
-        gc_stmt = get_gspread_client()
+        gc_stmt = get_gspread_client() #
         if not gc_stmt:
-            st.error("ไม่สามารถเชื่อมต่อ Google Sheets Client ได้")
-            # No st.stop() here, key increment will handle uploader reset.
+            st.error("ไม่สามารถเชื่อมต่อ Google Sheets Client ได้") #
+            # No st.stop()
         else:
-            ws_stmt_dict = {}
+            ws_stmt_dict = {} #
+            # Ensure worksheet constants from SEC 0 are used here
             worksheet_definitions_stmt = {
-                WORKSHEET_UPLOAD_HISTORY: {"rows": "1000", "cols": "10", "headers": ["UploadTimestamp", "PortfolioID", "PortfolioName", "FileName", "FileSize", "FileHash", "Status", "ImportBatchID", "Notes"]},
-                WORKSHEET_ACTUAL_TRADES: {"rows": "2000", "cols": "18", "headers": ["Time_Deal", "Deal_ID", "Symbol_Deal", "Type_Deal", "Direction_Deal", "Volume_Deal", "Price_Deal", "Order_ID_Deal", "Commission_Deal", "Fee_Deal", "Swap_Deal", "Profit_Deal", "Balance_Deal", "Comment_Deal", "PortfolioID", "PortfolioName", "SourceFile", "ImportBatchID"]},
-                WORKSHEET_ACTUAL_ORDERS: {"rows": "1000", "cols": "16", "headers": ["Open_Time_Ord", "Order_ID_Ord", "Symbol_Ord", "Type_Ord", "Volume_Ord", "Price_Ord", "S_L_Ord", "T_P_Ord", "Close_Time_Ord", "State_Ord", "Filler_Ord", "Comment_Ord", "PortfolioID", "PortfolioName", "SourceFile", "ImportBatchID"]},
-                WORKSHEET_ACTUAL_POSITIONS: {"rows": "1000", "cols": "17", "headers": ["Time_Pos", "Position_ID", "Symbol_Pos", "Type_Pos", "Volume_Pos", "Price_Open_Pos", "S_L_Pos", "T_P_Pos", "Time_Close_Pos", "Price_Close_Pos", "Commission_Pos", "Swap_Pos", "Profit_Pos", "PortfolioID", "PortfolioName", "SourceFile", "ImportBatchID"]},
-                WORKSHEET_STATEMENT_SUMMARIES: {"rows": "1000", "cols": "46", "headers": [
+                WORKSHEET_UPLOAD_HISTORY: {"rows": "1000", "cols": "10", "headers": ["UploadTimestamp", "PortfolioID", "PortfolioName", "FileName", "FileSize", "FileHash", "Status", "ImportBatchID", "Notes"]}, #
+                WORKSHEET_ACTUAL_TRADES: {"rows": "2000", "cols": "18", "headers": ["Time_Deal", "Deal_ID", "Symbol_Deal", "Type_Deal", "Direction_Deal", "Volume_Deal", "Price_Deal", "Order_ID_Deal", "Commission_Deal", "Fee_Deal", "Swap_Deal", "Profit_Deal", "Balance_Deal", "Comment_Deal", "PortfolioID", "PortfolioName", "SourceFile", "ImportBatchID"]}, #
+                WORKSHEET_ACTUAL_ORDERS: {"rows": "1000", "cols": "16", "headers": ["Open_Time_Ord", "Order_ID_Ord", "Symbol_Ord", "Type_Ord", "Volume_Ord", "Price_Ord", "S_L_Ord", "T_P_Ord", "Close_Time_Ord", "State_Ord", "Filler_Ord", "Comment_Ord", "PortfolioID", "PortfolioName", "SourceFile", "ImportBatchID"]}, #
+                WORKSHEET_ACTUAL_POSITIONS: {"rows": "1000", "cols": "17", "headers": ["Time_Pos", "Position_ID", "Symbol_Pos", "Type_Pos", "Volume_Pos", "Price_Open_Pos", "S_L_Pos", "T_P_Pos", "Time_Close_Pos", "Price_Close_Pos", "Commission_Pos", "Swap_Pos", "Profit_Pos", "PortfolioID", "PortfolioName", "SourceFile", "ImportBatchID"]}, #
+                WORKSHEET_STATEMENT_SUMMARIES: {"rows": "1000", "cols": "46", "headers": [ # Ensure full headers list
                     "Timestamp", "PortfolioID", "PortfolioName", "SourceFile", "ImportBatchID", "Balance", "Equity", 
                     "Free_Margin", "Margin", "Floating_P_L", "Margin_Level", "Credit_Facility", "Total_Net_Profit", 
                     "Gross_Profit", "Gross_Loss", "Profit_Factor", "Expected_Payoff", "Recovery_Factor", "Sharpe_Ratio", 
@@ -2312,209 +2091,226 @@ if uploaded_file_statement is not None:
                     "Average_consecutive_wins", "Average_consecutive_losses"
                 ]}
             }
-            sheets_ok_stmt = True
-            sh_log_stmt = None
+            sheets_ok_stmt = True #
+            sh_log_stmt = None #
             try:
-                sh_log_stmt = gc_stmt.open(GOOGLE_SHEET_NAME)
+                sh_log_stmt = gc_stmt.open(GOOGLE_SHEET_NAME) #
                 for ws_name, specs in worksheet_definitions_stmt.items():
                     try:
-                        ws_stmt_dict[ws_name] = sh_log_stmt.worksheet(ws_name)
+                        ws_stmt_dict[ws_name] = sh_log_stmt.worksheet(ws_name) #
+                        # Header check and update logic (as in File2)
                         current_ws_headers = []
                         if ws_stmt_dict[ws_name].row_count > 0:
-                            try: current_ws_headers = ws_stmt_dict[ws_name].row_values(1)
+                            try: current_ws_headers = ws_stmt_dict[ws_name].row_values(1) #
                             except Exception: pass
                         if not current_ws_headers or all(h=="" for h in current_ws_headers) or set(current_ws_headers) != set(specs["headers"]):
                             if "headers" in specs:
-                                ws_stmt_dict[ws_name].update([specs["headers"]], value_input_option='USER_ENTERED')
+                                ws_stmt_dict[ws_name].update([specs["headers"]], value_input_option='USER_ENTERED') #
+                                print(f"Info: Headers updated/written for worksheet '{ws_name}'.") #
                     except gspread.exceptions.WorksheetNotFound:
+                        print(f"Info: Worksheet '{ws_name}' not found. Creating it now...") #
                         try:
-                            new_ws_stmt = sh_log_stmt.add_worksheet(title=ws_name, rows=specs.get("rows", "1000"), cols=specs.get("cols", "26"))
-                            ws_stmt_dict[ws_name] = new_ws_stmt
-                            if "headers" in specs: new_ws_stmt.update([specs["headers"]], value_input_option='USER_ENTERED')
-                        except Exception as e_add_ws_stmt: sheets_ok_stmt = False; st.error(f"❌ Failed to create worksheet '{ws_name}': {e_add_ws_stmt}"); break
-                    except Exception as e_open_ws_stmt: sheets_ok_stmt = False; st.error(f"❌ Error accessing worksheet '{ws_name}': {e_open_ws_stmt}"); break
-                if not sheets_ok_stmt: gc_stmt = None # Prevent further GSheet operations if setup failed
-            except Exception as e_setup_stmt: sheets_ok_stmt = False; gc_stmt = None; st.error(f"❌ Error accessing Spreadsheet: {e_setup_stmt}")
-
+                            new_ws_stmt = sh_log_stmt.add_worksheet(title=ws_name, rows=specs.get("rows", "1000"), cols=specs.get("cols", "26")) # Adjust cols if needed
+                            ws_stmt_dict[ws_name] = new_ws_stmt #
+                            if "headers" in specs:
+                                new_ws_stmt.update([specs["headers"]], value_input_option='USER_ENTERED') #
+                        except Exception as e_add_ws_stmt:
+                            st.error(f"❌ Failed to create worksheet '{ws_name}': {e_add_ws_stmt}") #
+                            sheets_ok_stmt = False; break #
+                    except Exception as e_open_ws_stmt:
+                        st.error(f"❌ Error accessing worksheet '{ws_name}': {e_open_ws_stmt}") #
+                        sheets_ok_stmt = False; break #
+                if not sheets_ok_stmt: gc_stmt = None # Prevent further GSheet operations
+            except gspread.exceptions.APIError as e_api_stmt_main:
+                st.error(f"❌ Google Sheets API Error (Opening Spreadsheet): {e_api_stmt_main.args[0] if e_api_stmt_main.args else 'Unknown API error'}.") #
+                gc_stmt = None #
+            except Exception as e_setup_stmt:
+                st.error(f"❌ เกิดข้อผิดพลาดในการเข้าถึง Spreadsheet: {type(e_setup_stmt).__name__} - {str(e_setup_stmt)[:200]}...") #
+                gc_stmt = None #
+            
             if sheets_ok_stmt and gc_stmt: # Proceed only if GSheet setup was okay
-                previously_processed_successfully = False
+                previously_processed_successfully = False #
                 try:
-                    if WORKSHEET_UPLOAD_HISTORY in ws_stmt_dict and ws_stmt_dict[WORKSHEET_UPLOAD_HISTORY].row_count > 1:
-                        history_records_stmt = ws_stmt_dict[WORKSHEET_UPLOAD_HISTORY].get_all_records(numericise_ignore=['all'])
+                    if WORKSHEET_UPLOAD_HISTORY in ws_stmt_dict and ws_stmt_dict[WORKSHEET_UPLOAD_HISTORY].row_count > 1: #
+                        history_records_stmt = ws_stmt_dict[WORKSHEET_UPLOAD_HISTORY].get_all_records(numericise_ignore=['all']) #
                         for record_stmt in history_records_stmt:
-                            try: record_file_size_stmt_val = int(float(str(record_stmt.get("FileSize","0")).replace(",","")))
+                            try: record_file_size_stmt_val = int(float(str(record_stmt.get("FileSize","0")).replace(",",""))) #
                             except: record_file_size_stmt_val = 0
+                            
                             if str(record_stmt.get("PortfolioID","")) == str(active_portfolio_id_for_stmt_import) and \
                                record_stmt.get("FileName","") == file_name_stmt and \
                                record_file_size_stmt_val == file_size_stmt and \
                                record_stmt.get("FileHash","") == file_hash_stmt and \
-                               str(record_stmt.get("Status","")).startswith("Success"):
-                                previously_processed_successfully = True; break
-                except Exception as e_hist_read_stmt: print(f"Warning: Could not read UploadHistory: {e_hist_read_stmt}")
+                               str(record_stmt.get("Status","")).startswith("Success"): #
+                                previously_processed_successfully = True #
+                                break
+                except Exception as e_hist_read_stmt:
+                    print(f"Warning: Could not read UploadHistory for duplicate file check: {e_hist_read_stmt}") #
 
                 if previously_processed_successfully:
-                    st.warning(f"⚠️ ไฟล์ '{file_name_stmt}' นี้ เคยถูกประมวลผลสำเร็จสำหรับพอร์ต '{active_portfolio_name_for_stmt_import}' ไปแล้ว จะไม่ดำเนินการใดๆ ซ้ำอีก")
-                    # MODIFICATION: Increment key and rerun to clear uploader even for successful duplicate
-                    st.session_state.uploader_key_version += 1
-                    st.rerun() 
+                    st.warning(f"⚠️ ไฟล์ '{file_name_stmt}' นี้ เคยถูกประมวลผลสำเร็จสำหรับพอร์ต '{active_portfolio_name_for_stmt_import}' ไปแล้ว จะไม่ดำเนินการใดๆ ซ้ำอีก") #
+                    # Rerun is handled by the logic at the end.
                 else:
-                    import_batch_id_stmt = str(uuid.uuid4())
-                    upload_timestamp_stmt = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    initial_log_ok_stmt = False
+                    import_batch_id_stmt = str(uuid.uuid4()) #
+                    upload_timestamp_stmt = datetime.now().strftime("%Y-%m-%d %H:%M:%S") #
+                    initial_log_ok_stmt = False #
                     try:
-                        ws_stmt_dict[WORKSHEET_UPLOAD_HISTORY].append_row([
-                            upload_timestamp_stmt, str(active_portfolio_id_for_stmt_import), str(active_portfolio_name_for_stmt_import),
-                            file_name_stmt, file_size_stmt, file_hash_stmt,
-                            "Processing", import_batch_id_stmt, "Attempting to process."
+                        ws_stmt_dict[WORKSHEET_UPLOAD_HISTORY].append_row([ #
+                            upload_timestamp_stmt, str(active_portfolio_id_for_stmt_import), str(active_portfolio_name_for_stmt_import), #
+                            file_name_stmt, file_size_stmt, file_hash_stmt, #
+                            "Processing", import_batch_id_stmt, "Attempting to process." #
                         ])
-                        initial_log_ok_stmt = True
-                    except Exception as e_log_init_stmt: st.error(f"ไม่สามารถบันทึก Log เริ่มต้น: {e_log_init_stmt}")
+                        initial_log_ok_stmt = True #
+                    except Exception as e_log_init_stmt:
+                        st.error(f"ไม่สามารถบันทึก Log เริ่มต้นใน {WORKSHEET_UPLOAD_HISTORY}: {e_log_init_stmt}") #
 
                     if initial_log_ok_stmt:
-                        st.markdown(f"--- \n**Import Batch ID: `{import_batch_id_stmt}`**")
-                        st.info(f"กำลังประมวลผลไฟล์: {file_name_stmt}")
-                        processing_errors_stmt = False
-                        final_status_stmt = "Failed_Unknown"
-                        processing_notes_stmt = []
-                        rerun_for_balance_update_needed = False # Flag
+                        st.markdown(f"--- \n**Import Batch ID: `{import_batch_id_stmt}`**") #
+                        st.info(f"กำลังประมวลผลไฟล์: {file_name_stmt}") #
+
+                        processing_errors_stmt = False #
+                        final_status_stmt = "Failed_Unknown" #
+                        processing_notes_stmt = [] #
 
                         try:
-                            uploaded_file_statement.seek(0)
-                            file_content_bytes_stmt = uploaded_file_statement.getvalue() 
-                            with st.spinner(f"กำลังแยกส่วนข้อมูลจาก {file_name_stmt}..."):
-                                extracted_stmt_data = extract_data_from_report_content_sec6(file_content_bytes_stmt) 
+                            uploaded_file_statement.seek(0) # Ensure pointer is at the beginning
+                            file_content_bytes_stmt = uploaded_file_statement.getvalue()  #
                             
-                            if st.session_state.get("debug_statement_processing_v2", False):
-                                st.write("--- DEBUG: Extracted Statement Data ---")
-                                st.json({k: (v.to_dict() if isinstance(v, pd.DataFrame) else v) for k, v in extracted_stmt_data.items()}, expanded=False)
-                                st.write("--- END DEBUG ---")
+                            with st.spinner(f"กำลังแยกส่วนข้อมูลจาก {file_name_stmt}..."): #
+                                extracted_stmt_data = extract_data_from_report_content_sec6(file_content_bytes_stmt)  #
+
+                            if st.session_state.get("debug_statement_processing_v2", False): #
+                                st.write("--- DEBUG: Extracted Statement Data ---") #
+                                st.json({k: (v.to_dict() if isinstance(v, pd.DataFrame) else v) for k, v in extracted_stmt_data.items()}, expanded=False) #
+                                st.write("--- END DEBUG ---") #
 
                             extraction_successful = extracted_stmt_data and \
                                                     (any(isinstance(df, pd.DataFrame) and not df.empty \
                                                          for name, df in extracted_stmt_data.items() if name in ['deals', 'orders', 'positions']) or \
-                                                     extracted_stmt_data.get('balance_summary') or extracted_stmt_data.get('results_summary'))
+                                                     extracted_stmt_data.get('balance_summary') or extracted_stmt_data.get('results_summary')) #
                             
                             if not extraction_successful:
-                                st.warning("ไม่สามารถแยกข้อมูลจากไฟล์ได้ หรือไฟล์ไม่มีข้อมูล Transactional/Summary.")
-                                final_status_stmt = "Failed_Extraction"; processing_notes_stmt.append("Failed to extract data."); processing_errors_stmt = True
+                                st.warning("ไม่สามารถแยกข้อมูลที่มีความหมายจากไฟล์ได้ หรือไฟล์ไม่มีข้อมูล Transactional/Summary.") #
+                                final_status_stmt = "Failed_Extraction" #
+                                processing_notes_stmt.append("Failed to extract meaningful data.") #
+                                processing_errors_stmt = True #
                             
                             if not processing_errors_stmt:
-                                st.subheader("💾 กำลังบันทึกข้อมูลส่วนต่างๆไปยัง Google Sheets...")
-                                deals_data = extracted_stmt_data.get('deals', pd.DataFrame())
-                                ok_d,new_d,skip_d = save_deals_to_actual_trades_sec6(ws_stmt_dict.get(WORKSHEET_ACTUAL_TRADES), deals_data, active_portfolio_id_for_stmt_import, active_portfolio_name_for_stmt_import, file_name_stmt, import_batch_id_stmt)
-                                processing_notes_stmt.append(f"Deals:New={new_d},Skip={skip_d},OK={ok_d}"); 
-                                if ok_d: st.write(f"✔️ Deals: เพิ่ม {new_d}, ข้าม {skip_d}.")
-                                else: st.error(f"❌ Deals: ล้มเหลว"); processing_errors_stmt = True
-
-                                orders_data = extracted_stmt_data.get('orders', pd.DataFrame())
-                                ok_o,new_o,skip_o = save_orders_to_gsheets_sec6(ws_stmt_dict.get(WORKSHEET_ACTUAL_ORDERS), orders_data, active_portfolio_id_for_stmt_import, active_portfolio_name_for_stmt_import, file_name_stmt, import_batch_id_stmt)
-                                processing_notes_stmt.append(f"Orders:New={new_o},Skip={skip_o},OK={ok_o}")
-                                if ok_o: st.write(f"✔️ Orders: เพิ่ม {new_o}, ข้าม {skip_o}.")
-                                else: st.error(f"❌ Orders: ล้มเหลว"); processing_errors_stmt = True
+                                st.subheader("💾 กำลังบันทึกข้อมูลส่วนต่างๆไปยัง Google Sheets...") #
                                 
-                                positions_data = extracted_stmt_data.get('positions', pd.DataFrame())
-                                ok_p,new_p,skip_p = save_positions_to_gsheets_sec6(ws_stmt_dict.get(WORKSHEET_ACTUAL_POSITIONS), positions_data, active_portfolio_id_for_stmt_import, active_portfolio_name_for_stmt_import, file_name_stmt, import_batch_id_stmt)
-                                processing_notes_stmt.append(f"Positions:New={new_p},Skip={skip_p},OK={ok_p}")
-                                if ok_p: st.write(f"✔️ Positions: เพิ่ม {new_p}, ข้าม {skip_p}.")
-                                else: st.error(f"❌ Positions: ล้มเหลว"); processing_errors_stmt = True
+                                deals_data = extracted_stmt_data.get('deals', pd.DataFrame()) #
+                                ok_d_stmt, new_d_stmt, skip_d_stmt = save_deals_to_actual_trades_sec6(ws_stmt_dict.get(WORKSHEET_ACTUAL_TRADES), deals_data, active_portfolio_id_for_stmt_import, active_portfolio_name_for_stmt_import, file_name_stmt, import_batch_id_stmt) #
+                                processing_notes_stmt.append(f"Deals:New={new_d_stmt},Skip={skip_d_stmt},OK={ok_d_stmt}") #
+                                if ok_d_stmt: st.write(f"✔️ ({WORKSHEET_ACTUAL_TRADES}) Deals: เพิ่ม {new_d_stmt}, ข้าม {skip_d_stmt}.") #
+                                else: st.error(f"❌ ({WORKSHEET_ACTUAL_TRADES}) Deals: ล้มเหลว"); processing_errors_stmt = True #
 
-                                bal_summary_data = extracted_stmt_data.get('balance_summary', {})
-                                res_summary_data = extracted_stmt_data.get('results_summary', {})
-                                summary_ok_stmt, summary_note_stmt = False, "no_data_to_save"
-                                if bal_summary_data or res_summary_data:
-                                    summary_ok_stmt, summary_note_stmt = save_results_summary_to_gsheets_sec6(ws_stmt_dict.get(WORKSHEET_STATEMENT_SUMMARIES), bal_summary_data, res_summary_data, active_portfolio_id_for_stmt_import, active_portfolio_name_for_stmt_import, file_name_stmt, import_batch_id_stmt)
-                                processing_notes_stmt.append(f"Summary:Status={summary_note_stmt},OK={summary_ok_stmt}")
-                                if summary_note_stmt == "saved_new": st.write(f"✔️ Summary: บันทึกใหม่")
-                                elif summary_note_stmt == "skipped_duplicate_content": st.info(f"Summary: ข้อมูลซ้ำ, ไม่บันทึกเพิ่ม")
-                                elif summary_note_stmt != "no_data_to_save": st.error(f"❌ Summary: ล้มเหลว ({summary_note_stmt})"); processing_errors_stmt = True
+                                orders_data = extracted_stmt_data.get('orders', pd.DataFrame()) #
+                                ok_o_stmt, new_o_stmt, skip_o_stmt = save_orders_to_gsheets_sec6(ws_stmt_dict.get(WORKSHEET_ACTUAL_ORDERS), orders_data, active_portfolio_id_for_stmt_import, active_portfolio_name_for_stmt_import, file_name_stmt, import_batch_id_stmt) #
+                                processing_notes_stmt.append(f"Orders:New={new_o_stmt},Skip={skip_o_stmt},OK={ok_o_stmt}") #
+                                if ok_o_stmt: st.write(f"✔️ ({WORKSHEET_ACTUAL_ORDERS}) Orders: เพิ่ม {new_o_stmt}, ข้าม {skip_o_stmt}.") #
+                                else: st.error(f"❌ ({WORKSHEET_ACTUAL_ORDERS}) Orders: ล้มเหลว"); processing_errors_stmt = True #
                                 
-                                if 'equity' in bal_summary_data and bal_summary_data['equity'] is not None:
+                                positions_data = extracted_stmt_data.get('positions', pd.DataFrame()) #
+                                ok_p_stmt, new_p_stmt, skip_p_stmt = save_positions_to_gsheets_sec6(ws_stmt_dict.get(WORKSHEET_ACTUAL_POSITIONS), positions_data, active_portfolio_id_for_stmt_import, active_portfolio_name_for_stmt_import, file_name_stmt, import_batch_id_stmt) #
+                                processing_notes_stmt.append(f"Positions:New={new_p_stmt},Skip={skip_p_stmt},OK={ok_p_stmt}") #
+                                if ok_p_stmt: st.write(f"✔️ ({WORKSHEET_ACTUAL_POSITIONS}) Positions: เพิ่ม {new_p_stmt}, ข้าม {skip_p_stmt}.") #
+                                else: st.error(f"❌ ({WORKSHEET_ACTUAL_POSITIONS}) Positions: ล้มเหลว"); processing_errors_stmt = True #
+
+                                bal_summary_data = extracted_stmt_data.get('balance_summary', {}) #
+                                res_summary_data = extracted_stmt_data.get('results_summary', {}) #
+                                summary_ok_stmt, summary_note_stmt = False, "no_data_to_save" #
+
+                                if bal_summary_data or res_summary_data: # Only save if there's something to save
+                                    summary_ok_stmt, summary_note_stmt = save_results_summary_to_gsheets_sec6( #
+                                        ws_stmt_dict.get(WORKSHEET_STATEMENT_SUMMARIES), bal_summary_data, res_summary_data, #
+                                        active_portfolio_id_for_stmt_import, active_portfolio_name_for_stmt_import, #
+                                        file_name_stmt, import_batch_id_stmt #
+                                    )
+                                processing_notes_stmt.append(f"Summary:Status={summary_note_stmt},OK={summary_ok_stmt}") #
+                                if summary_note_stmt == "saved_new": st.write(f"✔️ ({WORKSHEET_STATEMENT_SUMMARIES}) Summary: บันทึกใหม่") #
+                                elif summary_note_stmt == "skipped_duplicate_content": st.info(f"({WORKSHEET_STATEMENT_SUMMARIES}) Summary: ข้อมูลซ้ำ, ไม่บันทึกเพิ่ม") #
+                                elif summary_note_stmt != "no_data_to_save": st.error(f"❌ ({WORKSHEET_STATEMENT_SUMMARIES}) Summary: ล้มเหลว ({summary_note_stmt})"); processing_errors_stmt = True #
+                                
+                                # ---- KEY UPDATE FOR BALANCE DISPLAY ----
+                                if not processing_errors_stmt and 'equity' in bal_summary_data and bal_summary_data['equity'] is not None: #
                                     try:
-                                        current_latest_equity = float(bal_summary_data['equity'])
-                                        st.session_state.latest_statement_equity = current_latest_equity
-                                        st.session_state.current_account_balance = current_latest_equity
-                                        st.success(f"✔️ อัปเดต Balance: {current_latest_equity:,.2f} USD")
-                                        processing_notes_stmt.append(f"Updated_Equity={current_latest_equity}")
-                                        if not processing_errors_stmt : rerun_for_balance_update_needed = True # Set flag if balance update was part of overall success
-                                    except ValueError: processing_notes_stmt.append("Warn:Equity_ConversionFail")
-                                else: processing_notes_stmt.append("Warn:Equity_NotFound")
+                                        current_latest_equity = float(bal_summary_data['equity']) #
+                                        st.session_state.latest_statement_equity = current_latest_equity #
+                                        st.session_state.current_account_balance = current_latest_equity # อัปเดต balance ที่ใช้คำนวณ
+                                        st.success(f"✔️ อัปเดต Balance สำหรับคำนวณจาก Statement Equity ล่าสุด: {current_latest_equity:,.2f} USD") #
+                                        processing_notes_stmt.append(f"Updated_Session_Equity={current_latest_equity}") #
+                                        _equity_updated_successfully_this_cycle = True # Mark that equity was updated
+                                        # Clear cache for statement summaries so SEC 1 can pick up new data
+                                        if hasattr(load_statement_summaries_from_gsheets, 'clear'):
+                                            load_statement_summaries_from_gsheets.clear()
+                                    except ValueError:
+                                        st.warning("⚠️ ไม่สามารถแปลงค่า Equity จาก Statement เป็นตัวเลขเพื่ออัปเดต session state.") #
+                                        processing_notes_stmt.append("Warning: Failed to convert Equity from Statement for session state.") #
+                                elif not processing_errors_stmt: # No processing errors, but equity not found or not valid
+                                    st.warning("⚠️ ไม่พบค่า 'Equity' ใน Statement ที่อัปโหลด หรือค่าไม่ถูกต้อง จะยังคงใช้ Balance ก่อนหน้า หรือ Initial Balance.") #
+                                    processing_notes_stmt.append("Warning: 'Equity' not found/valid in Statement for session update.") #
+                                # ---- END KEY UPDATE ----
                                 
-                                if not processing_errors_stmt: final_status_stmt = "Success"; st.balloons(); st.success(f"ประมวลผล '{file_name_stmt}' (Batch '{import_batch_id_stmt}') สำเร็จ!")
-                                else: final_status_stmt = "Failed_PartialSave"; st.error(f"ประมวลผล '{file_name_stmt}' (Batch '{import_batch_id_stmt}') มีบางส่วนล้มเหลว")
+                                if not processing_errors_stmt:
+                                    final_status_stmt = "Success" #
+                                    st.balloons() #
+                                    st.success(f"ประมวลผลและบันทึกข้อมูลจากไฟล์ '{file_name_stmt}' (Batch ID '{import_batch_id_stmt}') เสร็จสิ้นสมบูรณ์!") #
+                                else:
+                                    final_status_stmt = "Failed_PartialSave" #
+                                    st.error(f"การประมวลผลไฟล์ '{file_name_stmt}' (Batch ID '{import_batch_id_stmt}') มีบางส่วนล้มเหลว โปรดตรวจสอบข้อความและ Log") #
                         
-                        except UnicodeDecodeError as e_decode_stmt: final_status_stmt = "Failed_UnicodeDecode"; processing_notes_stmt.append(f"UnicodeErr:{e_decode_stmt}"); st.error(f"Decode ไฟล์ผิดพลาด: {e_decode_stmt}")
-                        except Exception as e_main_proc_stmt: final_status_stmt = f"Failed_MainProc_{type(e_main_proc_stmt).__name__}"; processing_notes_stmt.append(f"MainErr:{type(e_main_proc_stmt).__name__}"); st.error(f"ประมวลผลหลักผิดพลาด: {e_main_proc_stmt}")
+                        except UnicodeDecodeError as e_decode_stmt:
+                            st.error(f"เกิดข้อผิดพลาดในการ Decode ไฟล์: {e_decode_stmt}. กรุณาตรวจสอบ Encoding (ควรเป็น UTF-8).") #
+                            final_status_stmt = "Failed_UnicodeDecode"; processing_notes_stmt.append(f"UnicodeDecodeError: {e_decode_stmt}") #
+                        except Exception as e_main_proc_stmt:
+                            st.error(f"เกิดข้อผิดพลาดระหว่างประมวลผลหลัก: {type(e_main_proc_stmt).__name__} - {str(e_main_proc_stmt)[:200]}...") #
+                            final_status_stmt = f"Failed_MainProcessing_{type(e_main_proc_stmt).__name__}"; processing_notes_stmt.append(f"MainError: {type(e_main_proc_stmt).__name__}") #
 
-                        try: # Update UploadHistory
-                            hist_rows_update_stmt = ws_stmt_dict[WORKSHEET_UPLOAD_HISTORY].get_all_values()
-                            row_idx_to_update_stmt = None
+                        # Update UploadHistory with final status
+                        try:
+                            hist_rows_update_stmt = ws_stmt_dict[WORKSHEET_UPLOAD_HISTORY].get_all_values() #
+                            row_idx_to_update_stmt = None #
                             for r_idx, r_val in reversed(list(enumerate(hist_rows_update_stmt))):
-                                if len(r_val) > 7 and r_val[7] == import_batch_id_stmt: row_idx_to_update_stmt = r_idx + 1; break
+                                if len(r_val) > 7 and r_val[7] == import_batch_id_stmt: # Index 7 for ImportBatchID
+                                    row_idx_to_update_stmt = r_idx + 1; break #
                             if row_idx_to_update_stmt:
-                                notes_str_stmt = " | ".join(filter(None, processing_notes_stmt))[:49999]
-                                ws_stmt_dict[WORKSHEET_UPLOAD_HISTORY].batch_update([{'range': f'G{row_idx_to_update_stmt}', 'values': [[final_status_stmt]]}, {'range': f'I{row_idx_to_update_stmt}', 'values': [[notes_str_stmt]]}])
-                        except Exception as e_update_hist_final_stmt: print(f"Warn:UpdateUploadHistoryFail Batch {import_batch_id_stmt}: {e_update_hist_final_stmt}")
-                        
-                        # MODIFICATION: Key increment is now outside, and rerun is conditional
-                        # st.session_state.uploader_key_version += 1 # Moved down
-                        if rerun_for_balance_update_needed and final_status_stmt == "Success":
-                            st.session_state.uploader_key_version += 1 # Increment before successful rerun
-                            st.rerun()
-                        # else: # No immediate rerun for failures or non-balance-updating successes
-                        # The key will be incremented after this 'else' block for the "new/failed file" path
-                            
-    # MODIFICATION: Moved key increment and conditional rerun to be outside the "active_portfolio_id_for_stmt_import" and "gc_stmt" checks,
-    # ensuring it runs if uploaded_file_statement was not None, to reset the uploader.
-    if uploaded_file_statement is not None: # This check ensures key is incremented only if there was a file.
-        # If it was a successful duplicate, key was already incremented and rerun.
-        # If it was a new/failed file that successfully updated balance, key was incremented and rerun.
-        # For all other cases of new/failed file processing (errors, or success without balance update),
-        # or if portfolio/gc_client was missing, increment key now and let script end.
-        # The rerun_for_balance_update_needed flag helps to avoid double increment if already rerun.
-        
-        # Check if a rerun was already triggered for this upload cycle
-        # This logic is tricky; simpler to ensure key is always incremented ONCE per upload attempt.
-        # The previous logic for "previously_processed_successfully" and "rerun_for_balance_update_needed"
-        # already handles key increment and rerun for those specific paths.
-        # This final increment is for paths that didn't trigger those specific reruns.
-        
-        # To simplify: if we haven't rerun yet in this upload processing cycle
-        # (e.g. not a successful duplicate, not a balance-updating success)
-        # then increment the key.
-        # The state where `rerun_for_balance_update_needed` is true AND `final_status_stmt == "Success"`
-        # would have already incremented and rerun.
-        # The state where `previously_processed_successfully` is true would have already incremented and rerun.
-        
-        # If we reached here, means it's either:
-        # 1. No active portfolio selected initially -> error shown, uploader needs reset.
-        # 2. GSheet client failed -> error shown, uploader needs reset.
-        # 3. New/failed file processed, but did NOT update balance OR had errors -> uploader needs reset, no immediate rerun.
-        
-        # We need a flag to see if a key increment + rerun has ALREADY happened for this `uploaded_file_statement` instance.
-        # Let's assume if we are here, and no specific rerun happened, we just increment.
-        # The critical part is that if `uploaded_file_statement` is not None, `uploader_key_version` *must* be incremented
-        # before the script execution for this upload ends, unless a rerun already took it to a new state.
+                                notes_str_stmt = " | ".join(filter(None, processing_notes_stmt))[:49999] #
+                                ws_stmt_dict[WORKSHEET_UPLOAD_HISTORY].batch_update([ #
+                                    {'range': f'G{row_idx_to_update_stmt}', 'values': [[final_status_stmt]]}, #
+                                    {'range': f'I{row_idx_to_update_stmt}', 'values': [[notes_str_stmt]]} #
+                                ])
+                                print(f"Info: Updated UploadHistory for ImportBatchID '{import_batch_id_stmt}' to '{final_status_stmt}'.") #
+                        except Exception as e_update_hist_final_stmt:
+                            print(f"Warning: Could not update final status in {WORKSHEET_UPLOAD_HISTORY} for batch {import_batch_id_stmt}: {e_update_hist_final_stmt}") #
+            # else:
+                # This 'else' (for GSheet setup fail or no active portfolio) will also fall through to the uploader reset.
+                # Error messages would have been shown above.
 
-        # Re-evaluating the conditions for this final key increment:
-        # If it was a successful duplicate, it already did: key++, rerun.
-        # If it was a new file, went into the `else` of duplicate check:
-        #   - If balance updated and all success: key++, rerun.
-        #   - If other cases (error, or success without balance update): key should be incremented, but no rerun.
-        
-        # Let's assume 'rerun_for_balance_update_needed' correctly captures if a rerun was done for success.
-        # And 'previously_processed_successfully' path also handles its own rerun.
-        # So if neither of those happened, we ensure the key is incremented here.
-        
-        # A simpler approach to ensure one increment per upload cycle that gets this far:
-        # Use a session state flag that is set when the key is incremented within the "else" block.
-        # For now, the original file's structure has `st.session_state.uploader_key_version += 1`
-        # *inside* the processing block for new/failed files (moved in my suggestion for `mainV2.0.0.py`).
-        # Let's stick to the strategy: increment and *selectively* rerun.
-        
-        # If it was a new/failed file processing that ended up here without a specific rerun:
-        if not (previously_processed_successfully or (rerun_for_balance_update_needed and final_status_stmt == "Success")):
-             st.session_state.uploader_key_version += 1
-             # NO st.rerun() here. Let the script end. Uploader is reset for next interaction.
+    # This block executes after the `if uploaded_file_statement is not None:` block finishes,
+    # OR if `uploaded_file_statement` was None initially.
+    # The key is to reset the flag for the *next actual script run if a file is present again*.
+    if not uploaded_file_statement and st.session_state[_UPLOAD_PROCESSED_IN_THIS_CYCLE]:
+        st.session_state[_UPLOAD_PROCESSED_IN_THIS_CYCLE] = False
+
+
+    # Always increment key and rerun if a file was present and processed (or attempted) in this cycle.
+    # This ensures the file uploader widget is reset.
+    if uploaded_file_statement is not None and st.session_state[_UPLOAD_PROCESSED_IN_THIS_CYCLE]:
+        st.session_state.uploader_key_version += 1
+        # Only rerun if the flag dictates (e.g., successful equity update, or general reset desire)
+        # For the loop fix, a rerun is generally good to clear the uploader state.
+        # The _trigger_rerun_after_upload_handling can be fine-tuned if needed.
+        if _trigger_rerun_after_upload_handling:
+            st.rerun()
+        # If not rerunning, the uploader is still reset for the *next interaction* due to key change.
+
+elif st.session_state[_UPLOAD_PROCESSED_IN_THIS_CYCLE]:
+    # This case: no file is currently in uploaded_file_statement (it's None),
+    # but we *did* process one in the previous state of this *same script run* before a non-explicit rerun.
+    # This happens if we didn't call st.rerun() immediately after key increment.
+    # Reset the flag, so if the user uploads *another* file without a full page reload, it gets processed.
+    st.session_state[_UPLOAD_PROCESSED_IN_THIS_CYCLE] = False
+
 
 st.markdown("---") # End of statement processing expander
 
