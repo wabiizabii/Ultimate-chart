@@ -2442,6 +2442,9 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
                             final_status_for_history = "Success"
                             st.balloons()
                             st.success(f"ประมวลผลและบันทึกข้อมูลจากไฟล์ '{file_name_for_saving}' สำหรับ Batch ID '{import_batch_id}' เสร็จสิ้นสมบูรณ์!")
+                            # --- เพิ่มบรรทัดนี้ ---
+                            st.rerun() 
+                            # ---------------------
                         else:
                             final_status_for_history = "Failed_PartialSave"
                             st.error(f"การประมวลผลไฟล์ '{file_name_for_saving}' (Batch ID '{import_batch_id}') มีบางส่วนล้มเหลว โปรดตรวจสอบข้อความด้านบนและ Log")
