@@ -2149,7 +2149,7 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
                 balance_start_line_idx = i
                 break
         
-        if balance_start_line_idx != -1
+        if balance_start_line_idx != -1:
             # อ่านไป 8 บรรทัด หรือจนกว่าจะหมดไฟล์/เจอส่วน Results
             print(f"DEBUG Console: Balance summary section starts at line: {balance_start_line_idx}")
             print(f"DEBUG Console: Raw line from file (Balance): {lines[balance_start_line_idx].strip()}")
