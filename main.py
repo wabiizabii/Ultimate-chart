@@ -1760,7 +1760,7 @@ with st.expander("🤖 AI Assistant", expanded=True):
 with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=True):
     st.markdown("### 📊 จัดการ Statement และข้อมูลดิบ")
 
-    # --- ฟังก์ชันสำหรับแยกข้อมูลจากเนื้อหาไฟล์ Statement (CSV) ---
+   # --- ฟังก์ชันสำหรับแยกข้อมูลจากเนื้อหาไฟล์ Statement (CSV) ---
     def extract_data_from_report_content(file_content_str_input):
         extracted_data = {'deals': pd.DataFrame(), 'orders': pd.DataFrame(), 'positions': pd.DataFrame(), 'balance_summary': {}, 'results_summary': {}}
         
@@ -1769,17 +1769,28 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
             if isinstance(value_str, (int, float)): 
                 return value_str
             try:
-                clean_value = str(value_str).strip().replace(" ", "").replace(",", "").replace("%", "")
+                clean_value = str(value_str).strip()
                 
+                # Regex to find a number. It handles optional thousands commas,
+                # optional decimal points, and optional leading/trailing non-numeric chars
+                # This specifically looks for patterns like X,XXX.XX or XXX.XX etc.
+                # Prioritize numeric characters and a single decimal point.
+                # Remove spaces, commas (except for the last one if it's a decimal point), and % signs.
+                clean_value = clean_value.replace(" ", "").replace("%", "")
+                
+                # If there are multiple decimal points, assume the last one is the actual decimal separator
+                # e.g., "1,234.567.89" -> "1234567.89"
                 if clean_value.count('.') > 1:
                     parts = clean_value.split('.')
-                    integer_part = "".join(parts[:-1])
-                    decimal_part = parts[-1]          
-                    clean_value = integer_part + "." + decimal_part
+                    clean_value = "".join(parts[:-1]) + "." + parts[-1]
                 
+                # Now remove any remaining commas (thousands separators)
+                clean_value = clean_value.replace(",", "")
+
                 if not clean_value:
                     return None
                 
+                # Attempt to convert to float
                 return float(clean_value)
             except (ValueError, TypeError, AttributeError): 
                 return None
@@ -1897,58 +1908,50 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
         balance_summary_dict = {}
         balance_start_line_idx = -1
         for i, line in enumerate(lines):
-            if line.strip().startswith("Balance:"):
+            # ตรวจสอบบรรทัดที่ขึ้นต้นด้วย Balance: หรือ Equity: เพื่อเป็นจุดเริ่มต้น
+            if line.strip().lower().startswith("balance:") or line.strip().lower().startswith("equity:"):
                 balance_start_line_idx = i
                 break
         
         if balance_start_line_idx != -1:
-            for i in range(balance_start_line_idx, min(balance_start_line_idx + 8, len(lines))):
+            # เพิ่มช่วงการค้นหาให้ครอบคลุมบรรทัด summary ได้ดีขึ้น
+            for i in range(balance_start_line_idx, min(balance_start_line_idx + 15, len(lines))): # เพิ่มช่วงการค้นหา
                 line_stripped = lines[i].strip()
                 if not line_stripped : 
                     continue
-                if line_stripped.startswith(("Results", "Total Net Profit:")) and i > balance_start_line_idx: 
+                # หยุดเมื่อเจอส่วน Results หรือ Total Net Profit: (ซึ่งมักจะต่อจาก Balance/Equity)
+                if line_stripped.lower().startswith(("results", "total net profit:")) and i > balance_start_line_idx: 
                     break 
                 
-                # Modified logic for extracting Balance and Equity values from summary lines
-                # This handles lines like "Balance:,,,4 708.36,,,Free Margin:,,,4 708.36,,,,"
-                # or "Equity:,,,4 708.36,,,,,,,,,"
-                parts_raw = line_stripped.split(',')
-                # Try to find the numeric value after the label
-                
-                if line_stripped.lower().startswith("balance:"):
-                    # For "Balance:", the value is typically the 4th part (index 3) after splitting by comma, then cleaned
-                    if len(parts_raw) > 3:
-                        val_from_parts = safe_float_convert(parts_raw[3].strip())
-                        if val_from_parts is not None:
-                            balance_summary_dict['balance'] = val_from_parts
-                
-                if line_stripped.lower().startswith("equity:"):
-                    # For "Equity:", the value is also typically the 4th part (index 3) after splitting by comma, then cleaned
-                    if len(parts_raw) > 3:
-                        val_from_parts = safe_float_convert(parts_raw[3].strip())
-                        if val_from_parts is not None:
-                            balance_summary_dict['equity'] = val_from_parts
-                
-                # Generic key:value parsing (for other summary items like Free Margin, Margin etc.)
-                # This part is mostly for completeness of other summary fields, not the main Balance/Equity
-                parts = [p.strip() for p in parts_raw if p.strip()] 
-                temp_key = ""
-                for part_val in parts:
-                    if not part_val: continue
-                    if ':' in part_val:
-                        key_str, val_str = part_val.split(':', 1)
-                        key_clean = key_str.strip().replace(" ", "_").replace(".", "").replace("/","_").lower()
-                        val_strip = val_str.strip()
-                        if val_strip:
-                            if key_clean not in balance_summary_dict or balance_summary_dict[key_clean] is None: # Only update if not already set by specific logic above
-                                balance_summary_dict[key_clean] = safe_float_convert(val_strip.split(' ')[0])
-                            temp_key = ""
-                        else:
-                            temp_key = key_clean 
-                    elif temp_key:
-                        if temp_key not in balance_summary_dict or balance_summary_dict[temp_key] is None: # Only update if not already set by specific logic above
-                            balance_summary_dict[temp_key] = safe_float_convert(part_val.split(' ')[0])
-                        temp_key = ""
+                # --- การดึงค่า Balance และ Equity ที่ยืดหยุ่นขึ้น ---
+                # พยายามดึงค่าจาก pattern: Label: Value หรือ Label:,,,Value
+                # ใช้ regex เพื่อหาตัวเลขจากส่วนที่ 2 ของการ split ด้วย ':'
+                parts_colon_split = line_stripped.split(':', 1)
+                if len(parts_colon_split) > 1:
+                    label = parts_colon_split[0].strip().lower()
+                    value_part = parts_colon_split[1].strip()
+                    
+                    # ลองหาตัวเลขใน value_part โดยไม่ยึดติดกับ comma split index
+                    # ใช้ regex เพื่อดึงตัวเลข (รวมถึงเครื่องหมายลบ และจุดทศนิยม)
+                    numeric_match = re.search(r'[-+]?\d[\d,.]*', value_part)
+                    if numeric_match:
+                        numeric_str = numeric_match.group(0)
+                        val_from_regex = safe_float_convert(numeric_str)
+
+                        if label == "balance" and val_from_regex is not None:
+                            balance_summary_dict['balance'] = val_from_regex
+                        elif label == "equity" and val_from_regex is not None:
+                            balance_summary_dict['equity'] = val_from_regex
+                        elif label == "free margin" and val_from_regex is not None:
+                            balance_summary_dict['free_margin'] = val_from_regex
+                        elif label == "margin" and val_from_regex is not None:
+                            balance_summary_dict['margin'] = val_from_regex
+                        elif label == "floating p/l" and val_from_regex is not None:
+                            balance_summary_dict['floating_p_l'] = val_from_regex
+                        elif label == "margin level" and val_from_regex is not None:
+                            balance_summary_dict['margin_level'] = val_from_regex
+                        elif label == "credit facility" and val_from_regex is not None:
+                            balance_summary_dict['credit_facility'] = val_from_regex
 
         essential_balance_keys = ["balance", "credit_facility", "floating_p_l", "equity", "free_margin", "margin", "margin_level"]
         for k_b in essential_balance_keys:
@@ -1984,9 +1987,10 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
                     current_label = cell_content.replace(':', '').strip()
                     if current_label in stat_definitions_map:
                         gsheet_key = stat_definitions_map[current_label]
-                        for k_val_search in range(1, 5):
-                            if (c_idx + k_val_search) < len(row_cells):
-                                raw_value_from_cell = row_cells[c_idx + k_val_search]
+                        # ค้นหาค่าในเซลล์ถัดไปอย่างยืดหยุ่นมากขึ้น
+                        for k_val_search_offset in range(1, 5): # ตรวจสอบ 4 เซลล์ถัดไป
+                            if (c_idx + k_val_search_offset) < len(row_cells):
+                                raw_value_from_cell = row_cells[c_idx + k_val_search_offset]
                                 if raw_value_from_cell:
                                     value_part_before_paren = raw_value_from_cell.split('(')[0].strip()
                                     numeric_value = safe_float_convert(value_part_before_paren)
@@ -2003,17 +2007,31 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
                                                     elif current_label == "Long Trades (won %)": results_summary_dict["Long_Trades_won_Percent"] = paren_numeric_value
                                                     elif current_label == "Profit Trades (% of total)": results_summary_dict["Profit_Trades_Percent_of_total"] = paren_numeric_value
                                                     elif current_label == "Loss Trades (% of total)": results_summary_dict["Loss_Trades_Percent_of_total"] = paren_numeric_value
-                                                    elif current_label == "Largest profit trade": results_summary_dict["Largest_profit_trade"] = paren_numeric_value
-                                                    elif current_label == "Largest loss trade": results_summary_dict["Largest_loss_trade"] = paren_numeric_value
-                                                    elif current_label == "Average profit trade": results_summary_dict["Average_profit_trade"] = paren_numeric_value
-                                                    elif current_label == "Average loss trade": results_summary_dict["Average_loss_trade"] = paren_numeric_value
-                                                    elif current_label == "Maximum consecutive wins ($)": results_summary_dict["Maximum_consecutive_wins_Profit"] = paren_numeric_value
-                                                    elif current_label == "Maximal consecutive profit (count)": results_summary_dict["Maximal_consecutive_profit_Count"] = paren_numeric_value
-                                                    elif current_label == "Maximum consecutive losses ($)": results_summary_dict["Maximum_consecutive_losses_Profit"] = paren_numeric_value
-                                                    elif current_label == "Maximal consecutive loss (count)": results_summary_dict["Maximal_consecutive_loss_Count"] = paren_numeric_value
+                                                    # เพิ่มการจัดการสำหรับ Largest/Average profit/loss trade ที่อาจมีค่าในวงเล็บ
+                                                    elif current_label == "Largest profit trade" and "Largest_profit_trade_Amount" not in results_summary_dict: 
+                                                        results_summary_dict["Largest_profit_trade_Amount"] = paren_numeric_value
+                                                    elif current_label == "Largest loss trade" and "Largest_loss_trade_Amount" not in results_summary_dict:
+                                                        results_summary_dict["Largest_loss_trade_Amount"] = paren_numeric_value
+                                                    elif current_label == "Average profit trade" and "Average_profit_trade_Amount" not in results_summary_dict:
+                                                        results_summary_dict["Average_profit_trade_Amount"] = paren_numeric_value
+                                                    elif current_label == "Average loss trade" and "Average_loss_trade_Amount" not in results_summary_dict:
+                                                        results_summary_dict["Average_loss_trade_Amount"] = paren_numeric_value
+                                                    # เพิ่มการจัดการสำหรับ Max/Avg consecutive wins/losses ที่อาจมีค่าในวงเล็บ (เป็น Amount หรือ Count)
+                                                    elif current_label == "Maximum consecutive wins ($)": 
+                                                        results_summary_dict["Maximum_consecutive_wins_Profit"] = paren_numeric_value if "$" in raw_value_from_cell else numeric_value # ตัวเลขหลักคือ Count, ตัวเลขในวงเล็บคือ Profit
+                                                        results_summary_dict["Maximum_consecutive_wins_Count"] = numeric_value if "$" not in raw_value_from_cell else paren_numeric_value
+                                                    elif current_label == "Maximal consecutive profit (count)": 
+                                                        results_summary_dict["Maximal_consecutive_profit_Count"] = paren_numeric_value if "(count)" in current_label else numeric_value
+                                                        results_summary_dict["Maximal_consecutive_profit_Amount"] = numeric_value if "(count)" in current_label else paren_numeric_value
+                                                    elif current_label == "Maximum consecutive losses ($)": 
+                                                        results_summary_dict["Maximum_consecutive_losses_Profit"] = paren_numeric_value if "$" in raw_value_from_cell else numeric_value
+                                                        results_summary_dict["Maximum_consecutive_losses_Count"] = numeric_value if "$" not in raw_value_from_cell else paren_numeric_value
+                                                    elif current_label == "Maximal consecutive loss (count)": 
+                                                        results_summary_dict["Maximal_consecutive_loss_Count"] = paren_numeric_value if "(count)" in current_label else numeric_value
+                                                        results_summary_dict["Maximal_consecutive_loss_Amount"] = numeric_value if "(count)" in current_label else paren_numeric_value
                                             except Exception: pass
                                     break
-                if line_stripped_res.startswith("Average consecutive losses"): break
+                if line_stripped_res.startswith("Average consecutive losses"): break # หยุดเมื่อเจอสุดของ Summary
             elif results_start_line_idx != -1 and results_section_processed_lines >= max_lines_for_results: break
         extracted_data['results_summary'] = results_summary_dict
         return extracted_data
@@ -2140,7 +2158,10 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
                 "Balance_Drawdown_Relative_Percent", "Balance_Drawdown_Relative_Amount", 
                 "Total_Trades", "Short_Trades", "Short_Trades_won_Percent", "Long_Trades", "Long_Trades_won_Percent", 
                 "Profit_Trades", "Profit_Trades_Percent_of_total", "Loss_Trades", "Loss_Trades_Percent_of_total", 
-                "Largest_profit_trade", "Largest_loss_trade", "Average_profit_trade", "Average_loss_trade", 
+                "Largest_profit_trade", "Largest_profit_trade_Amount", # เพิ่ม Largest_profit_trade_Amount
+                "Largest_loss_trade", "Largest_loss_trade_Amount", # เพิ่ม Largest_loss_trade_Amount
+                "Average_profit_trade", "Average_profit_trade_Amount", # เพิ่ม Average_profit_trade_Amount
+                "Average_loss_trade", "Average_loss_trade_Amount", # เพิ่ม Average_loss_trade_Amount
                 "Maximum_consecutive_wins_Count", "Maximum_consecutive_wins_Profit", 
                 "Maximal_consecutive_profit_Amount", "Maximal_consecutive_profit_Count",
                 "Maximum_consecutive_losses_Count", "Maximum_consecutive_losses_Profit", 
@@ -2269,11 +2290,25 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
             WORKSHEET_ACTUAL_TRADES: {"rows": "2000", "cols": "18", "headers": ["Time_Deal", "Deal_ID", "Symbol_Deal", "Type_Deal", "Direction_Deal", "Volume_Deal", "Price_Deal", "Order_ID_Deal", "Commission_Deal", "Fee_Deal", "Swap_Deal", "Profit_Deal", "Balance_Deal", "Comment_Deal", "PortfolioID", "PortfolioName", "SourceFile", "ImportBatchID"]},
             WORKSHEET_ACTUAL_ORDERS: {"rows": "1000", "cols": "16", "headers": ["Open_Time_Ord", "Order_ID_Ord", "Symbol_Ord", "Type_Ord", "Volume_Ord", "Price_Ord", "S_L_Ord", "T_P_Ord", "Close_Time_Ord", "State_Ord", "Filler_Ord", "Comment_Ord", "PortfolioID", "PortfolioName", "SourceFile", "ImportBatchID"]},
             WORKSHEET_ACTUAL_POSITIONS: {"rows": "1000", "cols": "17", "headers": ["Time_Pos", "Position_ID", "Symbol_Pos", "Type_Pos", "Volume_Pos", "Price_Open_Pos", "S_L_Pos", "T_P_Pos", "Time_Close_Pos", "Price_Close_Pos", "Commission_Pos", "Swap_Pos", "Profit_Pos", "PortfolioID", "PortfolioName", "SourceFile", "ImportBatchID"]},
-            WORKSHEET_STATEMENT_SUMMARIES: {"rows": "1000", "cols": "46", "headers": ["Timestamp", "PortfolioID", "PortfolioName", "SourceFile", "ImportBatchID", "Balance", "Equity", "Free_Margin", "Margin", "Floating_P_L", "Margin_Level", "Credit_Facility", "Total_Net_Profit", "Gross_Profit", "Gross_Loss", "Profit_Factor", "Expected_Payoff", "Recovery_Factor", "Sharpe_Ratio", "Balance_Drawdown_Absolute", "Balance_Drawdown_Maximal", "Balance_Drawdown_Maximal_Percent", "Balance_Drawdown_Relative_Percent", "Balance_Drawdown_Relative_Amount", "Total_Trades", "Short_Trades", "Short_Trades_won_Percent", "Long_Trades", "Long_Trades_won_Percent", "Profit_Trades", "Profit_Trades_Percent_of_total", "Loss_Trades", "Loss_Trades_Percent_of_total", "Largest_profit_trade", "Largest_loss_trade", "Average_profit_trade", "Average_loss_trade", "Maximum_consecutive_wins_Count", "Maximum_consecutive_wins_Profit", 
+            WORKSHEET_STATEMENT_SUMMARIES: {"rows": "1000", "cols": "46", "headers": [
+                "Timestamp", "PortfolioID", "PortfolioName", "SourceFile", "ImportBatchID", 
+                "Balance", "Equity", "Free_Margin", "Margin", "Floating_P_L", "Margin_Level", "Credit_Facility",
+                "Total_Net_Profit", "Gross_Profit", "Gross_Loss", "Profit_Factor", "Expected_Payoff", 
+                "Recovery_Factor", "Sharpe_Ratio", 
+                "Balance_Drawdown_Absolute", "Balance_Drawdown_Maximal", "Balance_Drawdown_Maximal_Percent", 
+                "Balance_Drawdown_Relative_Percent", "Balance_Drawdown_Relative_Amount", 
+                "Total_Trades", "Short_Trades", "Short_Trades_won_Percent", "Long_Trades", "Long_Trades_won_Percent", 
+                "Profit_Trades", "Profit_Trades_Percent_of_total", "Loss_Trades", "Loss_Trades_Percent_of_total", 
+                "Largest_profit_trade", "Largest_profit_trade_Amount", # เพิ่ม
+                "Largest_loss_trade", "Largest_loss_trade_Amount", # เพิ่ม
+                "Average_profit_trade", "Average_profit_trade_Amount", # เพิ่ม
+                "Average_loss_trade", "Average_loss_trade_Amount", # เพิ่ม
+                "Maximum_consecutive_wins_Count", "Maximum_consecutive_wins_Profit", 
                 "Maximal_consecutive_profit_Amount", "Maximal_consecutive_profit_Count",
                 "Maximum_consecutive_losses_Count", "Maximum_consecutive_losses_Profit", 
                 "Maximal_consecutive_loss_Amount", "Maximal_consecutive_loss_Count",
-                "Average_consecutive_wins", "Average_consecutive_losses"]}
+                "Average_consecutive_wins", "Average_consecutive_losses"
+            ]}
         }
         all_sheets_successfully_accessed_or_created = True
         sh_trade_log = None
