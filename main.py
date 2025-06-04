@@ -945,23 +945,22 @@ summary_avg_rr = 0.0
 summary_total_profit_at_primary_tp = 0.0
 summary_direction_display = "N/A"
 
-entry_data_for_saving = [] # This list will hold dicts for each entry, to be passed to save_plan_to_gsheets
+entry_data_for_saving = [] # This list will hold dicts for each entry
 
-# Constants for Fibo TP calculations (can be adjusted or made dynamic later)
 RATIO_TP1_EFF = 1.618 
 RATIO_TP2_EFF = 2.618 
 RATIO_TP3_EFF = 4.236
 
-# Ensure active_balance_to_use is up-to-date from SEC 2
 current_active_balance_for_summary = st.session_state.get('current_account_balance', DEFAULT_ACCOUNT_BALANCE)
 
 if st.session_state.get("mode") == "FIBO":
+    # ... (ส่วน FIBO ยังคงเหมือนเดิม ไม่มีการเปลี่ยนแปลงที่นี่) ...
     summary_direction_display = st.session_state.get("direction_fibo_val_v2", "N/A")
     try:
         h_str_fibo = st.session_state.get("swing_high_fibo_val_v2", "")
         l_str_fibo = st.session_state.get("swing_low_fibo_val_v2", "")
         risk_pct_fibo_input = st.session_state.get("risk_pct_fibo_val_v2", 0.0)
-        fibo_levels_to_use = [0.114, 0.25, 0.382, 0.5, 0.618] # Defined in SEC 2.1 widget
+        fibo_levels_to_use = [0.114, 0.25, 0.382, 0.5, 0.618] 
         fibo_flags_selected = st.session_state.get("fibo_flags_v2", [False]*len(fibo_levels_to_use))
 
         if not h_str_fibo or not l_str_fibo:
@@ -973,7 +972,7 @@ if st.session_state.get("mode") == "FIBO":
             low_fibo = float(l_str_fibo)
             
             if high_fibo <= low_fibo:
-                st.sidebar.warning("High (FIBO) ต้องมากกว่า Low ใน Summary Calculation!") # Already warned in input section
+                st.sidebar.warning("High (FIBO) ต้องมากกว่า Low ใน Summary Calculation!")
             else:
                 range_fibo = abs(high_fibo - low_fibo)
                 if range_fibo <= 1e-9:
@@ -995,19 +994,19 @@ if st.session_state.get("mode") == "FIBO":
 
                                 if summary_direction_display == "Long":
                                     entry_price = low_fibo + (range_fibo * fibo_ratio)
-                                    sl_price = low_fibo # SL at the 0% of the Fibo range
-                                    tp1_price_global = low_fibo + (range_fibo * RATIO_TP1_EFF) # Global TP1
+                                    sl_price = low_fibo 
+                                    tp1_price_global = low_fibo + (range_fibo * RATIO_TP1_EFF) 
                                 else: # Short
                                     entry_price = high_fibo - (range_fibo * fibo_ratio)
-                                    sl_price = high_fibo # SL at the 0% of the Fibo range
-                                    tp1_price_global = high_fibo - (range_fibo * RATIO_TP1_EFF) # Global TP1
+                                    sl_price = high_fibo 
+                                    tp1_price_global = high_fibo - (range_fibo * RATIO_TP1_EFF) 
                                 
                                 stop_distance = abs(entry_price - sl_price)
                                 lot_size, actual_risk_this_leg, rr_to_tp1, profit_at_tp1_this_leg = 0.0, 0.0, 0.0, 0.0
 
                                 if stop_distance > 1e-9:
                                     lot_size = risk_dollar_per_fibo_entry / stop_distance
-                                    actual_risk_this_leg = lot_size * stop_distance # Recalculate based on actual lot
+                                    actual_risk_this_leg = lot_size * stop_distance 
                                     
                                     target_distance_tp1 = abs(tp1_price_global - entry_price)
                                     if (summary_direction_display == "Long" and tp1_price_global > entry_price) or \
@@ -1015,9 +1014,9 @@ if st.session_state.get("mode") == "FIBO":
                                         profit_at_tp1_this_leg = lot_size * target_distance_tp1
                                         rr_to_tp1 = target_distance_tp1 / stop_distance
                                         temp_fibo_rr_list.append(rr_to_tp1)
-                                else: # Stop distance is zero (SL at entry)
-                                    actual_risk_this_leg = risk_dollar_per_fibo_entry # Assign planned risk
-                                    lot_size = 0 # Or some very small lot / treat as invalid setup
+                                else: 
+                                    actual_risk_this_leg = risk_dollar_per_fibo_entry 
+                                    lot_size = 0 
 
                                 summary_total_lots += lot_size
                                 summary_total_risk_dollar += actual_risk_this_leg
@@ -1042,7 +1041,7 @@ elif st.session_state.get("mode") == "CUSTOM":
     try:
         num_entries_custom = st.session_state.get("n_entry_custom_val_v2", 0)
         risk_pct_custom_input = st.session_state.get("risk_pct_custom_val_v2", 0.0)
-        custom_tp_recommendations = [] # Local for this calculation run
+        # custom_tp_recommendations = [] # REMOVED: This will now be a column in the table
 
         if num_entries_custom <= 0:
             st.sidebar.info("เลือกจำนวนไม้ (CUSTOM) มากกว่า 0 เพื่อคำนวณ Summary")
@@ -1050,7 +1049,9 @@ elif st.session_state.get("mode") == "CUSTOM":
             st.sidebar.warning("Risk % (CUSTOM) ต้องมากกว่า 0")
         else:
             total_planned_risk_dollar_custom = current_active_balance_for_summary * (risk_pct_custom_input / 100.0)
-            risk_dollar_per_custom_entry = total_planned_risk_dollar_custom / num_entries_custom
+            risk_dollar_per_custom_entry = 0
+            if num_entries_custom > 0:
+                risk_dollar_per_custom_entry = total_planned_risk_dollar_custom / num_entries_custom
             
             temp_custom_rr_list = []
             long_trades_count = 0
@@ -1063,18 +1064,19 @@ elif st.session_state.get("mode") == "CUSTOM":
                 
                 entry_val, sl_val, tp_val = 0.0,0.0,0.0
                 lot_size, actual_risk_this_leg, rr_custom, profit_at_tp_this_leg = 0.0, 0.0, 0.0, 0.0
-                
+                tp_at_rr3_display = "N/A" # For the new column
+
                 try:
                     entry_val = float(entry_str)
                     sl_val = float(sl_str)
-                    tp_val = float(tp_str)
+                    tp_val = float(tp_str) # User's TP
 
-                    if sl_val == entry_val: # SL at Entry
-                        stop_distance = 0
-                        actual_risk_this_leg = risk_dollar_per_custom_entry # Full planned risk for this leg
-                        lot_size = 0 # Or handle as invalid
+                    stop_distance = abs(entry_val - sl_val)
+                    
+                    if sl_val == entry_val: 
+                        actual_risk_this_leg = risk_dollar_per_custom_entry 
+                        lot_size = 0 
                     else:
-                        stop_distance = abs(entry_val - sl_val)
                         if entry_val > sl_val: long_trades_count +=1
                         elif entry_val < sl_val: short_trades_count += 1
 
@@ -1084,7 +1086,6 @@ elif st.session_state.get("mode") == "CUSTOM":
                             
                             target_distance = abs(tp_val - entry_val)
                             if target_distance > 1e-9 and tp_val != entry_val:
-                                # Ensure TP is in the profitable direction
                                 current_direction_is_long = (entry_val > sl_val)
                                 tp_is_profitable = (current_direction_is_long and tp_val > entry_val) or \
                                                    (not current_direction_is_long and tp_val < entry_val)
@@ -1092,51 +1093,98 @@ elif st.session_state.get("mode") == "CUSTOM":
                                     rr_custom = target_distance / stop_distance
                                     profit_at_tp_this_leg = lot_size * target_distance
                                     temp_custom_rr_list.append(rr_custom)
+                            
+                            # *** NEW: Calculate TP for RR=3 ***
+                            direction_for_rr3_tp = ""
+                            if entry_val > sl_val: direction_for_rr3_tp = "Long"
+                            elif sl_val > entry_val: direction_for_rr3_tp = "Short"
 
-                                    # TP Recommendation (RR=3)
-                                    if 0 <= rr_custom < 2.9: # Slight margin for float comparison
-                                        recommended_tp_target = 3 * stop_distance
-                                        rec_tp = entry_val + recommended_tp_target if current_direction_is_long else entry_val - recommended_tp_target
-                                        custom_tp_recommendations.append(f"ไม้ {i+1}: TP ปัจจุบัน RR={rr_custom:.2f}. หากต้องการ RR≈3, TP ควรเป็น ≈{rec_tp:.5f}")
-                        else: # Stop distance too small
+                            if direction_for_rr3_tp: # Only if direction can be determined
+                                recommended_tp_target_for_rr3 = 3 * stop_distance
+                                if direction_for_rr3_tp == "Long":
+                                    tp_at_rr3_calc = entry_val + recommended_tp_target_for_rr3
+                                else: # Short
+                                    tp_at_rr3_calc = entry_val - recommended_tp_target_for_rr3
+                                tp_at_rr3_display = round(tp_at_rr3_calc, 5)
+                            # *** END NEW ***
+                        else: 
                             actual_risk_this_leg = risk_dollar_per_custom_entry
                             lot_size = 0
                 except ValueError:
-                     actual_risk_this_leg = risk_dollar_per_custom_entry # Assume full risk if inputs are invalid
-                     entry_data_for_saving.append({"Entry": entry_str, "SL": sl_str, "TP": tp_str, "Lot": "Error", "Risk $": f"{actual_risk_this_leg:.2f}", "RR": "Error"})
-                     summary_total_risk_dollar += actual_risk_this_leg # Add assumed risk
-                     continue # Skip further processing for this invalid leg
+                     actual_risk_this_leg = risk_dollar_per_custom_entry 
+                     entry_data_for_saving.append({
+                         "Entry": entry_str, "SL": sl_str, "TP": tp_str, 
+                         "Lot": "Error", "Risk $": f"{actual_risk_this_leg:.2f}", "RR": "Error",
+                         "TP (RR≈3)": "Error" # Add new key here too
+                        })
+                     summary_total_risk_dollar += actual_risk_this_leg 
+                     continue 
                 
                 summary_total_lots += lot_size
                 summary_total_risk_dollar += actual_risk_this_leg
                 summary_total_profit_at_primary_tp += profit_at_tp_this_leg
                 
                 entry_data_for_saving.append({
-                    "Fibo Level": "", # N/A for custom
+                    "Fibo Level": "", 
                     "Entry": round(entry_val, 5), "SL": round(sl_val, 5), "TP": round(tp_val, 5),
                     "Lot": round(lot_size, 2), "Risk $": round(actual_risk_this_leg, 2), 
-                    "RR": round(rr_custom, 2) if rr_custom > 0 else "N/A"
+                    "RR": round(rr_custom, 2) if rr_custom > 0 else "N/A",
+                    "TP (RR≈3)": tp_at_rr3_display # *** ADDED NEW KEY AND VALUE ***
                 })
 
             if long_trades_count == num_entries_custom and short_trades_count == 0: summary_direction_display = "Long"
             elif short_trades_count == num_entries_custom and long_trades_count == 0: summary_direction_display = "Short"
             elif long_trades_count > 0 and short_trades_count > 0: summary_direction_display = "Mixed"
-            elif long_trades_count > 0 : summary_direction_display = "Long" # Fallback if not all same
-            elif short_trades_count > 0 : summary_direction_display = "Short" # Fallback
+            elif long_trades_count > 0 : summary_direction_display = "Long" 
+            elif short_trades_count > 0 : summary_direction_display = "Short" 
             
             if temp_custom_rr_list:
                 summary_avg_rr = np.mean([r for r in temp_custom_rr_list if pd.notna(r) and r > 0])
-            if custom_tp_recommendations: # Store for display
-                st.session_state.custom_tp_recommendation_messages_for_summary = custom_tp_recommendations
-            else:
-                if 'custom_tp_recommendation_messages_for_summary' in st.session_state:
-                    del st.session_state.custom_tp_recommendation_messages_for_summary
+            
+            # REMOVED: st.session_state.custom_tp_recommendation_messages_for_summary
+            # if 'custom_tp_recommendation_messages_for_summary' in st.session_state:
+            #    del st.session_state.custom_tp_recommendation_messages_for_summary
 
 
     except ValueError:
         st.sidebar.warning("กรอกข้อมูล CUSTOM ไม่ถูกต้อง (ตรวจสอบจำนวนไม้ หรือ Risk %)")
     except Exception as e_custom_calc:
         st.sidebar.error(f"คำนวณ CUSTOM Summary ผิดพลาด: {e_custom_calc}")
+
+
+# --- Display Summary ---
+display_calculated_summary = False
+if st.session_state.get("mode") == "FIBO" and entry_data_for_saving and st.session_state.get("swing_high_fibo_val_v2", "") and st.session_state.get("swing_low_fibo_val_v2", ""):
+    display_calculated_summary = True
+elif st.session_state.get("mode") == "CUSTOM" and entry_data_for_saving and st.session_state.get("n_entry_custom_val_v2", 0) > 0:
+    display_calculated_summary = True
+
+if display_calculated_summary:
+    risk_pct_display = 0.0
+    if st.session_state.get("mode") == "FIBO": risk_pct_display = st.session_state.get('risk_pct_fibo_val_v2', 0.0)
+    elif st.session_state.get("mode") == "CUSTOM": risk_pct_display = st.session_state.get('risk_pct_custom_val_v2', 0.0)
+
+    st.sidebar.write(f"**Direction:** {summary_direction_display}")
+    st.sidebar.write(f"**Total Lots:** {summary_total_lots:.2f}")
+    st.sidebar.write(f"**Total Risk $ (Calculated):** {summary_total_risk_dollar:.2f} (จาก Balance: {current_active_balance_for_summary:,.2f}, Risk Input: {risk_pct_display:.2f}%)")
+    
+    tp_ref_text = "(to Global TP1)" if st.session_state.get("mode") == "FIBO" else "(to User TPs)"
+    st.sidebar.write(f"**Average RR {tp_ref_text}:** {summary_avg_rr:.2f}" if summary_avg_rr > 0 else f"**Average RR {tp_ref_text}:** N/A")
+    st.sidebar.write(f"**Total Expected Profit {tp_ref_text}:** {summary_total_profit_at_primary_tp:,.2f} USD")
+    
+    # REMOVED the display of custom_tp_recommendation_messages_for_summary from sidebar
+    # if st.session_state.get("mode") == "CUSTOM" and 'custom_tp_recommendation_messages_for_summary' in st.session_state:
+    #    st.sidebar.markdown("**คำแนะนำ TP (เพื่อให้ RR ≈ 3):**")
+    #    for msg in st.session_state.custom_tp_recommendation_messages_for_summary:
+    #        st.sidebar.caption(msg)
+else: 
+    mode_selected = st.session_state.get("mode")
+    if mode_selected == "FIBO" and (not st.session_state.get("swing_high_fibo_val_v2", "") or not st.session_state.get("swing_low_fibo_val_v2", "") or not any(st.session_state.get("fibo_flags_v2",[]))):
+        pass 
+    elif mode_selected == "CUSTOM" and not (st.session_state.get("n_entry_custom_val_v2", 0) > 0 and st.session_state.get("risk_pct_custom_val_v2", 0.0) > 0):
+        pass 
+    elif not entry_data_for_saving : 
+        st.sidebar.info("กรอกข้อมูลให้ครบถ้วนและถูกต้อง หรือเลือกเงื่อนไข (เช่น Fibo Levels) เพื่อคำนวณ Summary")
 
 
 # --- Display Summary ---
@@ -1513,64 +1561,89 @@ with st.expander("📋 Entry Table (รายละเอียดแผนเ�
             st.error(f"เกิดข้อผิดพลาดในการแสดงตารางแผนเทรด: {e_display_plan}")
             print(f"Error displaying entry plan table: {e_display_plan}")
 
-# ===================== SEC 4: MAIN AREA - CHART VISUALIZER =======================
-with st.expander("📈 Chart Visualizer (TradingView)", expanded=False): # Default to not expanded
-    asset_for_tv_widget = "OANDA:XAUUSD" # Default
-    info_source_tv = "ค่าเริ่มต้น"
-
-    # Determine asset from plot_data (from Log Viewer) first
-    if 'plot_data' in st.session_state and st.session_state.plot_data and st.session_state.plot_data.get('Asset'):
-        asset_from_log_viewer = str(st.session_state.plot_data.get('Asset', "")).upper()
-        if asset_from_log_viewer:
-            asset_for_tv_widget = f"OANDA:{asset_from_log_viewer}" if ":" not in asset_from_log_viewer else asset_from_log_viewer
-            info_source_tv = f"จาก Log Viewer ({asset_from_log_viewer})"
-    # Else, try from active trade mode input
-    elif st.session_state.get("mode") == "FIBO":
-        asset_from_fibo_input = str(st.session_state.get("asset_fibo_val_v2", "")).upper()
-        if asset_from_fibo_input:
-            asset_for_tv_widget = f"OANDA:{asset_from_fibo_input}" if ":" not in asset_from_fibo_input else asset_from_fibo_input
-            info_source_tv = f"จาก Input FIBO ({asset_from_fibo_input})"
-    elif st.session_state.get("mode") == "CUSTOM":
-        asset_from_custom_input = str(st.session_state.get("asset_custom_val_v2", "")).upper()
-        if asset_from_custom_input:
-            asset_for_tv_widget = f"OANDA:{asset_from_custom_input}" if ":" not in asset_from_custom_input else asset_from_custom_input
-            info_source_tv = f"จาก Input CUSTOM ({asset_from_custom_input})"
+# ===================== SEC 3: MAIN AREA - ENTRY PLAN DETAILS TABLE =======================
+with st.expander("📋 Entry Table (รายละเอียดแผนเทรด)", expanded=True):
+    active_mode_display = st.session_state.get("mode")
     
-    st.caption(f"TradingView แสดงกราฟสำหรับ: **{asset_for_tv_widget}** ({info_source_tv})")
+    if not entry_data_for_saving: # Check if entry_data_for_saving (from SEC 2.3) is empty
+        st.info(f"กรุณากรอกข้อมูล {active_mode_display} ใน Sidebar และคำนวณ Strategy Summary เพื่อดูรายละเอียดแผนเทรดที่นี่")
+    else:
+        try:
+            df_entry_plan_display = pd.DataFrame(entry_data_for_saving)
+            
+            if active_mode_display == "FIBO":
+                # ... (ส่วน FIBO ยังคงเหมือนเดิม) ...
+                st.markdown(f"### 🎯 Entry Levels & TP1 (FIBO - {st.session_state.get('asset_fibo_val_v2', 'N/A')})")
+                cols_to_show_fibo = ["Fibo Level", "Entry", "SL", "Lot", "Risk $", "TP", "RR"]
+                actual_cols_fibo = [col for col in cols_to_show_fibo if col in df_entry_plan_display.columns]
+                if actual_cols_fibo:
+                    st.dataframe(df_entry_plan_display[actual_cols_fibo], hide_index=True, use_container_width=True)
+                else:
+                    st.info("ไม่สามารถแสดงรายละเอียดแผน FIBO ได้ (อาจยังไม่ได้คำนวณ)")
 
-    # TradingView Lightweight Chart HTML
-    # Ensure TradingView script is loaded only once or handled gracefully by browser.
-    # For better performance, consider advanced embedding if this causes issues.
-    tradingview_html_content = f"""
-    <div class="tradingview-widget-container" style="height:100%;width:100%">
-      <div id="tradingview_chart_widget_div" style="height:calc(100% - 32px);width:100%"></div>
-      <div class="tradingview-widget-copyright" style="font-size:0.8em;">
-          <a href="https://th.tradingview.com/" rel="noopener nofollow" target="_blank">
-              <span class="blue-text">ติดตามตลาดทั้งหมดทาง TradingView</span>
-          </a>
-      </div>
-      <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
-      <script type="text/javascript">
-      new TradingView.widget({{
-        "autosize": true,
-        "symbol": "{asset_for_tv_widget}",
-        "interval": "15", // Default interval
-        "timezone": "Asia/Bangkok",
-        "theme": "dark", // "light" or "dark"
-        "style": "1",    // 1 for Bars, 2 for Candles, etc.
-        "locale": "th",
-        "enable_publishing": false,
-        "withdateranges": true,
-        "hide_side_toolbar": false,
-        "allow_symbol_change": true,
-        "details": true,       // Show details like Open, High, Low, Close
-        "hotlist": true,       // Show Hotlist
-        "calendar": true,      // Show Economic Calendar
-        "container_id": "tradingview_chart_widget_div"
-      }});
-      </script>
-    </div>
-    """
+                st.markdown("### 🎯 Global Take Profit Zones (FIBO)")
+                h_str_fibo_tp = st.session_state.get("swing_high_fibo_val_v2", "")
+                l_str_fibo_tp = st.session_state.get("swing_low_fibo_val_v2", "")
+                direction_fibo_tp = st.session_state.get("direction_fibo_val_v2", "Long")
+
+                if not h_str_fibo_tp or not l_str_fibo_tp:
+                    st.info("📌 กรอก High/Low (FIBO) ใน Sidebar เพื่อคำนวณ Global TP Zones.")
+                else:
+                    high_tp_calc = float(h_str_fibo_tp)
+                    low_tp_calc = float(l_str_fibo_tp)
+                    if high_tp_calc > low_tp_calc:
+                        range_fibo_tp = high_tp_calc - low_tp_calc
+                        tp1_main = low_tp_calc + (range_fibo_tp * RATIO_TP1_EFF) if direction_fibo_tp == "Long" else high_tp_calc - (range_fibo_tp * RATIO_TP1_EFF)
+                        tp2_main = low_tp_calc + (range_fibo_tp * RATIO_TP2_EFF) if direction_fibo_tp == "Long" else high_tp_calc - (range_fibo_tp * RATIO_TP2_EFF)
+                        tp3_main = low_tp_calc + (range_fibo_tp * RATIO_TP3_EFF) if direction_fibo_tp == "Long" else high_tp_calc - (range_fibo_tp * RATIO_TP3_EFF)
+                        
+                        tp_df_main_display = pd.DataFrame({
+                            "TP Zone": [f"TP1 ({RATIO_TP1_EFF:.3f})", f"TP2 ({RATIO_TP2_EFF:.3f})", f"TP3 ({RATIO_TP3_EFF:.3f})"],
+                            "Price": [f"{tp1_main:.5f}", f"{tp2_main:.5f}", f"{tp3_main:.5f}"]
+                        })
+                        st.dataframe(tp_df_main_display, hide_index=True, use_container_width=True)
+                    else: 
+                        st.warning("📌 High (FIBO) ต้องมากกว่า Low เพื่อคำนวณ Global TP Zones.")
+            
+            elif active_mode_display == "CUSTOM":
+                st.markdown(f"### 🎯 Entry & Take Profit Zones (CUSTOM - {st.session_state.get('asset_custom_val_v2', 'N/A')})")
+                # *** MODIFIED: Added "TP (RR≈3)" to the list of columns to show ***
+                cols_to_show_custom = ["Entry", "SL", "TP", "Lot", "Risk $", "RR", "TP (RR≈3)"]
+                actual_cols_custom = [col for col in cols_to_show_custom if col in df_entry_plan_display.columns]
+                
+                if actual_cols_custom:
+                    # Format TP (RR≈3) column for display if it's numeric
+                    df_display_custom_formatted = df_entry_plan_display.copy()
+                    if "TP (RR≈3)" in df_display_custom_formatted.columns:
+                        # Ensure it's treated as numeric where possible for formatting, but keep "N/A" or "Error" as strings
+                        def format_tp_rr3(val):
+                            if isinstance(val, (float, int)):
+                                return f"{val:.5f}"
+                            return str(val) # Keep "N/A", "Error" as is
+                        df_display_custom_formatted["TP (RR≈3)"] = df_display_custom_formatted["TP (RR≈3)"].apply(format_tp_rr3)
+
+                    st.dataframe(df_display_custom_formatted[actual_cols_custom], hide_index=True, use_container_width=True)
+                else:
+                    st.info("ไม่สามารถแสดงรายละเอียดแผน CUSTOM ได้ (อาจยังไม่ได้คำนวณ หรือไม่พบคอลัมน์)")
+
+                # Display RR warnings based on calculated data in entry_data_for_saving
+                for i, entry_detail in enumerate(entry_data_for_saving):
+                    rr_val_str = str(entry_detail.get("RR", "N/A")).lower()
+                    if rr_val_str not in ["error", "n/a", ""]:
+                        try:
+                            rr_float = float(rr_val_str)
+                            if 0 <= rr_float < 2.0: # Threshold for low RR
+                                st.warning(f"🎯 Entry {i+1} (CUSTOM) มี RR ค่อนข้างต่ำ ({rr_float:.2f}). ลองปรับ TP/SL เพื่อ Risk:Reward ที่ดีขึ้น")
+                        except ValueError:
+                            pass 
+            
+            else: 
+                st.info("กรุณาเลือก Trade Mode (FIBO/CUSTOM) ใน Sidebar")
+
+        except Exception as e_display_plan:
+            st.error(f"เกิดข้อผิดพลาดในการแสดงตารางแผนเทรด: {e_display_plan}")
+            print(f"Error displaying entry plan table: {e_display_plan}")
+  
     st.components.v1.html(tradingview_html_content, height=620) # Adjust height as needed
 
     # ===================== SEC 5: MAIN AREA - AI ASSISTANT =======================
