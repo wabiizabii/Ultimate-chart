@@ -11,7 +11,7 @@ import random
 import io 
 import uuid
 import hashlib
-import re
+
 st.set_page_config(page_title="Ultimate-Chart", layout="wide")
 
 if 'uploader_key_version' not in st.session_state:
