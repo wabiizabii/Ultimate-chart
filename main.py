@@ -56,7 +56,7 @@ def load_portfolios_from_gsheets():
         
         df_portfolios = pd.DataFrame(records)
         
-        # แปลงคอลัมน์ที่ควรเป็นตัวเลข
+        # แปลงคอลัมน์ที่ควรเป็นตัวเลข (ยังคงเดิม)
         cols_to_numeric_type = {
             'InitialBalance': float, 'ProfitTargetPercent': float, 
             'DailyLossLimitPercent': float, 'TotalStopoutPercent': float,
@@ -76,13 +76,52 @@ def load_portfolios_from_gsheets():
         if 'EnableScaling' in df_portfolios.columns: # คอลัมน์นี้ควรเป็น Boolean
              df_portfolios['EnableScaling'] = df_portfolios['EnableScaling'].astype(str).str.upper().map({'TRUE': True, 'YES': True, '1': True, 'FALSE': False, 'NO': False, '0': False}).fillna(False)
 
-
-        # แปลงคอลัมน์วันที่ ถ้ามี
+        # แปลงคอลัมน์วันที่ ถ้ามี (ยังคงเดิม)
         date_cols = ['CompetitionEndDate', 'TargetEndDate', 'CreationDate']
         for col in date_cols:
             if col in df_portfolios.columns:
                 df_portfolios[col] = pd.to_datetime(df_portfolios[col], errors='coerce').dt.strftime('%Y-%m-%d %H:%M:%S')
 
+# --- ส่วนที่ถูกเพิ่ม/แก้ไข: คำนวณ Current Balance (ก้อนที่ 1) ---
+        df_actual_trades = pd.DataFrame()
+        try:
+            ws_actual_trades = sh.worksheet(WORKSHEET_ACTUAL_TRADES)
+            records_actual = ws_actual_trades.get_all_records()
+            if records_actual:
+                df_actual_trades = pd.DataFrame(records_actual)
+                
+                # ทำความสะอาด PortfolioID และ Profit_Deal ก่อนแปลง/ใช้งาน
+                if 'PortfolioID' in df_actual_trades.columns:
+                    df_actual_trades['PortfolioID'] = df_actual_trades['PortfolioID'].astype(str).str.strip()
+                if 'Profit_Deal' in df_actual_trades.columns:
+                    # ลบคอมม่า, trim ช่องว่าง และแปลงเป็นตัวเลข
+                    df_actual_trades['Profit_Deal'] = df_actual_trades['Profit_Deal'].astype(str).str.replace(',', '').str.strip()
+                    df_actual_trades['Profit_Deal'] = pd.to_numeric(df_actual_trades['Profit_Deal'], errors='coerce').fillna(0)
+        except gspread.exceptions.WorksheetNotFound:
+            st.warning(f"Warning: Worksheet '{WORKSHEET_ACTUAL_TRADES}' not found for Current Balance calculation. Current Balance will default to Initial Balance.")
+            df_actual_trades = pd.DataFrame() # ตรวจสอบให้แน่ใจว่าเป็น DataFrame ว่าง
+        except Exception as e_actual:
+            st.warning(f"Failed to load ActualTrades for Current Balance calculation: {e_actual}. Current Balance will default to Initial Balance.")
+            df_actual_trades = pd.DataFrame() # ตรวจสอบให้แน่ใจว่าเป็น DataFrame ว่าง
+
+        df_portfolios['CurrentBalance'] = df_portfolios['InitialBalance'] # เริ่มต้น CurrentBalance ด้วย InitialBalance
+
+        if not df_actual_trades.empty and 'PortfolioID' in df_portfolios.columns:
+            # ทำความสะอาด PortfolioID ใน df_portfolios ก่อน Merge
+            df_portfolios['PortfolioID'] = df_portfolios['PortfolioID'].astype(str).str.strip()
+
+            profit_by_portfolio = df_actual_trades.groupby('PortfolioID')['Profit_Deal'].sum().reset_index()
+            
+            # Merge df_portfolios กับ profit_by_portfolio โดยใช้ PortfolioID เป็น key
+            # ใช้ how='left' เพื่อให้ข้อมูลพอร์ตที่ไม่มี Deals ยังคงอยู่
+            df_portfolios = pd.merge(df_portfolios, profit_by_portfolio, on='PortfolioID', how='left')
+            
+            # คำนวณ CurrentBalance: InitialBalance + Profit_Deal (ถ้ามี, ถ้าไม่มีให้ถือเป็น 0)
+            df_portfolios['CurrentBalance'] = df_portfolios['InitialBalance'] + df_portfolios['Profit_Deal'].fillna(0)
+            
+            # ลบคอลัมน์ 'Profit_Deal' ที่เป็นผลรวมออกไปหลังจากใช้งานแล้ว
+            df_portfolios.drop(columns=['Profit_Deal'], inplace=True, errors='ignore')
+        # --- สิ้นสุดส่วนที่ถูกเพิ่ม/แก้ไข ---
 
         return df_portfolios
     except gspread.exceptions.WorksheetNotFound:
@@ -136,6 +175,14 @@ if selected_portfolio_name_gs != "":
             else:
                 st.session_state.active_portfolio_id_gs = None
                 st.sidebar.warning("ไม่พบ PortfolioID สำหรับพอร์ตที่เลือก.")
+            # --- ส่วนที่แก้ไข: กำหนดค่า active_balance_to_use จาก CurrentBalance ---
+            if 'CurrentBalance' in st.session_state.current_portfolio_details and pd.notna(st.session_state.current_portfolio_details['CurrentBalance']):
+                st.session_state.current_account_balance = float(st.session_state.current_portfolio_details['CurrentBalance'])
+            elif 'InitialBalance' in st.session_state.current_portfolio_details and pd.notna(st.session_state.current_portfolio_details['InitialBalance']):
+                st.session_state.current_account_balance = float(st.session_state.current_portfolio_details['InitialBalance'])
+            else:
+                st.session_state.current_account_balance = 10000.0 # Fallback default
+            # --- สิ้นสุดส่วนที่แก้ไข ---
         else:
             st.session_state.active_portfolio_id_gs = None
             st.session_state.current_portfolio_details = None
@@ -149,10 +196,31 @@ else:
 if st.session_state.current_portfolio_details:
     details = st.session_state.current_portfolio_details
     st.sidebar.markdown(f"**💡 ข้อมูลพอร์ต '{details.get('PortfolioName', 'N/A')}'**")
-    if pd.notna(details.get('InitialBalance')): st.sidebar.write(f"- Balance เริ่มต้น: {details['InitialBalance']:,.2f} USD")
+
+    # --- ส่วนที่แก้ไข: แสดง Current Balance ก่อน Initial Balance ---
+    if pd.notna(details.get('CurrentBalance')): 
+        st.sidebar.write(f"- Balance ปัจจุบัน: {details['CurrentBalance']:,.2f} USD")
+    elif pd.notna(details.get('InitialBalance')): 
+        st.sidebar.write(f"- Balance เริ่มต้น: {details['InitialBalance']:,.2f} USD")
+    # --- สิ้นสุดส่วนที่แก้ไข ---
+    
+    
     if pd.notna(details.get('ProgramType')): st.sidebar.write(f"- ประเภท: {details['ProgramType']}")
     if pd.notna(details.get('Status')): st.sidebar.write(f"- สถานะ: {details['Status']}")
-    
+     # --- ส่วนที่เพิ่ม: แสดง Debug Info สำหรับ Current Balance (ก้อนที่ 2) ---
+    # แสดงเฉพาะเมื่อ active_portfolio_id_gs ไม่ใช่ None และ CurrentBalance ถูกคำนวณแล้วใน details
+    if st.session_state.get('active_portfolio_id_gs') and 'CurrentBalance' in details:
+        initial_bal = details.get('InitialBalance', 0.0)
+        current_bal = details.get('CurrentBalance', 0.0)
+        # คำนวณกำไร/ขาดทุนรวมจาก Deals โดยการนำ CurrentBalance ลบ InitialBalance
+        total_profit_from_deals = current_bal - initial_bal
+        
+        st.sidebar.markdown(f"**[DEBUG - การคำนวณ Current Balance]**")
+        st.sidebar.caption(f"  - Balance เริ่มต้น (InitialBalance): {initial_bal:,.2f} USD")
+        st.sidebar.caption(f"  - กำไร/ขาดทุนรวมจาก Deals: {total_profit_from_deals:,.2f} USD")
+        st.sidebar.caption(f"  - Balance ปัจจุบัน (คำนวณ): {current_bal:,.2f} USD")
+        st.sidebar.caption(f"  (ข้อมูลอ้างอิงจากชีต '{WORKSHEET_ACTUAL_TRADES}')")
+    # --- สิ้นสุดส่วนที่เพิ่ม ---
     # Display rules based on ProgramType
     if details.get('ProgramType') in ["Prop Firm Challenge", "Funded Account", "Trading Competition"]:
         if pd.notna(details.get('ProfitTargetPercent')): st.sidebar.write(f"- เป้าหมายกำไร: {details['ProfitTargetPercent']:.1f}%")
@@ -2202,7 +2270,15 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
         key="ultimate_stmt_uploader_v7_final" # New key
     )
 
-    st.checkbox("⚙️ เปิดโหมด Debug (แสดงข้อมูลที่แยกได้)", value=False, key="debug_statement_processing_v2")
+   
+    # --- ส่วนที่เพิ่ม/แก้ไข: Checkbox สำหรับ Debug Mode (ก้อนที่ 3) ---
+    # ใช้ค่าจาก st.session_state เพื่อรักษาสถานะของ Checkbox
+    show_debug_mode_stmt_processing = st.checkbox(
+        "⚙️ เปิดโหมด Debug (แสดงข้อมูลที่แยกได้และ DataFrame Deals)",
+        value=st.session_state.get("debug_statement_processing_v2", False),
+        key="debug_stmt_import_processor_debug_checkbox" # <--- เปลี่ยน key เป็นชื่อใหม่ที่ไม่ซ้ำ
+    )
+    # --- สิ้นสุดส่วนที่เพิ่ม/แก้ไข ---
     
     active_portfolio_id_for_actual = st.session_state.get('active_portfolio_id_gs', None)
     active_portfolio_name_for_actual = st.session_state.get('active_portfolio_name_gs', None)
@@ -2449,6 +2525,48 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
         except Exception as e_update_hist: st.warning(f"ไม่สามารถอัปเดตสถานะสุดท้ายใน {WORKSHEET_UPLOAD_HISTORY} ({import_batch_id}): {e_update_hist}")
     else: 
         if uploaded_file_statement is not None: pass 
+        # --- ส่วนที่เพิ่ม: แสดง DataFrame ของ ActualTrades เมื่อ Debug Mode เปิดอยู่ (ก้อนที่ 3) ---
+        # แสดงเฉพาะเมื่อ show_debug_mode_stmt_processing เป็น True และมี active_portfolio_id_for_actual
+        if show_debug_mode_stmt_processing and active_portfolio_id_for_actual:
+            st.markdown(f"**[DEBUG - Actual Trades สำหรับพอร์ต '{active_portfolio_name_for_actual}']**")
+            gc_debug = get_gspread_client()
+            if gc_debug:
+                try:
+                    sh_debug = gc_debug.open(GOOGLE_SHEET_NAME)
+                    ws_debug_actual_trades = sh_debug.worksheet(WORKSHEET_ACTUAL_TRADES)
+                    records_debug = ws_debug_actual_trades.get_all_records()
+                    if records_debug:
+                        df_debug_actual_trades = pd.DataFrame(records_debug)
+                        if 'PortfolioID' in df_debug_actual_trades.columns:
+                            # ทำความสะอาด PortfolioID ก่อนกรอง
+                            df_debug_actual_trades['PortfolioID'] = df_debug_actual_trades['PortfolioID'].astype(str).str.strip()
+                            # กรองข้อมูลสำหรับพอร์ตที่เลือก
+                            df_debug_filtered = df_debug_actual_trades[df_debug_actual_trades['PortfolioID'] == str(active_portfolio_id_for_actual).strip()].copy()
+                            
+                            # ทำความสะอาด Profit_Deal อีกครั้งสำหรับแสดงผล Debug (ถ้ามี)
+                            if 'Profit_Deal' in df_debug_filtered.columns:
+                                df_debug_filtered['Profit_Deal'] = df_debug_filtered['Profit_Deal'].astype(str).str.replace(',', '').str.strip()
+                                df_debug_filtered['Profit_Deal'] = pd.to_numeric(df_debug_filtered['Profit_Deal'], errors='coerce').fillna(0)
+                            
+                            st.write(f"DataFrame Deals ที่ใช้ในการคำนวณ Current Balance ของพอร์ต '{active_portfolio_name_for_actual}':")
+                            if not df_debug_filtered.empty:
+                                # แสดงเฉพาะคอลัมน์ที่เกี่ยวข้องเพื่อความกระชับ
+                                cols_to_show_debug = ['Time_Deal', 'Deal_ID', 'Symbol_Deal', 'Type_Deal', 'Profit_Deal', 'Balance_Deal']
+                                # กรองคอลัมน์ที่มีอยู่จริง
+                                existing_cols_to_show = [col for col in cols_to_show_debug if col in df_debug_filtered.columns]
+                                st.dataframe(df_debug_filtered[existing_cols_to_show].head(10), use_container_width=True)
+                                st.write(f"**ผลรวม Profit_Deal สำหรับพอร์ตนี้:** {df_debug_filtered['Profit_Deal'].sum():,.2f} USD")
+                            else:
+                                st.info("ไม่พบรายการ Deals สำหรับพอร์ตนี้ในชีต ActualTrades.")
+                        else:
+                            st.warning("ไม่พบคอลัมน์ 'PortfolioID' ในชีต ActualTrades.")
+                    else:
+                        st.info("ชีต ActualTrades ว่างเปล่า")
+                except gspread.exceptions.WorksheetNotFound:
+                    st.warning(f"ไม่พบ Worksheet '{WORKSHEET_ACTUAL_TRADES}' สำหรับการแสดง Debug.")
+                except Exception as e_debug_load:
+                    st.error(f"เกิดข้อผิดพลาดในการโหลด ActualTrades สำหรับ Debug: {e_debug_load}")
+        # --- สิ้นสุดส่วนที่เพิ่ม ---
     st.markdown("---")
     
 # ===================== SEC 9: MAIN AREA - TRADE LOG VIEWER =======================
