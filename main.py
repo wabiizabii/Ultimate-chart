@@ -1866,13 +1866,24 @@ with st.expander("🤖 AI Assistant (วิเคราะห์ข้อมู�
                 else: st.info(msg_ai_a)
 
 # ===================== SEC 6: MAIN AREA - STATEMENT IMPORT & PROCESSING =======================
-# This section integrates the improved statement parsing and balance updating logic.
-# Helper functions for saving to GSheets are defined here for context, but could be global.
+with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=True):
+    st.markdown("### 📊 จัดการ Statement และข้อมูลดิบ")
 
-# --- START: Helper Functions for SEC 6 (Statement Data Saving) ---
-# Using refined versions inspired by File2 for saving data, especially results_summary.
-
-def safe_float_convert(value_str):
+    # --- START: Helper Functions for SEC 6 (Based on improved logic from File2) ---
+    def extract_data_from_report_content_sec6(file_content_str_input):
+        # This function should be the robust version from main เก็บบาลานในชีท.py (File2)
+        # It includes improved parsing for balance/equity and results summary.
+        # For brevity, the full function code (which is quite long) is not repeated here,
+        # but assume it's the version from File2 that correctly extracts:
+        # extracted_data['balance_summary'] (with 'balance' and 'equity')
+        # extracted_data['results_summary']
+        # extracted_data['deals'], extracted_data['orders'], extracted_data['positions']
+        # (Please see the implementation in 'main เก็บบาลานในชีท.py' for the full function body)
+        # --- Placeholder for the actual function content from File2 ---
+        extracted_data = {'deals': pd.DataFrame(), 'orders': pd.DataFrame(), 'positions': pd.DataFrame(), 
+                          'balance_summary': {}, 'results_summary': {}}
+        
+        def safe_float_convert(value_str):
             if isinstance(value_str, (int, float)): return value_str
             try:
                 clean_value = str(value_str).strip().replace(" ", "").replace(",", "").replace("%", "")
@@ -2455,7 +2466,7 @@ def safe_float_convert(value_str):
                      st.rerun() # Rerun to reset the uploader state mainly
     
     st.markdown("---") # End of statement processing expander
-
+    
 # ===================== SEC 7: MAIN AREA - TRADE LOG VIEWER =======================
 @st.cache_data(ttl=120) # Cache ผลลัพธ์ของฟังก์ชันนี้ (ซึ่งรวมการเรียงข้อมูลแล้ว) ไว้ 2 นาที
 def load_planned_trades_from_gsheets_for_viewer():
