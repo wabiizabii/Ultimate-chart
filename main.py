@@ -2443,52 +2443,82 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
                     processing_errors_stmt = True 
                     # st.exception(e_main_proc_stmt) 
 
-                # 1. Update UploadHistory with the determined final status *FIRST*
                 try:
-                    hist_rows_update_stmt = ws_stmt_dict[WORKSHEET_UPLOAD_HISTORY].get_all_values()
+                # ตรวจสอบว่า ws_stmt_dict และ worksheet ที่ต้องการมีอยู่จริง (ควรมีถ้า initial_log_ok_stmt เป็น True)
+                if WORKSHEET_UPLOAD_HISTORY in ws_stmt_dict and ws_stmt_dict[WORKSHEET_UPLOAD_HISTORY] is not None:
+                    ws_upload_history = ws_stmt_dict[WORKSHEET_UPLOAD_HISTORY]
+                    hist_rows_update_stmt = ws_upload_history.get_all_values() # ดึงข้อมูลล่าสุดอีกครั้งเผื่อมีการเปลี่ยนแปลง
                     row_idx_to_update_stmt = None
                     for r_idx, r_val in reversed(list(enumerate(hist_rows_update_stmt))):
-                        if len(r_val) > 7 and r_val[7] == import_batch_id_stmt: 
-                            row_idx_to_update_stmt = r_idx + 1; break
+                        # ตรวจสอบว่าแถวมีข้อมูลครบตามที่คาดหวัง (อย่างน้อย 8 คอลัมน์สำหรับ ImportBatchID)
+                        if len(r_val) > 7 and r_val[7] == import_batch_id_stmt:
+                            row_idx_to_update_stmt = r_idx + 1  # gspread rows are 1-indexed
+                            break
+                    
+                    notes_str_stmt = " | ".join(filter(None, processing_notes_stmt))[:49999] # จำกัดความยาว notes
+
                     if row_idx_to_update_stmt:
-                        notes_str_stmt = " | ".join(filter(None, processing_notes_stmt))[:49999]
-                        ws_stmt_dict[WORKSHEET_UPLOAD_HISTORY].batch_update([
+                        ws_upload_history.batch_update([
                             {'range': f'G{row_idx_to_update_stmt}', 'values': [[final_status_stmt]]},
                             {'range': f'I{row_idx_to_update_stmt}', 'values': [[notes_str_stmt]]}
                         ])
                         print(f"Info: Successfully updated UploadHistory for ImportBatchID '{import_batch_id_stmt}' to '{final_status_stmt}'.")
                     else:
-                        # This case means the initial "Processing" log might have failed, or was not found.
-                        # Attempt to append a new row with the final status.
+                        # กรณีไม่พบ ImportBatchID เดิม (อาจเกิดจากปัญหาตอน initial log) ให้พยายาม append แถวใหม่สถานะสุดท้ายไปเลย
                         print(f"Warning: Could not find ImportBatchID '{import_batch_id_stmt}' in {WORKSHEET_UPLOAD_HISTORY} to update. Appending new final status row.")
-                        notes_str_stmt_append = " | ".join(filter(None, processing_notes_stmt))[:49999]
-                        ws_stmt_dict[WORKSHEET_UPLOAD_HISTORY].append_row([
+                        ws_upload_history.append_row([
                             upload_timestamp_stmt, str(active_portfolio_id_for_stmt_import), str(active_portfolio_name_for_stmt_import),
                             file_name_stmt, file_size_stmt, file_hash_stmt,
-                            final_status_stmt, import_batch_id_stmt, notes_str_stmt_append
+                            final_status_stmt, import_batch_id_stmt, notes_str_stmt
                         ])
-                except Exception as e_update_hist_final_stmt:
-                    print(f"CRITICAL Warning: Could not update/append final status in {WORKSHEET_UPLOAD_HISTORY} for batch {import_batch_id_stmt}: {e_update_hist_final_stmt}")
-                    # Consider how to handle this critical failure - maybe don't rerun?
+                else:
+                    print(f"CRITICAL Error: Worksheet '{WORKSHEET_UPLOAD_HISTORY}' not found in ws_stmt_dict for final status update.")
+                    # อาจจะต้องแจ้ง st.error ที่นี่ด้วย หาก ws_stmt_dict[WORKSHEET_UPLOAD_HISTORY] เป็น None
 
-                # 2. Increment uploader key version (helps reset the file_uploader state on rerun)
-                st.session_state.uploader_key_version += 1
-                
-                # 3. Display messages to the user
-                if final_status_stmt == "Success":
-                    st.success(f"ประมวลผลและบันทึกข้อมูลจากไฟล์ '{file_name_stmt}' (Batch ID '{import_batch_id_stmt}') เสร็จสิ้นสมบูรณ์!")
-                    if equity_updated_successfully: # แสดงผลการอัปเดต equity ที่นี่ด้วย
-                        st.info(f"✔️ Balance สำหรับคำนวณ ได้รับการอัปเดตจาก Statement Equity ล่าสุด: {st.session_state.latest_statement_equity:,.2f} USD")
-                    st.balloons()
-                elif final_status_stmt == "Failed_UnicodeDecode":
-                     st.error(f"การประมวลผลไฟล์ '{file_name_stmt}' ล้มเหลว: เกิดข้อผิดพลาดในการ Decode ไฟล์ '{processing_notes_stmt[-1] if processing_notes_stmt else 'Unknown Decode Error'}'. กรุณาตรวจสอบ Encoding (ควรเป็น UTF-8).")
-                elif final_status_stmt.startswith("Failed_MainProcessing_"):
-                    st.error(f"การประมวลผลไฟล์ '{file_name_stmt}' ล้มเหลว: เกิดข้อผิดพลาดระหว่างประมวลผลหลัก '{processing_notes_stmt[-1] if processing_notes_stmt else 'Unknown Main Processing Error'}'.")
-                else: # Covers Failed_PartialSave, Failed_Extraction, Failed_Unknown
-                    st.error(f"การประมวลผลไฟล์ '{file_name_stmt}' (Batch ID '{import_batch_id_stmt}') ล้มเหลว หรือมีบางส่วนไม่สำเร็จ (สถานะ: {final_status_stmt}). โปรดตรวจสอบข้อความและ Log เพิ่มเติม.")
-                    st.rerun() # Rerun to reset the uploader state mainly
-    
-    st.markdown("---") # End of statement processing expander
+            except Exception as e_update_hist_final_stmt:
+                print(f"CRITICAL Warning: Could not update/append final status in {WORKSHEET_UPLOAD_HISTORY} for batch {import_batch_id_stmt}: {e_update_hist_final_stmt}")
+                st.warning(f"⚠️ ไม่สามารถอัปเดตสถานะสุดท้ายใน UploadHistory ได้: {e_update_hist_final_stmt}") # แจ้งผู้ใช้
+
+            # 2. Increment uploader key version (helps reset the file_uploader state on rerun)
+            st.session_state.uploader_key_version += 1
+            
+            # 3. Display messages to the user based on final_status_stmt
+            # ตรวจสอบว่า equity_updated_successfully ถูกตั้งค่าหรือไม่ (ควรถูกตั้งค่าในส่วน KEY UPDATE FOR BALANCE DISPLAY)
+            equity_was_updated_display = st.session_state.get('_equity_updated_in_current_run', False) # ใช้ temp session state ถ้าจำเป็น
+
+            if final_status_stmt == "Success":
+                st.success(f"ประมวลผลและบันทึกข้อมูลจากไฟล์ '{file_name_stmt}' (Batch ID '{import_batch_id_stmt}') เสร็จสิ้นสมบูรณ์!")
+                # equity_updated_successfully ควรถูกตั้งค่าในส่วน KEY UPDATE...
+                # เพื่อความแน่นอน อาจจะต้องตรวจสอบค่า latest_statement_equity อีกครั้ง หรือส่งผ่านตัวแปรเฉพาะ
+                # สมมติว่า equity_updated_successfully ถูก set ไว้อย่างถูกต้องก่อนหน้านี้
+                if equity_was_updated_display: # หรือตรวจสอบค่า st.session_state.latest_statement_equity โดยตรง
+                     st.info(f"✔️ Balance สำหรับคำนวณ ได้รับการอัปเดตจาก Statement Equity ล่าสุด: {st.session_state.latest_statement_equity:,.2f} USD")
+                st.balloons()
+            elif final_status_stmt == "Failed_UnicodeDecode":
+                st.error(f"การประมวลผลไฟล์ '{file_name_stmt}' ล้มเหลว: เกิดข้อผิดพลาดในการ Decode ไฟล์. กรุณาตรวจสอบ Encoding (ควรเป็น UTF-8). รายละเอียด: {processing_notes_stmt[-1] if processing_notes_stmt else 'Unknown Decode Error'}")
+            elif final_status_stmt.startswith("Failed_MainProcessing_"):
+                st.error(f"การประมวลผลไฟล์ '{file_name_stmt}' ล้มเหลว: เกิดข้อผิดพลาดระหว่างประมวลผลหลัก. รายละเอียด: {processing_notes_stmt[-1] if processing_notes_stmt else 'Unknown Main Processing Error'}")
+            elif final_status_stmt == "Failed_Extraction":
+                st.warning(f"การประมวลผลไฟล์ '{file_name_stmt}' ไม่สำเร็จ: ไม่สามารถแยกข้อมูลที่มีความหมายจากไฟล์ได้.")
+            elif final_status_stmt == "Failed_PartialSave":
+                 st.error(f"การประมวลผลไฟล์ '{file_name_stmt}' (Batch ID '{import_batch_id_stmt}') มีบางส่วนล้มเหลวในการบันทึก. โปรดตรวจสอบ Log.")
+            else: # Failed_Unknown หรืออื่นๆ
+                st.error(f"การประมวลผลไฟล์ '{file_name_stmt}' (Batch ID '{import_batch_id_stmt}') ล้มเหลว (สถานะ: {final_status_stmt}). โปรดตรวจสอบ Log เพิ่มเติม.")
+
+            # 4. Rerun the app to reflect all changes (including uploader reset and sidebar balance)
+            st.rerun()
+
+        # ปิดท้าย else ของ if initial_log_ok_stmt: (กรณี initial log ไม่สำเร็จ)
+        else: 
+            # หากการบันทึก log "Processing" เริ่มต้นไม่สำเร็จ ก็ควรจะ rerun เพื่อรีเซ็ต uploader
+            st.error("มีปัญหาในการเริ่มต้นบันทึกประวัติการอัปโหลดไฟล์ กรุณาลองอีกครั้ง")
+            st.session_state.uploader_key_version += 1 # ยังคงเพิ่ม key เพื่อพยายามรีเซ็ต
+            st.rerun()
+
+    # ปิดท้าย if uploaded_file_statement is not None:
+    # ไม่มีการทำงานเพิ่มเติมหลังบล็อกนี้ใน SEC 6 สำหรับการประมวลผลไฟล์
+
+    st.markdown("---") # เส้นคั่นท้าย SEC 6
     
 # ===================== SEC 7: MAIN AREA - TRADE LOG VIEWER =======================
 @st.cache_data(ttl=120) # Cache ผลลัพธ์ของฟังก์ชันนี้ (ซึ่งรวมการเรียงข้อมูลแล้ว) ไว้ 2 นาที
