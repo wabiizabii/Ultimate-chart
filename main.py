@@ -1186,40 +1186,6 @@ else:
     elif not entry_data_for_saving : 
         st.sidebar.info("กรอกข้อมูลให้ครบถ้วนและถูกต้อง หรือเลือกเงื่อนไข (เช่น Fibo Levels) เพื่อคำนวณ Summary")
 
-
-# --- Display Summary ---
-display_calculated_summary = False
-if st.session_state.get("mode") == "FIBO" and entry_data_for_saving and st.session_state.get("swing_high_fibo_val_v2", "") and st.session_state.get("swing_low_fibo_val_v2", ""):
-    display_calculated_summary = True
-elif st.session_state.get("mode") == "CUSTOM" and entry_data_for_saving and st.session_state.get("n_entry_custom_val_v2", 0) > 0:
-    display_calculated_summary = True
-
-if display_calculated_summary:
-    risk_pct_display = 0.0
-    if st.session_state.get("mode") == "FIBO": risk_pct_display = st.session_state.get('risk_pct_fibo_val_v2', 0.0)
-    elif st.session_state.get("mode") == "CUSTOM": risk_pct_display = st.session_state.get('risk_pct_custom_val_v2', 0.0)
-
-    st.sidebar.write(f"**Direction:** {summary_direction_display}")
-    st.sidebar.write(f"**Total Lots:** {summary_total_lots:.2f}")
-    st.sidebar.write(f"**Total Risk $ (Calculated):** {summary_total_risk_dollar:.2f} (จาก Balance: {current_active_balance_for_summary:,.2f}, Risk Input: {risk_pct_display:.2f}%)")
-    
-    tp_ref_text = "(to Global TP1)" if st.session_state.get("mode") == "FIBO" else "(to User TPs)"
-    st.sidebar.write(f"**Average RR {tp_ref_text}:** {summary_avg_rr:.2f}" if summary_avg_rr > 0 else f"**Average RR {tp_ref_text}:** N/A")
-    st.sidebar.write(f"**Total Expected Profit {tp_ref_text}:** {summary_total_profit_at_primary_tp:,.2f} USD")
-    
-    if st.session_state.get("mode") == "CUSTOM" and 'custom_tp_recommendation_messages_for_summary' in st.session_state:
-        st.sidebar.markdown("**คำแนะนำ TP (เพื่อให้ RR ≈ 3):**")
-        for msg in st.session_state.custom_tp_recommendation_messages_for_summary:
-            st.sidebar.caption(msg)
-else: # Fallback if not enough info for summary
-    mode_selected = st.session_state.get("mode")
-    if mode_selected == "FIBO" and (not st.session_state.get("swing_high_fibo_val_v2", "") or not st.session_state.get("swing_low_fibo_val_v2", "") or not any(st.session_state.get("fibo_flags_v2",[]))):
-        pass # Specific prompts already shown in input section or above
-    elif mode_selected == "CUSTOM" and not (st.session_state.get("n_entry_custom_val_v2", 0) > 0 and st.session_state.get("risk_pct_custom_val_v2", 0.0) > 0):
-        pass # Specific prompts already shown
-    elif not entry_data_for_saving : # Generic fallback if inputs seem okay but calculation didn't yield data
-        st.sidebar.info("กรอกข้อมูลให้ครบถ้วนและถูกต้อง หรือเลือกเงื่อนไข (เช่น Fibo Levels) เพื่อคำนวณ Summary")
-
 # ===================== SEC 2.4: SCALING MANAGER (Sidebar) =======================
 with st.sidebar.expander("⚖️ Scaling Manager Settings", expanded=False):
     # Default values for scaling parameters
@@ -1643,8 +1609,6 @@ with st.expander("📋 Entry Table (รายละเอียดแผนเ�
         except Exception as e_display_plan:
             st.error(f"เกิดข้อผิดพลาดในการแสดงตารางแผนเทรด: {e_display_plan}")
             print(f"Error displaying entry plan table: {e_display_plan}")
-  
-    st.components.v1.html(tradingview_html_content, height=620) # Adjust height as needed
 
     # ===================== SEC 5: MAIN AREA - AI ASSISTANT =======================
 # This section uses the active_balance_to_use (via current_active_balance_for_summary) for AI simulation.
