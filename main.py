@@ -2468,7 +2468,7 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
                         else:
                             # กรณีไม่พบ ImportBatchID เดิม (อาจเกิดจากปัญหาตอน initial log) ให้พยายาม append แถวใหม่สถานะสุดท้ายไปเลย
                             print(f"Warning: Could not find ImportBatchID '{import_batch_id_stmt}' in {WORKSHEET_UPLOAD_HISTORY} to update. Appending new final status row.")
-                                ws_upload_history.append_row([
+                            ws_upload_history.append_row([
                                 upload_timestamp_stmt, 
                                 str(active_portfolio_id_for_stmt_import), 
                                 str(active_portfolio_name_for_stmt_import),
