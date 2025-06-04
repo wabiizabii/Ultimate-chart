@@ -2485,26 +2485,32 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
                     st.error(f"CRITICAL Error: ไม่สามารถเข้าถึง Worksheet '{WORKSHEET_UPLOAD_HISTORY}' เพื่ออัปเดตสถานะสุดท้ายได้")
                 # --- END OF CORRECTLY INDENTED BLOCK ---
 
-            except Exception as e_update_hist_final_stmt:
+    except Exception as e_update_hist_final_stmt:
                 # บรรทัดนี้ (except) จะต้องอยู่ในระดับเดียวกับ try ด้านบน
                 print(f"CRITICAL Warning: Could not update/append final status in {WORKSHEET_UPLOAD_HISTORY} for batch {import_batch_id_stmt}: {e_update_hist_final_stmt}")
                 st.warning(f"⚠️ ไม่สามารถอัปเดตสถานะสุดท้ายใน UploadHistory ได้: {e_update_hist_final_stmt}")
+                # หากเกิด Exception ที่นี่ final_status_stmt อาจจะยังไม่ถูกตั้งค่าเป็นสถานะ error ที่เฉพาะเจาะจง
+                # ควรพิจารณาตั้งค่า final_status_stmt ที่นี่ด้วย หากต้องการให้สะท้อน error นี้
+                if 'final_status_stmt' not in locals() or final_status_stmt == "Success" or final_status_stmt == "Processing": # ป้องกันการเขียนทับ error ที่เฉพาะเจาะจงกว่า
+                    final_status_stmt = "Failed_UpdateHistory"
+                processing_notes_stmt.append(f"ErrorUpdatingUploadHistory: {e_update_hist_final_stmt}")
 
 
+            # โค้ดส่วนนี้จะทำงานหลังจาก try...except block สำหรับการอัปเดต UploadHistory เสร็จสิ้น
+            # และควรจะอยู่ในระดับเดียวกับ try...except (คือ ไม่ได้เยื้องเข้าไปใน except)
+            # แต่ยังคงอยู่ภายใน if initial_log_ok_stmt:
 
             # 2. Increment uploader key version (helps reset the file_uploader state on rerun)
             st.session_state.uploader_key_version += 1
             
             # 3. Display messages to the user based on final_status_stmt
-            # ตรวจสอบว่า equity_updated_successfully ถูกตั้งค่าหรือไม่ (ควรถูกตั้งค่าในส่วน KEY UPDATE FOR BALANCE DISPLAY)
-            equity_was_updated_display = st.session_state.get('_equity_updated_in_current_run', False) # ใช้ temp session state ถ้าจำเป็น
-
+            # (equity_was_updated_display ควรถูกตั้งค่าเป็น True หากการอัปเดต st.session_state.latest_statement_equity สำเร็จก่อนหน้านี้)
+            # เพื่อความง่าย เราสามารถตรวจสอบ st.session_state.latest_statement_equity โดยตรงได้
+            
             if final_status_stmt == "Success":
                 st.success(f"ประมวลผลและบันทึกข้อมูลจากไฟล์ '{file_name_stmt}' (Batch ID '{import_batch_id_stmt}') เสร็จสิ้นสมบูรณ์!")
-                # equity_updated_successfully ควรถูกตั้งค่าในส่วน KEY UPDATE...
-                # เพื่อความแน่นอน อาจจะต้องตรวจสอบค่า latest_statement_equity อีกครั้ง หรือส่งผ่านตัวแปรเฉพาะ
-                # สมมติว่า equity_updated_successfully ถูก set ไว้อย่างถูกต้องก่อนหน้านี้
-                if equity_was_updated_display: # หรือตรวจสอบค่า st.session_state.latest_statement_equity โดยตรง
+                # ตรวจสอบว่าค่า equity ใน session state ได้อัปเดตจริงหรือไม่ (ถ้ามีค่า)
+                if st.session_state.get('latest_statement_equity') is not None:
                      st.info(f"✔️ Balance สำหรับคำนวณ ได้รับการอัปเดตจาก Statement Equity ล่าสุด: {st.session_state.latest_statement_equity:,.2f} USD")
                 st.balloons()
             elif final_status_stmt == "Failed_UnicodeDecode":
@@ -2515,6 +2521,8 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
                 st.warning(f"การประมวลผลไฟล์ '{file_name_stmt}' ไม่สำเร็จ: ไม่สามารถแยกข้อมูลที่มีความหมายจากไฟล์ได้.")
             elif final_status_stmt == "Failed_PartialSave":
                  st.error(f"การประมวลผลไฟล์ '{file_name_stmt}' (Batch ID '{import_batch_id_stmt}') มีบางส่วนล้มเหลวในการบันทึก. โปรดตรวจสอบ Log.")
+            elif final_status_stmt == "Failed_UpdateHistory":
+                 st.error(f"การประมวลผลไฟล์ '{file_name_stmt}' (Batch ID '{import_batch_id_stmt}') สำเร็จบางส่วน แต่มีปัญหาในการอัปเดต UploadHistory. โปรดตรวจสอบ Log.")
             else: # Failed_Unknown หรืออื่นๆ
                 st.error(f"การประมวลผลไฟล์ '{file_name_stmt}' (Batch ID '{import_batch_id_stmt}') ล้มเหลว (สถานะ: {final_status_stmt}). โปรดตรวจสอบ Log เพิ่มเติม.")
 
@@ -2522,6 +2530,7 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
             st.rerun()
 
         # ปิดท้าย else ของ if initial_log_ok_stmt: (กรณี initial log ไม่สำเร็จ)
+        # บรรทัด else นี้ควรอยู่ในระดับเดียวกับ if initial_log_ok_stmt:
         else: 
             # หากการบันทึก log "Processing" เริ่มต้นไม่สำเร็จ ก็ควรจะ rerun เพื่อรีเซ็ต uploader
             st.error("มีปัญหาในการเริ่มต้นบันทึกประวัติการอัปโหลดไฟล์ กรุณาลองอีกครั้ง")
@@ -2529,9 +2538,9 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
             st.rerun()
 
     # ปิดท้าย if uploaded_file_statement is not None:
-    # ไม่มีการทำงานเพิ่มเติมหลังบล็อกนี้ใน SEC 6 สำหรับการประมวลผลไฟล์
+    # (โค้ดส่วนนี้จะอยู่ในระดับเดียวกับ if uploaded_file_statement is not None:)
 
-    st.markdown("---") # เส้นคั่นท้าย SEC 6
+    st.markdown("---") # เส้นคั่นท้าย SEC 6 (อยู่ในระดับเดียวกับ with st.expander... ของ SEC 6)
     
 # ===================== SEC 7: MAIN AREA - TRADE LOG VIEWER =======================
 @st.cache_data(ttl=120) # Cache ผลลัพธ์ของฟังก์ชันนี้ (ซึ่งรวมการเรียงข้อมูลแล้ว) ไว้ 2 นาที
