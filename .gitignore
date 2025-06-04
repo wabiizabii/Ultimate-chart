@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python/
+venv/
+env/
+pip-log.txt
+pip-delete-this-directory.txt
+.tox/
+.coverage
+.pytest_cache/
+htmlcov/
+.ipynb_checkpoints/
+
+# Streamlit
+.streamlit/ # โฟลเดอร์แคชของ Streamlit
+
+# IDEs
+.vscode/ # การตั้งค่า VS Code ส่วนตัว (ถ้าไม่อยากให้คนอื่นเห็นหรือติดตาม)
+.idea/   # สำหรับ PyCharm/IntelliJ
+
+# Operating System
+.DS_Store # Mac
+Thumbs.db # Windows
+
+# Data/Logs (สำคัญมากสำหรับคุณ)
+# ถ้าคุณเคยเก็บ trade_log.csv หรือไฟล์ Statement/DB อื่นๆ ใน local folder
+# และตอนนี้ย้ายไป Google Sheets แล้ว ควรกำหนดให้ Git ไม่ติดตาม
+*.csv
+*.xlsx
+*.db # สำหรับ SQLite DB ถ้าคุณไม่ได้เก็บไว้ใน Git
+
+# Other common temporary files
+*.tmp
+*.log
+*.bak
