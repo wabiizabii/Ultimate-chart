@@ -2001,19 +2001,32 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
     st.markdown("### 📊 จัดการ Statement และข้อมูลดิบ")
 
     # --- ฟังก์ชันสำหรับแยกข้อมูลจากเนื้อหาไฟล์ Statement (CSV) ---
-    # This function is based on the user's provided version from the original main.py
     def extract_data_from_report_content(file_content_str_input):
         extracted_data = {'deals': pd.DataFrame(), 'orders': pd.DataFrame(), 'positions': pd.DataFrame(), 'balance_summary': {}, 'results_summary': {}}
         
+        # ฟังก์ชันย่อย: แปลงค่าสตริงเป็น float อย่างปลอดภัย
         def safe_float_convert(value_str):
-            if isinstance(value_str, (int, float)): return value_str
+            if isinstance(value_str, (int, float)): 
+                return value_str
             try:
-                clean_value = str(value_str).replace(" ", "").replace(",", "").replace("%", "")
-                if clean_value.count('.') > 1: # Handle cases like "1.234.56" -> "1234.56"
-                    parts = clean_value.split('.'); integer_part = "".join(parts[:-1]); decimal_part = parts[-1]
+                # ลบเว้นวรรค (space) และเครื่องหมายคอมมา (comma) และเครื่องหมายเปอร์เซ็นต์ (%) ออกทั้งหมด
+                clean_value = str(value_str).strip().replace(" ", "").replace(",", "").replace("%", "")
+                
+                # ตรวจสอบว่ามีจุดทศนิยมมากกว่าหนึ่งจุดหรือไม่ (เช่น "1.234.56" ซึ่งควรจะเป็น "1234.56")
+                # หากมี จะนำส่วนหน้าจุดทศนิยมสุดท้ายมารวมกัน แล้วเติมจุดทศนิยมและส่วนทศนิยมสุดท้าย
+                if clean_value.count('.') > 1:
+                    parts = clean_value.split('.')
+                    integer_part = "".join(parts[:-1]) # นำส่วนจำนวนเต็มที่คั่นด้วยจุดมารวมกัน
+                    decimal_part = parts[-1]          # ส่วนทศนิยมสุดท้าย
                     clean_value = integer_part + "." + decimal_part
+                
+                # หากค่าเป็นสตริงว่างเปล่าหลังการทำความสะอาด ให้คืนค่า None
+                if not clean_value:
+                    return None
+                
                 return float(clean_value)
-            except (ValueError, TypeError, AttributeError): return None
+            except (ValueError, TypeError, AttributeError): 
+                return None
 
         lines = []
         if isinstance(file_content_str_input, str):
@@ -2065,11 +2078,16 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
                 current_table_data_lines = []
                 for line_num_for_data in range(data_start_line_num, data_end_line_num):
                     line_content_for_data = lines[line_num_for_data].strip()
+                    # ตรวจสอบว่าบรรทัดว่างเปล่าหรือเป็นส่วนสรุปท้าย
                     if not line_content_for_data:
-                        if any(current_table_data_lines): pass
-                        else: continue
+                        if any(current_table_data_lines): # ถ้ามีข้อมูลที่รวบรวมมาก่อนแล้ว ก็หยุดอ่าน
+                            break
+                        else: # ถ้าเป็นบรรทัดว่างเปล่าแต่ยังไม่มีข้อมูลอะไรเลย ก็ข้ามไป
+                            continue
+                    # ตรวจสอบว่าขึ้นส่วนสรุป Balance หรือ Results แล้วหรือไม่
                     if line_content_for_data.startswith(("Balance:", "Credit Facility:", "Floating P/L:", "Equity:", "Results", "Total Net Profit:")):
-                        break
+                        break # หยุดอ่านข้อมูลตารางเมื่อเจอส่วนสรุป
+                    # ตรวจสอบว่าเป็นหัวข้อของตารางอื่นที่อยู่ถัดไปหรือไม่
                     is_another_header_line = False
                     for other_sec_name, other_raw_hdr_template in section_raw_headers.items():
                         if other_sec_name != section_name and \
@@ -2077,21 +2095,28 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
                            other_raw_hdr_template in line_content_for_data:
                             is_another_header_line = True
                             break
-                    if is_another_header_line: break
+                    if is_another_header_line: 
+                        break # หยุดอ่านข้อมูลตารางเมื่อเจอหัวข้อของตารางอื่น
                     
                     if section_name == "Deals":
+                        # Logic เดิมสำหรับการกรอง Deals ที่ไม่ใช่รายการเทรดจริง
                         cols_in_line = [col.strip() for col in line_content_for_data.split(',')]
                         is_balance_type_row = False
-                        if len(cols_in_line) > 3 and "balance" in str(cols_in_line[3]).lower():
+                        # ตรวจสอบว่าคอลัมน์ Type_Deal (คอลัมน์ที่ 4) มีคำว่า "balance" หรือ "credit" หรือไม่
+                        if len(cols_in_line) > 3 and str(cols_in_line[3]).lower() in ['balance', 'credit', 'initial_deposit']:
                             is_balance_type_row = True
+                        
                         missing_essential_identifiers = False
-                        if len(cols_in_line) < 3: missing_essential_identifiers = True
-                        elif not cols_in_line[0] or not cols_in_line[1] or not cols_in_line[2]:
+                        # ตรวจสอบว่ามีข้อมูล Deal_ID หรือ Symbol_Deal ไม่ครบหรือไม่
+                        if len(cols_in_line) < 3: 
                             missing_essential_identifiers = True
+                        elif not cols_in_line[0] or not cols_in_line[1] or not cols_in_line[2]: # Time, Deal ID, Symbol
+                            missing_essential_identifiers = True
+
                         if is_balance_type_row or missing_essential_identifiers:
                             if st.session_state.get("debug_statement_processing_v2", False):
-                                print(f"DEBUG [extract_data]: SKIPPING Deals line: '{line_content_for_data}' (Balance: {is_balance_type_row}, MissingIDs: {missing_essential_identifiers})")
-                            continue
+                                print(f"DEBUG [extract_data]: SKIPPING Deals line: '{line_content_for_data}' (Balance/Credit: {is_balance_type_row}, MissingIDs: {missing_essential_identifiers})")
+                            continue # ข้ามบรรทัดที่ไม่ใช่การเทรดจริง หรือมีข้อมูลไม่ครบ
                     current_table_data_lines.append(line_content_for_data)
 
                 if current_table_data_lines:
@@ -2119,36 +2144,74 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
                         if st.session_state.get("debug_statement_processing_v2", False):
                             print(f"Error parsing table data for {section_name}: {e_gen_parse_df}")
         
+        # ส่วนนี้คือการดึง Balance Summary ที่ถูกปรับปรุงเพื่อให้ดึงค่า Equity และ Balance ได้อย่างแม่นยำ
         balance_summary_dict = {}
+        # ค้นหาจุดเริ่มต้นของส่วนสรุป Balance
         balance_start_line_idx = -1
         for i, line in enumerate(lines):
+            # ตรวจสอบบรรทัดที่เริ่มต้นด้วย "Balance:" หรือ "Name:" (เป็นจุดเริ่มต้นของ header ทั่วไป)
+            # หรือ "Deals" (หากส่วนสรุปอยู่ต่อจาก Deals ทันที)
             if line.strip().startswith("Balance:"):
                 balance_start_line_idx = i
                 break
+        
         if balance_start_line_idx != -1:
+            # อ่านไป 8 บรรทัด หรือจนกว่าจะหมดไฟล์/เจอส่วน Results
             for i in range(balance_start_line_idx, min(balance_start_line_idx + 8, len(lines))):
                 line_stripped = lines[i].strip()
-                if not line_stripped : continue
-                if line_stripped.startswith(("Results", "Total Net Profit:")) and i > balance_start_line_idx: break
-                parts = [p.strip() for p in line_stripped.split(',') if p.strip()]
-                temp_key = ""; val_expected_next = False
+                if not line_stripped : 
+                    continue # ข้ามบรรทัดว่างเปล่า
+                # ตรวจสอบว่าขึ้นส่วน Results แล้วหรือไม่ (แสดงว่าจบส่วน Balance Summary)
+                if line_stripped.startswith(("Results", "Total Net Profit:")) and i > balance_start_line_idx: 
+                    break 
+                
+                # แยกข้อมูลจากบรรทัด
+                # ตัวอย่างบรรทัด: "Balance:,,,4 708.36,,,Free Margin:,,,4 708.36,,,,"
+                # หรือ "Equity:,,,4 708.36,,,,,,,,,"
+                parts_raw = line_stripped.split(',')
+                # ทำความสะอาดและกรองส่วนที่เป็นค่าว่างเปล่าออก
+                parts = [p.strip() for p in parts_raw if p.strip()] 
+
+                temp_key = ""
                 for part_val in parts:
-                    if not part_val: continue
-                    if ':' in part_val:
+                    if not part_val: continue # ข้ามถ้าว่าง
+                    
+                    if ':' in part_val: # ถ้ามีเครื่องหมาย ":" แสดงว่าเป็น Key:Value
                         key_str, val_str = part_val.split(':', 1)
-                        key_clean = key_str.strip().replace(" ", "_").replace(".", "").replace("/","_").lower()
+                        key_clean = key_str.strip().replace(" ", "_").replace(".", "").replace("/","_").lower() # ทำความสะอาดชื่อ key
                         val_strip = val_str.strip()
-                        if val_strip:
+                        if val_strip: # ถ้ามีค่าอยู่แล้วในบรรทัดเดียวกัน
                             balance_summary_dict[key_clean] = safe_float_convert(val_strip.split(' ')[0])
-                            val_expected_next = False; temp_key = ""
-                        else:
-                            temp_key = key_clean; val_expected_next = True
-                    elif val_expected_next and temp_key:
+                            temp_key = "" # รีเซ็ต temp_key
+                        else: # ถ้าไม่มีค่าในบรรทัดเดียวกัน คาดว่าค่าจะอยู่ถัดไป
+                            temp_key = key_clean 
+                    elif temp_key: # ถ้ามี temp_key ค้างอยู่ (หมายถึง Key มาก่อน แต่ Value อยู่ในส่วนถัดไป)
+                        # คาดว่าค่าจะอยู่ส่วนแรกของ part_val นั้น
                         balance_summary_dict[temp_key] = safe_float_convert(part_val.split(' ')[0])
-                        temp_key = ""; val_expected_next = False
+                        temp_key = "" # รีเซ็ต temp_key
+                # หากบรรทัดเป็น "Equity:,,,4 708.36,,,," และไม่มี ":" แต่เราต้องการดึง Equity
+                # ต้องตรวจสอบเป็นกรณีพิเศษ หาก key 'equity' ยังไม่มีค่า
+                if 'equity' not in balance_summary_dict and line_stripped.lower().startswith("equity:"):
+                    raw_equity_value_parts = line_stripped.split(',') # แยกด้วยคอมมา
+                    # หาตำแหน่งของตัวเลข Equity ที่ควรอยู่ (มักจะอยู่ถัดจาก Equity: หรือหลังจากนั้น 2-3 คอมมา)
+                    for i_part, p_val in enumerate(raw_equity_value_parts):
+                        if safe_float_convert(p_val.strip()) is not None and i_part > 0: # หาค่าตัวเลขแรกที่เจอหลังจาก Equity:
+                            balance_summary_dict['equity'] = safe_float_convert(p_val.strip())
+                            break
+                # ตรวจสอบสำหรับ 'balance' ด้วย
+                if 'balance' not in balance_summary_dict and line_stripped.lower().startswith("balance:"):
+                    raw_balance_value_parts = line_stripped.split(',')
+                    for i_part, p_val in enumerate(raw_balance_value_parts):
+                        if safe_float_convert(p_val.strip()) is not None and i_part > 0:
+                            balance_summary_dict['balance'] = safe_float_convert(p_val.strip())
+                            break
+
+        # ตรวจสอบให้แน่ใจว่า key ที่จำเป็นมีค่าเป็น None หากไม่พบ
         essential_balance_keys = ["balance", "credit_facility", "floating_p_l", "equity", "free_margin", "margin", "margin_level"]
         for k_b in essential_balance_keys:
-            if k_b not in balance_summary_dict: balance_summary_dict[k_b] = None
+            if k_b not in balance_summary_dict: 
+                balance_summary_dict[k_b] = None # กำหนดให้เป็น None หากไม่พบ
+
         extracted_data['balance_summary'] = balance_summary_dict
         
         results_summary_dict = {}
@@ -2207,7 +2270,7 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
             elif results_start_line_idx != -1 and results_section_processed_lines >= max_lines_for_results: break
         extracted_data['results_summary'] = results_summary_dict
         return extracted_data
-    # --- END: ฟังก์ชัน extract_data_from_report_content ---
+    # --- END: วางทับ (Overwrite) ฟังก์ชัน extract_data_from_report_content นี้ทั้งฟังก์ชัน ---
 
     # --- START: ฟังก์ชันสำหรับบันทึกข้อมูลพร้อม Deduplication และ Header Handling ---
     def save_transactional_data_to_gsheets(ws, df_input, unique_id_col, expected_headers_with_portfolio, data_type_name, portfolio_id, portfolio_name, source_file_name="N/A", import_batch_id="N/A"):
@@ -2568,7 +2631,6 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
                         final_processing_notes.append("Failed to extract meaningful data.")
                         processing_had_errors = True # Treat as error if no data to process
                     
-                    # +++ START: วางทับโค้ดส่วนนี้ (เพิ่มการอัปเดต Equity จาก Statement) +++
                     if not processing_had_errors:
                         st.subheader("💾 กำลังบันทึกข้อมูลส่วนต่างๆไปยัง Google Sheets...")
                         
@@ -2629,8 +2691,7 @@ with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=
                         else:
                             final_status_for_history = "Failed_PartialSave"
                             st.error(f"การประมวลผลไฟล์ '{file_name_for_saving}' (Batch ID '{import_batch_id}') มีบางส่วนล้มเหลว โปรดตรวจสอบข้อความด้านบนและ Log")
-                    # +++ END: วางทับโค้ดส่วนนี้ +++
-
+                
                 except UnicodeDecodeError as e_decode_main:
                     st.error(f"เกิดข้อผิดพลาดในการ Decode ไฟล์: {e_decode_main}. กรุณาตรวจสอบ Encoding (ควรเป็น UTF-8).")
                     final_status_for_history = "Failed_UnicodeDecode"
