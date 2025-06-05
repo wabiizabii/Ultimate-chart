@@ -1978,7 +1978,7 @@ def save_results_summary_to_gsheets_sec6(ws, balance_summary_data, results_summa
     except Exception as e_save_summary: print(f"Error saving results summary to GSheet: {e_save_summary}"); return False, f"Exception during save: {e_save_summary}"
 # --- END: Helper Functions for SEC 6 ---
 
-st.markdown("---") #
+#
 st.subheader("📤 อัปโหลด Statement Report (CSV) เพื่อประมวลผลและบันทึก") #
 
 if 'uploader_key_version' not in st.session_state: # Should be in SEC 0, but defensive check
