@@ -2198,7 +2198,7 @@ def save_results_summary_to_gsheets_sec6(ws, balance_summary_data, results_summa
 # --- END: Helper Functions for SEC 6 ---
 
 #st.markdown("---") #
-st.subheader("📤 อัปโหลด Statement Report (CSV) เพื่อประมวลผลและบันทึก") #
+#st.subheader("📤 อัปโหลด Statement Report (CSV) เพื่อประมวลผลและบันทึก") #
 
 if 'uploader_key_version' not in st.session_state: # Should be in SEC 0, but defensive check
     st.session_state.uploader_key_version = 0 #
