@@ -2488,6 +2488,65 @@ with st.expander("📂 Ultimate Chart Dashboard Import & Processing", expanded=F
 
     st.markdown("---") # เส้นคั่นนี้ คือเส้นที่อยู่ด้านล่างสุดของ expander เพื่อปิดส่วนนี้
 
+
+# ===================== SEC ??: MAIN AREA - CHART VISUALIZER =======================
+with st.expander("📈 Chart Visualizer", expanded=True):
+    asset_to_display = "OANDA:XAUUSD"
+    current_asset_input = ""
+    if mode == "FIBO":
+        current_asset_input = st.session_state.get("asset", "XAUUSD")
+    elif mode == "CUSTOM":
+        current_asset_input = st.session_state.get("asset_custom", "XAUUSD")
+    
+    if current_asset_input.upper() == "XAUUSD":
+        asset_to_display = "OANDA:XAUUSD"
+    elif current_asset_input.upper() == "EURUSD":
+        asset_to_display = "OANDA:EURUSD"
+    elif current_asset_input:
+        asset_to_display = current_asset_input.upper()
+
+    if 'plot_data' in st.session_state and st.session_state['plot_data']:
+        asset_from_log = st.session_state['plot_data'].get('Asset', asset_to_display)
+        if asset_from_log.upper() == "XAUUSD":
+            asset_to_display = "OANDA:XAUUSD"
+        elif asset_from_log.upper() == "EURUSD":
+            asset_to_display = "OANDA:EURUSD"
+        elif asset_from_log:
+            asset_to_display = asset_from_log.upper()
+        st.info(f"แสดงกราฟ TradingView สำหรับ: {asset_to_display} (จาก Log Viewer)")
+    else:
+        st.info(f"แสดงกราฟ TradingView สำหรับ: {asset_to_display} (จาก Input ปัจจุบัน)")
+
+    tradingview_html = f"""
+    <div class="tradingview-widget-container">
+      <div id="tradingview_legendary"></div>
+      <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
+      <script type="text/javascript">
+      new TradingView.widget({{
+        "width": "100%",
+        "height": 600,
+        "symbol": "{asset_to_display}",
+        "interval": "15",
+        "timezone": "Asia/Bangkok",
+        "theme": "dark",
+        "style": "1",
+        "locale": "th",
+        "toolbar_bg": "#f1f3f6",
+        "enable_publishing": false,
+        "withdateranges": true,
+        "allow_symbol_change": true,
+        "hide_side_toolbar": false,
+        "details": true,
+        "hotlist": true,
+        "calendar": true,
+        "container_id": "tradingview_legendary"
+      }});
+      </script>
+    </div>
+    """
+    st.components.v1.html(tradingview_html, height=620)
+
+    
 # ===================== SEC 7: MAIN AREA - TRADE LOG VIEWER =======================
 @st.cache_data(ttl=120) # Cache ผลลัพธ์ของฟังก์ชันนี้ (ซึ่งรวมการเรียงข้อมูลแล้ว) ไว้ 2 นาที
 def load_planned_trades_from_gsheets_for_viewer():
