@@ -576,6 +576,227 @@ elif not df_portfolios_gs.empty and selected_portfolio_name_gs == "": # Correcte
 elif df_portfolios_gs.empty:
     st.sidebar.warning("ไม่พบข้อมูล Portfolio ใน Google Sheets หรือเกิดข้อผิดพลาดในการโหลด.") #
 
+# ===================== SEC 1.5: PORTFOLIO MANAGEMENT UI (Main Area) =======================
+def on_program_type_change_v8(): # This callback seems to be defined but its key might have changed or it might need adjustment based on usage
+    st.session_state.exp_pf_type_select_v8_key = st.session_state.exp_pf_type_selector_widget_v8
+
+with st.expander("💼 จัดการพอร์ต (เพิ่ม/ดูพอร์ต)", expanded=False): # Setting expanded=True for easier testing
+    st.subheader("พอร์ตทั้งหมดของคุณ")
+    # df_portfolios_gs should be loaded globally/module level before this UI section
+    # Ensure df_portfolios_gs is available. It is loaded at the beginning of SEC 1.
+    if df_portfolios_gs.empty: # Check if df_portfolios_gs is empty (loaded in SEC 1)
+        st.info("ยังไม่มีข้อมูลพอร์ต หรือยังไม่ได้โหลดข้อมูลพอร์ต โปรดเพิ่มพอร์ตใหม่ด้านล่าง หรือตรวจสอบการเชื่อมต่อ Google Sheets")
+    else:
+        cols_to_display_pf_table = ['PortfolioID', 'PortfolioName', 'ProgramType', 'EvaluationStep', 'Status', 'InitialBalance']
+        # Filter out columns that might not exist in the DataFrame to prevent KeyErrors
+        cols_exist_pf_table = [col for col in cols_to_display_pf_table if col in df_portfolios_gs.columns]
+        if cols_exist_pf_table:
+            st.dataframe(df_portfolios_gs[cols_exist_pf_table], use_container_width=True, hide_index=True)
+        else:
+            st.info("ไม่พบคอลัมน์ที่ต้องการแสดงในตารางพอร์ต (ตรวจสอบ df_portfolios_gs และการโหลดข้อมูล)")
+
+    st.markdown("---")
+    st.subheader("➕ เพิ่มพอร์ตใหม่")
+
+    # --- Selectbox for Program Type (OUTSIDE THE FORM for immediate UI update) ---
+    program_type_options_outside = ["", "Personal Account", "Prop Firm Challenge", "Funded Account", "Trading Competition"]
+    
+    if 'exp_pf_type_select_v8_key' not in st.session_state: 
+        st.session_state.exp_pf_type_select_v8_key = ""
+
+    # Callback function for the program type selectbox
+    # def on_program_type_change_v8(): # Defined globally above the expander now
+    #    st.session_state.exp_pf_type_select_v8_key = st.session_state.exp_pf_type_selector_widget_v8
+
+    # The selectbox that controls the conditional UI
+    st.selectbox(
+        "ประเภทพอร์ต (Program Type)*", 
+        options=program_type_options_outside, 
+        index=program_type_options_outside.index(st.session_state.exp_pf_type_select_v8_key), 
+        key="exp_pf_type_selector_widget_v8", 
+        on_change=on_program_type_change_v8 
+    )
+    
+    selected_program_type_to_use_in_form = st.session_state.exp_pf_type_select_v8_key
+
+    # DEBUG line, can be commented out or removed in production
+    # st.write(f"**[DEBUG - นอก FORM, หลัง Selectbox] `selected_program_type_to_use_in_form` คือ:** `{selected_program_type_to_use_in_form}`")
+
+    with st.form("new_portfolio_form_main_v8_final", clear_on_submit=True): 
+        st.markdown(f"**กรอกข้อมูลพอร์ต (สำหรับประเภท: {selected_program_type_to_use_in_form if selected_program_type_to_use_in_form else 'ยังไม่ได้เลือก'})**")
+        
+        form_c1_in_form, form_c2_in_form = st.columns(2)
+        with form_c1_in_form:
+            form_new_portfolio_name_in_form = st.text_input("ชื่อพอร์ต (Portfolio Name)*", key="form_pf_name_v8")
+        with form_c2_in_form:
+            form_new_initial_balance_in_form = st.number_input("บาลานซ์เริ่มต้น (Initial Balance)*", min_value=0.01, value=10000.0, format="%.2f", key="form_pf_balance_v8")
+        
+        form_status_options_in_form = ["Active", "Inactive", "Pending", "Passed", "Failed"]
+        form_new_status_in_form = st.selectbox("สถานะพอร์ต (Status)*", options=form_status_options_in_form, index=0, key="form_pf_status_v8")
+        
+        form_new_evaluation_step_val_in_form = "" # Initialize
+        if selected_program_type_to_use_in_form == "Prop Firm Challenge":
+            # DEBUG line
+            # st.write(f"**[DEBUG - ใน FORM, ใน IF Evaluation Step] ประเภทคือ:** `{selected_program_type_to_use_in_form}`")
+            evaluation_step_options_in_form = ["", "Phase 1", "Phase 2", "Phase 3", "Verification"]
+            form_new_evaluation_step_val_in_form = st.selectbox("ขั้นตอนการประเมิน (Evaluation Step)", 
+                                                                options=evaluation_step_options_in_form, index=0, 
+                                                                key="form_pf_eval_step_select_v8")
+
+        # --- Conditional Inputs Defaults ---
+        form_profit_target_val = 8.0; form_daily_loss_val = 5.0; form_total_stopout_val = 10.0; form_leverage_val = 100.0; form_min_days_val = 0
+        form_comp_end_date = None; form_comp_goal_metric = ""
+        form_profit_target_val_comp = 20.0 # Default for competition profit target
+        form_daily_loss_val_comp = 5.0    # Default for competition daily loss
+        form_total_stopout_val_comp = 10.0 # Default for competition total stopout
+
+        form_pers_overall_profit_val = 0.0; form_pers_target_end_date = None; form_pers_weekly_profit_val = 0.0; form_pers_daily_profit_val = 0.0
+        form_pers_max_dd_overall_val = 0.0; form_pers_max_dd_daily_val = 0.0
+        form_enable_scaling_checkbox_val = False; form_scaling_freq_val = "Weekly"; form_su_wr_val = 55.0; form_su_gain_val = 2.0; form_su_inc_val = 0.25
+        form_sd_loss_val = -5.0; form_sd_wr_val = 40.0; form_sd_dec_val = 0.25; form_min_risk_val = 0.25; form_max_risk_val = 2.0; form_current_risk_val = 1.0
+        form_notes_val = ""
+
+        if selected_program_type_to_use_in_form in ["Prop Firm Challenge", "Funded Account"]:
+            st.markdown("**กฎเกณฑ์ Prop Firm/Funded:**")
+            f_pf1, f_pf2, f_pf3 = st.columns(3)
+            with f_pf1: form_profit_target_val = st.number_input("เป้าหมายกำไร %*", value=form_profit_target_val, format="%.1f", key="f_pf_profit_v8")
+            with f_pf2: form_daily_loss_val = st.number_input("จำกัดขาดทุนต่อวัน %*", value=form_daily_loss_val, format="%.1f", key="f_pf_dd_v8")
+            with f_pf3: form_total_stopout_val = st.number_input("จำกัดขาดทุนรวม %*", value=form_total_stopout_val, format="%.1f", key="f_pf_maxdd_v8")
+            f_pf_col1, f_pf_col2 = st.columns(2)
+            with f_pf_col1: form_leverage_val = st.number_input("Leverage", value=form_leverage_val, format="%.0f", key="f_pf_lev_v8")
+            with f_pf_col2: form_min_days_val = st.number_input("จำนวนวันเทรดขั้นต่ำ", value=form_min_days_val, step=1, key="f_pf_mindays_v8")
+        
+        if selected_program_type_to_use_in_form == "Trading Competition":
+            st.markdown("**ข้อมูลการแข่งขัน:**")
+            f_tc1, f_tc2 = st.columns(2)
+            with f_tc1: 
+                form_comp_end_date = st.date_input("วันสิ้นสุดการแข่งขัน", value=form_comp_end_date, key="f_tc_enddate_v8")
+                form_profit_target_val_comp = st.number_input("เป้าหมายกำไร % (Comp)", value=form_profit_target_val_comp, format="%.1f", key="f_tc_profit_v8") 
+            with f_tc2: 
+                form_comp_goal_metric = st.text_input("ตัวชี้วัดเป้าหมาย (Comp)", value=form_comp_goal_metric, help="เช่น %Gain, ROI", key="f_tc_goalmetric_v8")
+                form_daily_loss_val_comp = st.number_input("จำกัดขาดทุนต่อวัน % (Comp)", value=form_daily_loss_val_comp, format="%.1f", key="f_tc_dd_v8")
+                form_total_stopout_val_comp = st.number_input("จำกัดขาดทุนรวม % (Comp)", value=form_total_stopout_val_comp, format="%.1f", key="f_tc_maxdd_v8")
+
+        if selected_program_type_to_use_in_form == "Personal Account":
+            st.markdown("**เป้าหมายส่วนตัว (Optional):**")
+            f_ps1, f_ps2 = st.columns(2)
+            with f_ps1:
+                form_pers_overall_profit_val = st.number_input("เป้าหมายกำไรโดยรวม ($)", value=form_pers_overall_profit_val, format="%.2f", key="f_ps_profit_overall_v8")
+                form_pers_weekly_profit_val = st.number_input("เป้าหมายกำไรรายสัปดาห์ ($)", value=form_pers_weekly_profit_val, format="%.2f", key="f_ps_profit_weekly_v8")
+                form_pers_max_dd_overall_val = st.number_input("Max DD รวมที่ยอมรับได้ ($)", value=form_pers_max_dd_overall_val, format="%.2f", key="f_ps_dd_overall_v8")
+            with f_ps2:
+                form_pers_target_end_date = st.date_input("วันที่คาดว่าจะถึงเป้าหมายรวม", value=form_pers_target_end_date, key="f_ps_enddate_v8")
+                form_pers_daily_profit_val = st.number_input("เป้าหมายกำไรรายวัน ($)", value=form_pers_daily_profit_val, format="%.2f", key="f_ps_profit_daily_v8")
+                form_pers_max_dd_daily_val = st.number_input("Max DD ต่อวันที่ยอมรับได้ ($)", value=form_pers_max_dd_daily_val, format="%.2f", key="f_ps_dd_daily_v8")
+
+        st.markdown("**การตั้งค่า Scaling Manager (Optional):**")
+        form_enable_scaling_checkbox_val = st.checkbox("เปิดใช้งาน Scaling Manager?", value=form_enable_scaling_checkbox_val, key="f_scale_enable_v8")
+        if form_enable_scaling_checkbox_val:
+            f_sc1, f_sc2, f_sc3 = st.columns(3)
+            with f_sc1:
+                form_scaling_freq_val = st.selectbox("ความถี่ตรวจสอบ Scaling", ["Weekly", "Monthly"], index=["Weekly", "Monthly"].index(form_scaling_freq_val), key="f_scale_freq_v8")
+                form_su_wr_val = st.number_input("Scale Up: Min Winrate %", value=form_su_wr_val, format="%.1f", key="f_scale_su_wr_v8")
+                form_sd_loss_val = st.number_input("Scale Down: Max Loss %", value=form_sd_loss_val, format="%.1f", key="f_scale_sd_loss_v8") # Usually a negative value
+            with f_sc2:
+                form_min_risk_val = st.number_input("Min Risk % Allowed", value=form_min_risk_val, format="%.2f", key="f_scale_min_risk_v8")
+                form_su_gain_val = st.number_input("Scale Up: Min Gain %", value=form_su_gain_val, format="%.1f", key="f_scale_su_gain_v8")
+                form_sd_wr_val = st.number_input("Scale Down: Low Winrate %", value=form_sd_wr_val, format="%.1f", key="f_scale_sd_wr_v8")
+            with f_sc3:
+                form_max_risk_val = st.number_input("Max Risk % Allowed", value=form_max_risk_val, format="%.2f", key="f_scale_max_risk_v8")
+                form_su_inc_val = st.number_input("Scale Up: Risk Increment %", value=form_su_inc_val, format="%.2f", key="f_scale_su_inc_v8")
+                form_sd_dec_val = st.number_input("Scale Down: Risk Decrement %", value=form_sd_dec_val, format="%.2f", key="f_scale_sd_dec_v8")
+            form_current_risk_val = st.number_input("Current Risk % (สำหรับ Scaling)", value=form_current_risk_val, format="%.2f", key="f_scale_current_risk_v8")
+
+        form_notes_val = st.text_area("หมายเหตุเพิ่มเติม (Notes)", value=form_notes_val, key="f_pf_notes_v8")
+
+        submitted_add_portfolio_in_form = st.form_submit_button("💾 บันทึกพอร์ตใหม่")
+        
+        if submitted_add_portfolio_in_form:
+            # Validation
+            if not form_new_portfolio_name_in_form or not selected_program_type_to_use_in_form or not form_new_status_in_form or form_new_initial_balance_in_form <= 0:
+                st.warning("กรุณากรอกข้อมูลที่จำเป็น (*) ให้ครบถ้วนและถูกต้อง: ชื่อพอร์ต, ประเภทพอร์ต, สถานะพอร์ต, และยอดเงินเริ่มต้นต้องมากกว่า 0")
+            elif not df_portfolios_gs.empty and form_new_portfolio_name_in_form in df_portfolios_gs['PortfolioName'].astype(str).values: # Check against loaded portfolios
+                st.error(f"ชื่อพอร์ต '{form_new_portfolio_name_in_form}' มีอยู่แล้ว กรุณาใช้ชื่ออื่น")
+            else:
+                new_id_value = str(uuid.uuid4())
+                
+                data_to_save = {
+                    'PortfolioID': new_id_value,
+                    'PortfolioName': form_new_portfolio_name_in_form, 
+                    'ProgramType': selected_program_type_to_use_in_form,
+                    'EvaluationStep': form_new_evaluation_step_val_in_form if selected_program_type_to_use_in_form == "Prop Firm Challenge" else "", 
+                    'Status': form_new_status_in_form,
+                    'InitialBalance': form_new_initial_balance_in_form, 
+                    'CreationDate': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    'Notes': form_notes_val
+                }
+
+                if selected_program_type_to_use_in_form in ["Prop Firm Challenge", "Funded Account"]:
+                    data_to_save.update({
+                        'ProfitTargetPercent': form_profit_target_val,
+                        'DailyLossLimitPercent': form_daily_loss_val,
+                        'TotalStopoutPercent': form_total_stopout_val,
+                        'Leverage': form_leverage_val,
+                        'MinTradingDays': form_min_days_val
+                    })
+                
+                if selected_program_type_to_use_in_form == "Trading Competition":
+                    data_to_save.update({
+                        'CompetitionEndDate': form_comp_end_date.strftime("%Y-%m-%d") if form_comp_end_date else None,
+                        'CompetitionGoalMetric': form_comp_goal_metric,
+                        'ProfitTargetPercent': form_profit_target_val_comp, 
+                        'DailyLossLimitPercent': form_daily_loss_val_comp,
+                        'TotalStopoutPercent': form_total_stopout_val_comp
+                    })
+
+                if selected_program_type_to_use_in_form == "Personal Account":
+                    data_to_save.update({
+                        'OverallProfitTarget': form_pers_overall_profit_val,
+                        'TargetEndDate': form_pers_target_end_date.strftime("%Y-%m-%d") if form_pers_target_end_date else None,
+                        'WeeklyProfitTarget': form_pers_weekly_profit_val,
+                        'DailyProfitTarget': form_pers_daily_profit_val,
+                        'MaxAcceptableDrawdownOverall': form_pers_max_dd_overall_val,
+                        'MaxAcceptableDrawdownDaily': form_pers_max_dd_daily_val
+                    })
+
+                if form_enable_scaling_checkbox_val:
+                    data_to_save.update({
+                        'EnableScaling': True,
+                        'ScalingCheckFrequency': form_scaling_freq_val,
+                        'ScaleUp_MinWinRate': form_su_wr_val,
+                        'ScaleUp_MinGainPercent': form_su_gain_val,
+                        'ScaleUp_RiskIncrementPercent': form_su_inc_val,
+                        'ScaleDown_MaxLossPercent': form_sd_loss_val,
+                        'ScaleDown_LowWinRate': form_sd_wr_val,
+                        'ScaleDown_RiskDecrementPercent': form_sd_dec_val,
+                        'MinRiskPercentAllowed': form_min_risk_val,
+                        'MaxRiskPercentAllowed': form_max_risk_val,
+                        'CurrentRiskPercent': form_current_risk_val
+                    })
+                else:
+                    data_to_save['EnableScaling'] = False
+                    # Set other scaling fields to None or default empty if scaling is disabled
+                    # This ensures that if a user disables scaling later, old values are not mistakenly kept active
+                    # However, the provided GSheet headers expect values or blanks.
+                    # For boolean, False is fine. For others, blank or a defined "not set" value.
+                    # The save_new_portfolio_to_gsheets handles .get(header, "") which results in blanks.
+                    data_to_save['CurrentRiskPercent'] = form_current_risk_val # Still save current risk if entered, even if scaling disabled
+
+                success_save = save_new_portfolio_to_gsheets(data_to_save) 
+                
+                if success_save:
+                    st.success(f"เพิ่มพอร์ต '{form_new_portfolio_name_in_form}' (ID: {new_id_value}) สำเร็จ!")
+                    st.session_state.exp_pf_type_select_v8_key = "" # Reset selectboxนอกฟอร์ม
+                    if hasattr(load_portfolios_from_gsheets, 'clear'): # Clear cache for portfolio list
+                         load_portfolios_from_gsheets.clear()
+                    st.rerun()
+                else:
+                    st.error("เกิดข้อผิดพลาดในการบันทึกพอร์ตใหม่ไปยัง Google Sheets")
+
+# ==============================================================================
+# END: ส่วนจัดการ Portfolio (SEC 1.5)
+# ==============================================================================
+
 # ===================== SEC 2: COMMON INPUTS, BALANCE DISPLAY & MODE SELECTION (Sidebar) =======================
 # --- Determine active_balance_to_use and initial_risk_pct_from_portfolio ---
 # This logic prioritizes:
@@ -1727,6 +1948,8 @@ with st.expander("🤖 AI Assistant (วิเคราะห์ข้อมู�
                 else: st.info(msg_ai_a)
 
 # ===================== SEC 6: MAIN AREA - STATEMENT IMPORT & PROCESSING =======================
+with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=False):
+    st.markdown("### 📊 จัดการ Statement และข้อมูลดิบ")
 # Helper functions (extract_data_from_report_content_sec6, save_transactional_data_to_gsheets_sec6, 
 # save_deals_to_actual_trades_sec6, save_orders_to_gsheets_sec6, save_positions_to_gsheets_sec6,
 # save_results_summary_to_gsheets_sec6) are assumed to be defined above or globally as in your original mainV2.0.0.py.
@@ -1974,7 +2197,7 @@ def save_results_summary_to_gsheets_sec6(ws, balance_summary_data, results_summa
     except Exception as e_save_summary: print(f"Error saving results summary to GSheet: {e_save_summary}"); return False, f"Exception during save: {e_save_summary}"
 # --- END: Helper Functions for SEC 6 ---
 
-st.markdown("---") #
+#st.markdown("---") #
 st.subheader("📤 อัปโหลด Statement Report (CSV) เพื่อประมวลผลและบันทึก") #
 
 if 'uploader_key_version' not in st.session_state: # Should be in SEC 0, but defensive check
