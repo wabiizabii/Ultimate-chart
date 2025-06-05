@@ -1727,12 +1727,15 @@ with st.expander("🤖 AI Assistant (วิเคราะห์ข้อมู�
                 else: st.info(msg_ai_a)
 
 # ===================== SEC 6: MAIN AREA - STATEMENT IMPORT & PROCESSING =======================
+
 # Helper functions (extract_data_from_report_content_sec6, save_transactional_data_to_gsheets_sec6, 
 # save_deals_to_actual_trades_sec6, save_orders_to_gsheets_sec6, save_positions_to_gsheets_sec6,
 # save_results_summary_to_gsheets_sec6) are assumed to be defined above or globally as in your original mainV2.0.0.py.
 # Ensure they are correctly defined and accessible.
 
 # --- START: Placeholder for Helper Functions for SEC 6 (Copy from your mainV2.0.0.py) ---
+with st.expander("📂  Ultimate Chart Dashboard Import & Processing", expanded=False):
+    st.markdown("### 📊 จัดการ Statement และข้อมูลดิบ")
 def extract_data_from_report_content_sec6(file_content_str_input):
     # ... (Full implementation from your mainV2.0.0.py) ...
     extracted_data = {'deals': pd.DataFrame(), 'orders': pd.DataFrame(), 'positions': pd.DataFrame(), 'balance_summary': {}, 'results_summary': {}}
